@@ -1,0 +1,85 @@
+/* All positions are relative to each illustration, so the DOM artwork scales. */
+.team-art, .path-art, .workflow-art { position: relative; width: 100%; color: #171713; }
+.team-art { aspect-ratio: 570 / 310; }
+.path-art, .workflow-art { aspect-ratio: 400 / 255; }
+.outline-bar { display: block; border: 1px solid currentColor; border-radius: 999px; }
+.team-rail, .team-node, .team-start-node, .team-panel, .team-task-panel,
+.goal-node, .goal-rail, .goal-check, .workflow-panel { position: absolute; border: 1px solid currentColor; }
+.team-rail { left: 1.4%; top: 5.16%; width: 12.1%; height: 77.42%; border-radius: 999px; }
+.team-node { left: 30.08%; width: 12.1%; aspect-ratio: 1; border-radius: 50%; }
+.team-node-top { top: 5%; }
+.team-node-bottom { top: 60.5%; }
+.team-panel { left: 58.42%; top: 5.16%; width: 40.88%; height: 77.42%; border-radius: 15%; }
+.team-panel-toolbar { position: absolute; inset: 9% 10% auto; display: flex; justify-content: space-between; }
+.team-panel-toolbar .outline-bar { width: 54%; height: .8cqw; }
+.team-panel-toolbar .short-bar { width: 12%; }
+.avatars { position: absolute; top: 22%; left: 9%; display: flex; gap: .15cqw; filter: grayscale(1); }
+.avatar { position: relative; width: 2.85cqw; aspect-ratio: 1; border-radius: 50%; overflow: hidden; }
+.avatar-yellow { background: #f5f323; --skin: #c69772; --hair: #292019; }
+.avatar-green { background: #c4ef49; --skin: #e1b99d; --hair: #292623; }
+.avatar-blue { background: #2e4cf4; --skin: #ad8060; --hair: #171c1e; }
+.avatar-body { position: absolute; bottom: -20%; left: 12%; width: 76%; height: 58%; border-radius: 50% 50% 0 0; background: #ece8de; }
+.avatar-hair { position: absolute; left: 25%; top: 10%; width: 51%; height: 69%; background: var(--hair); border-radius: 45% 45% 30% 30%; }
+.avatar-face { position: absolute; left: 31%; top: 28%; width: 39%; height: 44%; border-radius: 30% 30% 45% 45%; background: var(--skin); }
+.avatar-eyes { position: absolute; top: 36%; left: 18%; width: 12%; height: 7%; border-radius: 50%; background: #292019; box-shadow: .65cqw 0 #292019; }
+.avatar-smile { position: absolute; bottom: 20%; left: 35%; width: 35%; height: 13%; border-bottom: 1px solid #503124; border-radius: 50%; }
+.avatar-green .avatar-eyes { border: 1px solid #292019; background: none; width: 33%; height: 24%; top: 27%; left: 6%; border-radius: 25%; box-shadow: .65cqw 0 0 -1px var(--skin), .65cqw 0 #292019; }
+.avatar-blue .avatar-face { border-bottom: .45cqw solid var(--hair); }
+.team-task-panel { left: 9%; right: 9%; top: 49.6%; height: 41%; border-radius: 1cqw; }
+.team-task-toolbar { position: absolute; inset: 11% 6% auto; display: flex; justify-content: space-between; }
+.team-task-toolbar .outline-bar { width: 41%; height: .5cqw; }
+.team-task-toolbar .short-bar { width: 8%; }
+.task-line-one { position: absolute; left: 6%; top: 30%; width: 31%; height: 16%; border-radius: .45cqw; }
+.task-line-two { position: absolute; left: 21%; top: 52%; width: 51%; height: 15%; border-radius: .4cqw; }
+.team-ribbon { position: absolute; inset: 0; width: 100%; height: 100%; filter: drop-shadow(0 0 .35cqw #ff6b3590) drop-shadow(0 0 1.3cqw #ff6b3560) drop-shadow(0 .4cqw 2.1cqw #ff9a4535); }
+.team-start-node { left: 1.4%; top: 60.48%; width: 12.1%; aspect-ratio: 1; border-radius: 50%; background: #f6f1ed; display: grid; place-items: center; }
+.asterisk { font-family: Arial, sans-serif; font-weight: 200; font-size: 3cqw; line-height: 1; }
+.goal-node { width: 17.25%; aspect-ratio: 1; border-radius: 50%; }
+.goal-node-one { left: 0; top: 4.9%; }
+.goal-node-two { left: 40.875%; top: 4.9%; }
+.goal-node-three { left: 0; top: 72.35%; }
+.goal-node-four { left: 40.875%; top: 72.35%; }
+.goal-rail { left: 81.75%; top: 4.7%; width: 17.25%; height: 94.5%; border-radius: 999px; }
+.goal-check { left: -1px; top: -1px; width: calc(100% + 2px); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; }
+.goal-check span { width: 34%; height: 24%; border-bottom: 1px solid; border-left: 1px solid; transform: translateY(-20%) rotate(-45deg); }
+.goal-curve { position: absolute; inset: 0; width: 100%; height: 100%; filter: drop-shadow(0 0 .35cqw #ff6b3590) drop-shadow(0 0 1.3cqw #ff6b3560) drop-shadow(0 .4cqw 2.1cqw #ff9a4535); }
+.goal-gradient-line { position: absolute; left: 0; top: 78.8%; width: 99%; height: 14.1%; background: linear-gradient(100deg, #ffd2a6 0%, #ff3c0a 50%, #8c210b 100%); border-radius: 0 0 2cqw 2cqw; box-shadow: 0 0 .5cqw #ff6b3580, 0 0 1.5cqw #ff6b3555, 0 .4cqw 2.2cqw #ff9a4530; }
+.workflow-panel { left: .5%; top: 4.7%; width: 98.75%; height: 94.5%; border-radius: 2.5cqw; }
+.workflow-toolbar { position: absolute; left: 5.8%; right: 5.8%; top: 9.5%; display: flex; gap: 3%; }
+.workflow-toolbar .outline-bar { width: 30%; height: .8cqw; }
+.workflow-toolbar .outline-bar:nth-child(2) { width: 16%; }
+.workflow-toolbar .outline-bar:last-child { width: 8%; margin-left: auto; }
+.workflow-task { position: absolute; height: 18%; border-radius: .9cqw; display: flex; align-items: center; gap: 8%; padding: 0 4%; }
+.workflow-task-yellow { left: 5.6%; top: 23.2%; width: 38.2%; background: #fff; }
+.workflow-task-green { left: 24.3%; top: 48.1%; width: 59.2%; background: linear-gradient(100deg, #ffd2a6 0%, #ff3c0a 50%, #8c210b 100%); box-shadow: 0 0 .5cqw #ff6b3580, 0 0 1.5cqw #ff6b3555, 0 .4cqw 2.2cqw #ff9a4530; }
+.workflow-task-blue { left: 38.5%; top: 72.6%; width: 55.7%; color: #171713; background: #fff; }
+.task-bars { display: flex; gap: .5cqw; flex: 1; }
+.task-bars .outline-bar { width: 63%; height: .5cqw; }
+.task-bars .outline-bar + .outline-bar { width: 39%; }
+.task-status { width: 12%; height: .5cqw; margin-left: auto; }
+.task-icon { position: relative; flex-shrink: 0; width: 1.3cqw; height: 1.4cqw; border: 1px solid; }
+.task-icon-code { display: grid; place-items: center; font-size: .85cqw; }
+.task-icon-code::before, .task-icon-search::before { content: ''; position: absolute; inset: -.25cqw .2cqw .2cqw -.25cqw; border-top: 1px solid; border-left: 1px solid; }
+.document-lines { position: absolute; inset: 25% 20%; background: repeating-linear-gradient(to bottom, currentColor 0 1px, transparent 1px 4px); }
+.search-lens { position: absolute; width: .65cqw; height: .65cqw; border: 1px solid; border-radius: 50%; right: -.25cqw; bottom: -.1cqw; background: #fff; }
+.search-lens::after { content: ''; width: .4cqw; height: 1px; position: absolute; right: -.3cqw; bottom: -.15cqw; background: currentColor; transform: rotate(45deg); }
+.task-icon-flow { border: 0; }
+.flow-square { position: absolute; width: 60%; height: 48%; border: 1px solid; }
+.flow-square:last-child { bottom: 0; right: 0; }
+.workflow-connector { position: absolute; height: 25%; border: 1px solid; }
+.workflow-connector::before, .workflow-connector::after { content: ''; position: absolute; width: .45cqw; height: .45cqw; border: 1px solid; background: #f6f1ed; border-radius: 50%; }
+.connector-right { left: 47.8%; right: 5.5%; top: 32.4%; border-left: 0; border-radius: 0 1.4cqw 1.4cqw 0; }
+.connector-right::before { left: -.2cqw; top: -.25cqw; }
+.connector-right::after { right: 1.6cqw; bottom: -.25cqw; }
+.connector-left { left: 5.5%; width: 29%; top: 57.3%; border-right: 0; border-radius: 1.4cqw 0 0 1.4cqw; }
+.connector-left::before { right: 1.6cqw; top: -.25cqw; }
+.connector-left::after { right: -.2cqw; bottom: -.25cqw; }
+@media (max-width: 700px) {
+  .avatar { width: 5.8cqw; }
+  .avatar-eyes { box-shadow: 1.3cqw 0 #292019; }
+  .avatar-green .avatar-eyes { box-shadow: 1.3cqw 0 0 -1px var(--skin), 1.3cqw 0 #292019; }
+  .avatar-blue .avatar-face { border-bottom-width: .9cqw; }
+  .asterisk { font-size: 6cqw; }
+  .team-panel-toolbar .outline-bar { height: 1.6cqw; }
+  .team-task-toolbar .outline-bar { height: 1cqw; }
+}

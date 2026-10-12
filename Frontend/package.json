@@ -13,7 +13,8 @@
     "agora-rtc-sdk-ng": "^4.24.8",
     "agora-rtm-sdk": "^2.3.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
