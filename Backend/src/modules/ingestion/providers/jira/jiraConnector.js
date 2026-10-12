@@ -140,7 +140,10 @@ export class JiraConnector {
       });
 
       const issues = Array.isArray(response?.issues) ? response.issues : [];
-      total = typeof response?.total === 'number' ? response.total : issues.length;
+      const isLast = response?.isLast === true;
+      total = typeof response?.total === 'number'
+        ? response.total
+        : (isLast ? startAt + issues.length : (issues.length < perPage ? startAt + issues.length : Infinity));
 
       for (const issue of issues) {
         const context = {

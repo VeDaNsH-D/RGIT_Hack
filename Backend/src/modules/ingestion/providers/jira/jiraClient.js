@@ -289,7 +289,14 @@ export class JiraClient {
     };
     if (expand) query.expand = expand;
 
-    return this._request('/search', { method: 'GET', query });
+    try {
+      return await this._request('/search/jql', { method: 'GET', query });
+    } catch (err) {
+      if (err.statusCode === 404 || err.statusCode === 410 || err.statusCode === 405) {
+        return await this._request('/search', { method: 'GET', query });
+      }
+      throw err;
+    }
   }
 
   /**
