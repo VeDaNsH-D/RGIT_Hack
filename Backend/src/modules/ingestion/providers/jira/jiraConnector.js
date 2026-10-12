@@ -23,10 +23,12 @@ export class JiraConnector extends BaseConnector {
    * @param {string} [config.baseUrl] Alias for host
    * @param {string} [config.email] Atlassian account email
    * @param {string} [config.apiToken] Atlassian API token or PAT
+   * @param {string} [config.siteUrl] Canonical Jira web site URL (e.g., https://myorg.atlassian.net)
    * @param {typeof fetch} [config.fetchFn] Injected fetch implementation
    */
-  constructor({ client, host, baseUrl, cloudId, email, apiToken, accessToken, fetchFn, ...clientOptions } = {}) {
+  constructor({ client, host, baseUrl, cloudId, email, apiToken, accessToken, siteUrl, fetchFn, ...clientOptions } = {}) {
     super();
+    this.siteUrl = siteUrl || '';
     if (!client) {
       let resolvedHost = host || baseUrl;
       if (!resolvedHost && cloudId) {
@@ -207,13 +209,14 @@ export class JiraConnector extends BaseConnector {
         }
 
         let startAt = 0;
+        let pageToken = undefined;
         let pagesFetched = 0;
         let total = Infinity;
 
         while (startAt < total) {
           if (!fetchAll && pagesFetched >= maxPages) {
             hasMore = startAt < total;
-            nextOffset = startAt;
+            nextOffset = pageToken || startAt;
             break;
           }
 
@@ -221,6 +224,7 @@ export class JiraConnector extends BaseConnector {
           try {
             response = await this.client.searchIssues(finalJql, {
               startAt,
+              nextPageToken: pageToken,
               maxResults: perPage,
             });
           } catch (pageErr) {
@@ -233,11 +237,10 @@ export class JiraConnector extends BaseConnector {
           total = typeof response?.total === 'number'
             ? response.total
             : (isLast ? startAt + issues.length : (issues.length < perPage ? startAt + issues.length : Infinity));
-
           for (const issue of issues) {
             const context = {
               projectId,
-              baseUrl: this.client.host,
+              baseUrl: this.siteUrl || this.client.host,
               fetchedAt: new Date(),
             };
 
@@ -251,13 +254,34 @@ export class JiraConnector extends BaseConnector {
           pagesFetched += 1;
           startAt += issues.length;
 
-          if (issues.length === 0 || startAt >= total || isLast) {
+          if (issues.length === 0 || response?.isLast === true) {
             hasMore = false;
             nextOffset = null;
             break;
           }
-          nextOffset = startAt;
-          hasMore = startAt < total;
+
+          if (response?.nextPageToken) {
+            pageToken = response.nextPageToken;
+            hasMore = true;
+            nextOffset = pageToken;
+          } else if (typeof response?.total === 'number') {
+            total = response.total;
+            if (startAt >= total) {
+              hasMore = false;
+              nextOffset = null;
+              break;
+            }
+            hasMore = true;
+            nextOffset = startAt;
+          } else {
+            hasMore = false;
+            nextOffset = null;
+            break;
+          }
+
+          if (!fetchAll && pagesFetched >= maxPages) {
+            break;
+          }
         }
       }
     } catch (fatalErr) {
@@ -296,7 +320,7 @@ export class JiraConnector extends BaseConnector {
     const rawIssue = await this.client.getIssue(issueIdOrKey.trim());
     const context = {
       projectId,
-      baseUrl: this.client.host,
+      baseUrl: this.siteUrl || this.client.host,
       fetchedAt: new Date(),
     };
 
@@ -351,6 +375,7 @@ export class JiraConnector extends BaseConnector {
 
     const allRecords = [];
     let startAt = 0;
+    let pageToken = undefined;
     let pagesFetched = 0;
     let total = Infinity;
 
@@ -361,6 +386,7 @@ export class JiraConnector extends BaseConnector {
 
       const response = await this.client.searchIssues(finalJql, {
         startAt,
+        nextPageToken: pageToken,
         maxResults: perPage,
       });
 
@@ -373,7 +399,7 @@ export class JiraConnector extends BaseConnector {
       for (const issue of issues) {
         const context = {
           projectId,
-          baseUrl: this.client.host,
+          baseUrl: this.siteUrl || this.client.host,
           fetchedAt: new Date(),
         };
 
@@ -387,8 +413,13 @@ export class JiraConnector extends BaseConnector {
       pagesFetched += 1;
       startAt += issues.length;
 
-      // Prevent infinite loop if no items returned
-      if (issues.length === 0) {
+      if (issues.length === 0 || isLast) {
+        break;
+      }
+
+      if (response?.nextPageToken) {
+        pageToken = response.nextPageToken;
+      } else if (startAt >= total) {
         break;
       }
     }

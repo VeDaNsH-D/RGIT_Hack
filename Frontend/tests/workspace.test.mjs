@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { createServer } from 'vite'
 
-let treeLayout, WorkTreeCanvas, McpAuthorizePage, NotificationBell, notificationLinks, InvitationPage, oauth, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout, DeveloperHandoffView, analysisHelpers, ReportBody, AiProjectContextView, workflow, AiDraftPanel, RepositoryActivityView, ConnectedRepositoriesView, GitHubRepositoryPicker, ProjectDocumentsView, documentHelpers, documentsApi, ConnectedJiraProjectsView, isJiraKey
+let treeLayout, WorkTreeCanvas, McpAuthorizePage, NotificationBell, notificationLinks, InvitationPage, oauth, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout, DeveloperHandoffView, analysisHelpers, ReportBody, AiProjectContextView, workflow, AiDraftPanel, RepositoryActivityView, ConnectedRepositoriesView, GitHubRepositoryPicker, ProjectDocumentsView, documentHelpers, documentsApi, ConnectedJiraProjectsView, isJiraKey, ConnectedNotionPagesView
 const storage = new Map()
 const originalWindow = globalThis.window
 const originalStorage = globalThis.sessionStorage
@@ -54,6 +54,7 @@ before(async () => {
   ;({ AiDraftPanel } = await server.ssrLoadModule('/src/workspace/AiDraftPanel.jsx'))
   ;({ GitHubRepositoryPicker } = await server.ssrLoadModule('/src/workspace/ProjectIntegrations.jsx'))
   ;({ default: WorkspaceLayout } = await server.ssrLoadModule('/src/workspace/WorkspaceLayout.jsx'))
+  ;({ ConnectedNotionPagesView } = await server.ssrLoadModule('/src/workspace/ConnectedNotionPages.jsx'))
 })
 after(async () => {
   await server?.close()
@@ -534,7 +535,6 @@ test('Notion offers browser authorization when OAuth is configured', () => {
   assert.match(html, /Use an integration token instead/)
 })
 
-
 test('project chat renders cited evidence as text and exposes accessible question controls', async () => {
   const { ProjectChatView } = await server.ssrLoadModule('/src/workspace/ProjectChat.jsx')
   const html = renderToString(React.createElement(ProjectChatView, { question: '', onQuestion() {}, turns: [{ id: 'c1', question: 'Retry policy?', answer: 'Retry three times [S1].', citations: [{ id: 'S1', title: 'Team decision', provider: 'slack', text: '<script>unsafe()</script>', url: 'https://example.test/source' }] }] }))
@@ -625,4 +625,32 @@ test('reports created before the engineering layout still render with the earlie
   const legacy = { projectName: 'Old', generatedAt: '2026-01-02T10:00:00Z', limitations: [], repositories: [], sections: [{ key: 'architecture', title: 'Repository architecture', items: [{ text: 'Old style claim', kind: 'fact', evidence: [] }] }] }
   const html = renderToString(React.createElement(ReportBody, { report: legacy }))
   assert.match(html, /Repository architecture/); assert.match(html, /Old style claim/); assert.doesNotMatch(html, /Verification status/)
+})
+
+const notionView = props => renderToString(React.createElement(MemoryRouter, null, React.createElement(ConnectedNotionPagesView, { state: 'ready', links: [], canManage: true, canSync: true, notionConnected: true, inputVal: '', onInputChange() {}, onLink() {}, onSync() {}, onAskRemove() {}, onCancel() {}, onRemove() {}, ...props })))
+
+test('notion pages: empty state with link form, or connect prompt when not connected', () => {
+  assert.match(notionView(), /No Notion pages or databases linked yet/); assert.match(notionView(), /Link Notion page/)
+  const disconnected = notionView({ notionConnected: false })
+  assert.match(disconnected, /Connect Notion/); assert.doesNotMatch(disconnected, /Link Notion page/)
+  assert.doesNotMatch(notionView({ canManage: false }), /Link Notion page/)
+})
+
+test('notion pages: linked rows show status, remaining tasks, sync now and unlink controls', () => {
+  const ok = {
+    id: 'n1',
+    title: 'Product Roadmap',
+    url: 'https://notion.so/roadmap',
+    sync: {
+      status: 'completed',
+      lastSuccessAt: '2026-10-10T10:00:00Z',
+      remainingCount: 3,
+      completedCount: 2,
+      remainingItems: ['Design auth flow', 'Database migration', 'Write documentation'],
+      completedItems: ['Initial setup', 'Setup Vite'],
+    },
+  }
+  const html = notionView({ links: [ok] })
+  assert.match(html, /Product Roadmap/); assert.match(html, />Synced</); assert.match(html, /3.*remaining/); assert.match(html, /View remaining \(3\)/); assert.match(html, /Sync now/); assert.match(html, />Unlink</)
+  assert.match(notionView({ links: [ok], confirmingId: 'n1' }), /Unlink this Notion resource\?/)
 })

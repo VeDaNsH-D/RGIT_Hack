@@ -8,6 +8,7 @@ export const connectWhatsApp = phone => request('/connections/whatsapp', { metho
 export const disconnectWhatsApp = () => request('/connections/whatsapp', { method: 'DELETE' })
 
 export const getJiraStatus = signal => request('/connections/jira', { signal })
+export const getJiraProjects = signal => request('/connections/jira/projects', { signal })
 export const startJiraInstall = () => request('/connections/jira/install', { method: 'POST' })
 export const connectJira = data => request('/connections/jira', { method: 'POST', body: data })
 export const disconnectJira = () => request('/connections/jira', { method: 'DELETE' })
@@ -31,8 +32,15 @@ export const unlinkJiraProject = (projectId, connectionId) =>
   request(`/projects/${encodeURIComponent(projectId)}/integrations/jira/${encodeURIComponent(connectionId)}`, { method: 'DELETE' })
 export const syncJiraProject = (projectId, connectionId) =>
   request(`/projects/${encodeURIComponent(projectId)}/integrations/jira/${encodeURIComponent(connectionId)}/sync`, { method: 'POST', signal: AbortSignal.timeout(120000) })
+export const getProjectJiraIssues = (projectId, signal) =>
+  request(`/projects/${encodeURIComponent(projectId)}/source-records?provider=jira&limit=50`, { signal })
 
 export const getNotionStatus = signal => request('/connections/notion', { signal })
+export const getNotionPages = signal => request('/connections/notion/pages', { signal })
+export const getProjectNotion = (projectId, signal) => request(`/projects/${encodeURIComponent(projectId)}/notion`, { signal })
+export const linkProjectNotion = (projectId, pageId) => request(`/projects/${encodeURIComponent(projectId)}/notion`, { method: 'POST', body: { pageId }, signal: AbortSignal.timeout(90000) })
+export const syncProjectNotion = (projectId, connectionId) => request(`/projects/${encodeURIComponent(projectId)}/notion/${encodeURIComponent(connectionId)}/sync`, { method: 'POST', signal: AbortSignal.timeout(90000) })
+export const unlinkProjectNotion = (projectId, connectionId) => request(`/projects/${encodeURIComponent(projectId)}/notion/${encodeURIComponent(connectionId)}`, { method: 'DELETE' })
 export const connectNotion = data => request('/connections/notion', { method: 'POST', body: data })
 export const disconnectNotion = () => request('/connections/notion', { method: 'DELETE' })
 export const syncNotion = () => request('/connections/notion/sync', { method: 'POST' })

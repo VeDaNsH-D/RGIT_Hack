@@ -100,6 +100,7 @@ router.get('/:id/integrations', requireAuth, attachProject(), requireRole('viewe
     const stats = await repositoryStats(req.project._id, rows.map((r) => r.config?.repositoryId).filter(Number.isSafeInteger));
     const slackRows = await SourceConnection.find({ projectId: req.project._id, provider: 'slack' }).sort({ createdAt: 1 }).lean();
     const jiraRows = await SourceConnection.find({ projectId: req.project._id, provider: 'jira' }).sort({ createdAt: 1 }).lean();
+    const notionRows = await SourceConnection.find({ projectId: req.project._id, provider: 'notion' }).sort({ createdAt: 1 }).lean();
     res.json({
       integrations: {
         github: rows.map((r) => serializeConnection(r, stats.get(r.config?.repositoryId))),
@@ -111,6 +112,22 @@ router.get('/:id/integrations', requireAuth, attachProject(), requireRole('viewe
           teamDomain: r.config?.teamDomain,
           teamName: r.config?.teamName,
           sync: r.config?.sync || { status: 'pending' },
+          createdAt: r.createdAt,
+        })),
+        notion: notionRows.map((r) => ({
+          id: String(r._id),
+          pageId: r.config?.pageId,
+          title: r.config?.title || 'Notion page',
+          url: r.config?.url,
+          sync: r.config?.sync || {
+            status: r.config?.syncedAt ? 'completed' : 'pending',
+            lastSuccessAt: r.config?.syncedAt,
+            remainingCount: r.config?.sync?.remainingCount ?? 0,
+            completedCount: r.config?.sync?.completedCount ?? 0,
+            totalCount: r.config?.sync?.totalCount ?? 0,
+            remainingItems: r.config?.sync?.remainingItems || [],
+            completedItems: r.config?.sync?.completedItems || [],
+          },
           createdAt: r.createdAt,
         })),
       },
