@@ -54,8 +54,9 @@ export function generateRtcToken({
   }
 
   const { appId, appCertificate } = config.agora;
+  const ttl = Math.max(60, expireSeconds);
   const currentTimestamp = Math.floor(Date.now() / 1000);
-  const privilegeExpireTime = currentTimestamp + Math.max(60, expireSeconds);
+  const privilegeExpireTime = currentTimestamp + ttl;
   const rtcRole = role === 'subscriber' ? RtcRole.SUBSCRIBER : RtcRole.PUBLISHER;
 
   let token;
@@ -69,7 +70,8 @@ export function generateRtcToken({
       channelName.trim(),
       numericUid,
       rtcRole,
-      privilegeExpireTime
+      ttl,
+      ttl
     );
   } else {
     const userAccount = String(uid || 'user_guest');
@@ -79,7 +81,8 @@ export function generateRtcToken({
       channelName.trim(),
       userAccount,
       rtcRole,
-      privilegeExpireTime
+      ttl,
+      ttl
     );
   }
 
@@ -111,15 +114,28 @@ export function generateRtmToken({
   }
 
   const { appId, appCertificate } = config.agora;
+  const ttl = Math.max(60, expireSeconds);
   const currentTimestamp = Math.floor(Date.now() / 1000);
-  const privilegeExpireTime = currentTimestamp + Math.max(60, expireSeconds);
+  const privilegeExpireTime = currentTimestamp + ttl;
 
-  const token = RtmTokenBuilder.buildToken(
-    appId,
-    appCertificate,
-    userId.trim(),
-    privilegeExpireTime
-  );
+  let token;
+  if (typeof RtmTokenBuilder.buildTokenWithPermissions === 'function') {
+    // Generate Agora RTM 2.x AccessToken2
+    token = RtmTokenBuilder.buildTokenWithPermissions(
+      appId,
+      appCertificate,
+      userId.trim(),
+      undefined,
+      ttl
+    );
+  } else {
+    token = RtmTokenBuilder.buildToken(
+      appId,
+      appCertificate,
+      userId.trim(),
+      privilegeExpireTime
+    );
+  }
 
   return {
     token,
@@ -128,3 +144,4 @@ export function generateRtmToken({
     expiresAt: privilegeExpireTime,
   };
 }
+

@@ -23,6 +23,11 @@ class Settings:
         return key if key else None
 
     @property
+    def new_groq_api_key(self) -> Optional[str]:
+        key = os.getenv("NEW_GROQ_API_KEY", "").strip()
+        return key if key else None
+
+    @property
     def groq_model(self) -> str:
         return os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
 

@@ -1,3 +1,4 @@
+import { ProjectChatTurn } from '../models/ProjectChatTurn.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { createProjectSchema, updateProjectSchema, addMemberSchema, sourceRecordQuerySchema } from '../contracts/schemas.js';
@@ -445,7 +446,7 @@ router.delete('/:id', requireAuth, attachProject(), requireRole('owner'), async 
     const projectId = req.project._id;
     const documents = await Document.find({ projectId }).select('storageRef').lean();
     await Promise.all([
-      Task.deleteMany({ projectId }), Handoff.deleteMany({ projectId }), Conflict.deleteMany({ projectId }),
+      ProjectChatTurn.deleteMany({ projectId }), Task.deleteMany({ projectId }), Handoff.deleteMany({ projectId }), Conflict.deleteMany({ projectId }),
       ConflictEvidence.deleteMany({ projectId }), SourceRecord.deleteMany({ projectId }), SourceConnection.deleteMany({ projectId }),
       Document.deleteMany({ projectId }), DocumentChunk.deleteMany({ projectId }), EmailReview.deleteMany({ projectId }), Notification.deleteMany({ projectId }),
       RepositorySnapshot.deleteMany({ projectId }), RepositoryFile.deleteMany({ projectId }), HandoffReport.deleteMany({ projectId }),

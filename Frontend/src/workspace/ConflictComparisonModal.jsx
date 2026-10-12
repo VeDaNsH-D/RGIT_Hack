@@ -67,7 +67,7 @@ export default function ConflictComparisonModal({ conflict, onClose, onUpdated, 
       <button className="ws-modal-close" aria-label="Close" onClick={onClose}>×</button>
       <span className="ws-eyebrow">AI CONFLICT COMPARISON</span>
       <h2 id="conflict-modal-title" style={{ marginTop: '4px', marginBottom: '8px' }}>{conflict.title}</h2>
-      
+
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '14px' }}>
         <span className={`ws-badge ws-badge-${conflict.severity || 'medium'}`}>{conflict.severity || 'Medium'} Severity</span>
         <Badge value={conflict.status} />

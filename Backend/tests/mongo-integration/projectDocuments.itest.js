@@ -101,10 +101,13 @@ describe('project documents', () => {
       const issue = pack.sources.find((s) => s.record_type === 'issue');
       return J({
         case_id: pack.case_id, summary: 'Relay is an Express API; CORS on the users route is open.',
-        sections: [
-          { key: 'documented_requirements', claims: doc ? [{ text: 'The requirements document states the users API must accept preflight requests.', kind: 'fact', source_ids: [doc.id] }] : [] },
-          { key: 'blockers_risks', claims: [{ text: 'Conflict: the requirement for preflight support is not met per issue #8.', kind: 'inference', source_ids: [doc?.id, issue.id, code.id].filter(Boolean) }, { text: 'Invented citation claim.', kind: 'fact', source_ids: [`doc:${new mongoose.Types.ObjectId()}:0`] }] },
-        ],
+        current_state: [{ text: 'The users route is defined in src/routes/users.js and serves GET /api/users.', kind: 'fact', source_ids: [code.id] }],
+        documented_vs_implemented: doc ? [
+          { requirement: 'The users API must accept preflight requests from the web client', status: 'conflicts', detail: 'issue 8 reports that the /api/users preflight fails and src/routes/users.js sets no CORS headers', source_ids: [doc.id, issue.id, code.id] },
+          { requirement: 'Invented document requirement', status: 'matches', detail: 'x', source_ids: [`doc:${new mongoose.Types.ObjectId()}:0`] },
+        ] : [],
+        blockers: [{ text: 'The users preflight fails (issue #8) although the requirements document requires it to work.', kind: 'fact', source_ids: [doc?.id, issue.id].filter(Boolean) }],
+        recommendations: [{ action: 'Return CORS headers from the users route in src/routes/users.js', why: 'The requirements document and issue 8 both require preflight support, and it currently fails.', priority: 'P1', basis: 'confirmed', done_when: 'OPTIONS /api/users succeeds and issue 8 is closed', files: ['src/routes/users.js'], source_ids: [doc?.id, issue.id].filter(Boolean) }],
       });
     };
   });
@@ -336,28 +339,26 @@ describe('project documents', () => {
       assert.deepEqual(sent.documents, [], 'no separate document-only channel; documents are sources');
     });
 
-    it('report: document claims carry validated, typed, secure citations; invented document ids are dropped', async () => {
+    it('report: documented-vs-implemented comparisons carry validated, typed, secure document citations; invented document ids are dropped', async () => {
       await upload(bob);
       await analyze();
       const r = (await generate()).body.report;
       const by = Object.fromEntries(r.sections.map((s) => [s.key, s]));
-      const claim = by.documented_requirements.items[0];
-      assert.equal(claim.kind, 'fact');
-      const ev = claim.evidence[0];
-      assert.equal(ev.type, 'document');
+      const conflict = by.documented_vs_implemented.items[0];
+      assert.equal(conflict.type, 'comparison'); assert.equal(conflict.status, 'conflicts');
+      assert.deepEqual([...new Set(conflict.evidence.map((e) => e.type))].sort(), ['document', 'issue', 'repository_file'], 'document, tracker and code evidence side by side');
+      const ev = conflict.evidence.find((e) => e.type === 'document');
       assert.equal(ev.url, null, 'document sources are never public URLs');
-      assert.equal(ev.document.filename, 'requirements.txt');
-      assert.equal(ev.document.heading, 'CORS handling');
-      assert.match(ev.document.chunkId, /^[a-f0-9]{24}:\d+$/);
-      assert.ok(ev.label.includes('CORS handling'));
-      // mixed GitHub + document evidence in one claim; types distinguish them
-      const mixed = by.blockers_risks.items.find((i) => /Conflict/.test(i.text));
-      assert.deepEqual([...new Set(mixed.evidence.map((e) => e.type))].sort(), ['document', 'issue', 'repository_file']);
-      assert.ok(!by.blockers_risks.items.some((i) => /Invented/.test(i.text)));
-      assert.ok(r.limitations.some((l) => /cited unknown sources/.test(l)));
-      assert.match(by.documents.items[0].text, /requirements\.txt/);
-      assert.equal(r.basedOn.documents, 1);
-      assert.ok(r.sections.findIndex((s) => s.key === 'documented_requirements') < r.sections.findIndex((s) => s.key === 'important_files'));
+      assert.equal(ev.document.filename, 'requirements.txt'); assert.equal(ev.document.heading, 'CORS handling');
+      assert.match(ev.document.chunkId, /^[a-f0-9]{24}:\d+$/); assert.ok(ev.label.includes('CORS handling'));
+      assert.ok(!JSON.stringify(r).includes('Invented document requirement'));
+      assert.ok(r.limitations.some((l) => /invalid source reference/.test(l)));
+      // page one points at the conflict; it is explained once, in the documentation section, and documented intent is never presented as verified implementation
+      assert.match(r.brief.findings.text, /documentation conflict/);
+      assert.equal(by.documented_vs_implemented.group, 'Known Risks, Unknowns, and Verification Status');
+      assert.equal(r.verification.requirements.status, 'documents_provided'); assert.match(r.verification.requirements.detail, /requirements/);
+      assert.equal(r.verification.completion.status, 'not_established');
+      assert.ok(r.sourceIndex.some((x) => x.type === 'document' && x.document.documentId));
     });
 
     it('prompt injection in a document stays inside a document-provider source and cannot break the data boundary', async () => {
@@ -368,27 +369,28 @@ describe('project documents', () => {
       assert.doesNotMatch(sent.case_description, /IGNORE ALL/);
     });
 
-    it('documents alone (no GitHub activity) are enough context for the draft pipeline guard, and failed documents are reported as a limitation', async () => {
+    it('a failed document is excluded, reported as a limitation, and the requirements are then unavailable', async () => {
       const doc = (await upload(bob)).body.document;
       await Document.updateOne({ _id: doc.id }, { $set: { status: 'failed' } });
       await analyze();
       const r = (await generate()).body.report;
       assert.ok(r.limitations.some((l) => /not indexed/.test(l)));
       assert.equal(sent.sources.filter((s) => s.provider === 'document').length, 0);
-      assert.equal(r.sections.some((s) => s.key === 'documented_requirements'), false);
-      assert.ok(r.sections.find((s) => s.key === 'documents').items[0].text.includes('not included'));
+      assert.equal(r.sections.some((s) => s.key === 'documented_vs_implemented'), false);
+      assert.equal(r.verification.requirements.status, 'none_provided');
     });
 
     it('deleted or replaced content never reaches a new handoff, and its old chunk id is rejected if the model cites it', async () => {
       const doc = (await upload(bob)).body.document;
       await analyze();
       const first = await generate();
-      const oldId = first.body.report.sections.find((s) => s.key === 'documented_requirements').items[0].evidence[0].id;
+      const oldId = first.body.report.sourceIndex.find((x) => x.type === 'document').id;
       await call('DELETE', `${P()}/documents/${doc.id}`, bob);
-      ai = (pack) => J({ case_id: pack.case_id, summary: 'Summary.', sections: [{ key: 'documented_requirements', claims: [{ text: 'Deleted requirement.', kind: 'fact', source_ids: [oldId] }] }] });
+      ai = (pack) => J({ case_id: pack.case_id, summary: 'Summary.', documented_vs_implemented: [{ requirement: 'Deleted requirement', status: 'unverified', detail: 'x', source_ids: [oldId] }], blockers: [{ text: 'Deleted requirement is blocked.', kind: 'fact', source_ids: [oldId] }], current_state: [], recommendations: [] });
       const second = await generate();
       assert.equal(sent.sources.filter((s) => s.provider === 'document').length, 0);
-      assert.ok(!second.body.report.sections.some((s) => s.key === 'documented_requirements'), 'claim citing a deleted document is removed');
+      assert.ok(!JSON.stringify(second.body.report).includes('Deleted requirement'), 'anything citing a deleted document is removed');
+      assert.equal(second.body.report.verification.requirements.status, 'none_provided');
       // previously generated reports are kept (retention policy unchanged)
       assert.equal(await HandoffReport.countDocuments({}), 2);
       assert.ok((await call('GET', `${P()}/handoff-reports/${first.body.report.id}`, alice)).body.report);
@@ -403,19 +405,19 @@ describe('project documents', () => {
       assert.equal((await list()).body.items[0].status, 'indexed');
     });
 
-    it('PDF export carries the same document citations (stable reference, no link) as the preview', async () => {
+    it('PDF export and the stored report agree: same statements, document source numbered with a stable reference and no link', async () => {
       await upload(bob); await analyze();
       const report = (await generate()).body.report;
       const pdf = await call('GET', `${P()}/handoff-reports/${report.id}/pdf`, viewer);
-      assert.equal(pdf.status, 200);
-      assert.match(pdf.headers.get('content-type'), /pdf/);
+      assert.equal(pdf.status, 200); assert.match(pdf.headers.get('content-type'), /pdf/);
       const { text } = await extractPdfText(pdf.buf, { maxTextLength: 1e6, maxPages: 100 });
       const flat = text.replace(/\s+/g, ' ');
-      assert.match(flat, /Documented requirements and plans/);
+      for (const item of [...report.brief.currentState, ...report.brief.doFirst, ...report.sections.flatMap((s) => s.items)]) {
+        assert.ok(flat.includes(item.text.replace(/\s+/g, ' ').slice(0, 60)), `missing in PDF: ${item.text.slice(0, 60)}`);
+      }
       assert.match(flat, /\[Uploaded document\] Document "requirements"/);
-      assert.match(flat, /CORS handling/);
+      assert.match(flat, /Documentation vs code/);
       assert.match(flat, /ref [a-f0-9]{24}:\d+/);
-      assert.match(flat, /Project documents used/);
       assert.equal((await call('GET', `${P()}/handoff-reports/${report.id}/pdf`, outsider)).status, 404);
     });
   });

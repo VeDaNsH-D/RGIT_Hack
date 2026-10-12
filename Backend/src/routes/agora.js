@@ -1,6 +1,6 @@
 /**
  * Agora Real-Time Communication API Routes
- * 
+ *
  * Provides endpoints for obtaining RTC/RTM tokens and initiating audio/video/chat sessions.
  */
 
@@ -32,7 +32,7 @@ agoraRouter.get('/config', (req, res) => {
 
 /**
  * Authenticated endpoint to mint Agora RTC & RTM tokens for the current user.
- * 
+ *
  * POST /api/agora/token
  * Body: { channelName: string, callType?: 'audio' | 'video' | 'chat', role?: 'publisher' | 'subscriber' }
  */
@@ -92,7 +92,7 @@ agoraRouter.post('/token', requireAuth, (req, res) => {
 
 /**
  * Authenticated endpoint to dispatch a call invitation notification to a recipient.
- * 
+ *
  * POST /api/agora/invite
  * Body: { recipientUserId: string, channelName: string, callType: 'audio' | 'video', projectId?: string }
  */
@@ -345,4 +345,3 @@ ${transcript.trim().slice(0, 40000)}
     });
   }
 });
-

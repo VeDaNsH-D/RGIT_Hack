@@ -56,7 +56,7 @@ describe('repository analysis', () => {
   beforeEach(async () => {
     await resetCollections(); resetGitHubAppAuth(); resetSyncAuth();
     Object.assign(config.githubApp.analysis, { maxFiles: 150, maxFileBytes: 100_000, maxTotalBytes: 3_000_000, maxFileChars: 40_000, concurrency: 3 });
-    Object.assign(state, { files: FILES(), head: 'c1', truncated: false, repoStatus: 200 });
+    Object.assign(state, { files: FILES(), head: 'c1', truncated: false, repoStatus: 200, failBlobs: null });
     calls = [];
     repo = { id: 101, full_name: 'acme/relay', default_branch: 'main', description: 'Relay', private: true };
     alice = await User.create({ email: 'a@example.com', name: 'Alice' });
@@ -73,6 +73,7 @@ describe('repository analysis', () => {
       if (u.pathname === '/repos/acme/relay/branches/main') return J({ commit: { sha: `${state.head}`.padEnd(40, '0'), commit: { tree: { sha: `tree-${state.head}` } } } });
       if (u.pathname.startsWith('/repos/acme/relay/git/trees/')) return J({ tree: treeOf(), truncated: state.truncated });
       const m = u.pathname.match(/\/git\/blobs\/(.+)$/);
+      if (m && state.failBlobs?.has(m[1])) return J({ message: 'boom' }, 500);
       if (m) { const entry = Object.entries(state.files).find(([p, t]) => sha(t) === m[1]); return entry ? J({ encoding: 'base64', content: Buffer.from(entry[1]).toString('base64') }) : J({ message: 'x' }, 404); }
       return J({ message: 'Not Found' }, 404);
     };
@@ -223,5 +224,63 @@ describe('repository analysis', () => {
     assert.ok(await RepositoryFile.countDocuments() > 0);
     assert.equal((await call('DELETE', `/api/projects/${project._id}`, alice)).status, 200);
     assert.equal(await RepositoryFile.countDocuments(), 0); assert.equal(await RepositorySnapshot.countDocuments(), 0);
+  });
+
+  describe('refresh only works on what is unindexed', () => {
+    const blobCalls = () => calls.filter((c) => c.includes('/git/blobs/'));
+    const treeCalls = () => calls.filter((c) => c.includes('/git/trees/'));
+    const withBigFile = () => { state.files['src/big.js'] = `// ${'x'.repeat(400)}\n`; config.githubApp.analysis.maxFileBytes = 200; };
+
+    it('an unchanged partial analysis is a no-op: no tree, no blobs, same snapshot, reported as up to date', async () => {
+      withBigFile();
+      const first = (await call('POST', analyzeUrl(), alice)).body.analysis;
+      assert.equal(first.status, 'partial'); assert.equal(first.snapshot.coverage.tooLarge, 1); assert.equal(first.retryable, 0);
+      calls.length = 0;
+      const again = (await call('POST', analyzeUrl(), alice)).body.analysis;
+      assert.equal(treeCalls().length, 0); assert.equal(blobCalls().length, 0);
+      assert.equal(again.upToDate, true); assert.equal(again.snapshot.id, first.snapshot.id);
+      assert.equal(await RepositorySnapshot.countDocuments({}), 1);
+    });
+
+    it('a new commit fetches only the changed file; credential/binary/oversized files are never re-fetched', async () => {
+      withBigFile();
+      await call('POST', analyzeUrl(), alice);
+      const secretBlob = sha(state.files['src/config.js']);
+      state.head = 'c2'; state.files['README.md'] += '\n## More\nNew section.';
+      calls.length = 0;
+      const next = (await call('POST', analyzeUrl(), alice)).body.analysis;
+      assert.equal(next.upToDate, false); assert.equal(next.snapshot.mode, 'incremental');
+      assert.deepEqual(blobCalls().map((c) => c.split('/').pop()), [sha(state.files['README.md'])], 'only the modified README is fetched');
+      assert.ok(!blobCalls().some((c) => c.endsWith(secretBlob)));
+      assert.equal(next.snapshot.coverage.secretSkipped, 1); assert.equal(next.snapshot.coverage.tooLarge, 1);
+      assert.equal(next.snapshot.changes.fetched, 1); assert.deepEqual(next.snapshot.changes.modified, ['README.md']);
+    });
+
+    it('files whose fetch failed are retried on refresh, and only those', async () => {
+      state.failBlobs = new Set([sha(state.files['src/routes/users.js'])]);
+      const first = (await call('POST', analyzeUrl(), alice)).body.analysis;
+      assert.equal(first.snapshot.coverage.fetchFailed, 1); assert.equal(first.retryable, 1);
+      const analyzedBefore = first.snapshot.coverage.analyzed;
+      state.failBlobs = null; calls.length = 0;
+      const retry = (await call('POST', analyzeUrl(), alice)).body.analysis;
+      assert.deepEqual(blobCalls().map((c) => c.split('/').pop()), [sha(state.files['src/routes/users.js'])]);
+      assert.equal(retry.snapshot.coverage.analyzed, analyzedBefore + 1); assert.equal(retry.snapshot.coverage.fetchFailed, 0); assert.equal(retry.retryable, 0);
+      const routes = (await RepositorySnapshot.findOne({}).sort({ analyzedAt: -1 }).lean()).knowledge.routes;
+      assert.ok(routes.some((r) => r.path === '/api/users'));
+    });
+
+    it('raising a limit makes the over-limit files retryable; an explicit force still rebuilds everything', async () => {
+      withBigFile();
+      await call('POST', analyzeUrl(), alice);
+      config.githubApp.analysis.maxFileBytes = 100_000;
+      assert.equal((await status()).retryable, 1);
+      calls.length = 0;
+      const r = (await call('POST', analyzeUrl(), alice)).body.analysis;
+      assert.deepEqual(blobCalls().map((c) => c.split('/').pop()), [sha(state.files['src/big.js'])]);
+      assert.equal(r.snapshot.coverage.tooLarge, 0);
+      calls.length = 0;
+      await call('POST', analyzeUrl(), alice, { force: true });
+      assert.equal(treeCalls().length, 1); assert.equal(blobCalls().length, 1, 'force re-checks the credential file (permanent skips are not trusted) but reuses cached text');
+    });
   });
 });

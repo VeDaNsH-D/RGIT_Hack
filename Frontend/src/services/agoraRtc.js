@@ -1,6 +1,6 @@
 /**
  * Agora RTC Service Wrapper
- * 
+ *
  * Handles WebRTC audio/video call lifecycle: joining channels, local track creation,
  * remote user subscription, track mute/unmute, and safe teardown.
  */
@@ -22,7 +22,7 @@ export class AgoraRtcManager {
 
   /**
    * Initializes and joins an Agora RTC channel.
-   * 
+   *
    * @param {object} params
    * @param {string} params.appId Agora App ID
    * @param {string} params.channel Channel name
@@ -212,4 +212,3 @@ export class AgoraRtcManager {
     this.isJoined = false;
   }
 }
-
