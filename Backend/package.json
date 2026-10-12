@@ -12,6 +12,7 @@
     "smoke:github-app": "node scripts/github-app-smoke.js",
     "login:whatsapp": "node scripts/whatsapp-login.js",
     "smoke:whatsapp": "node scripts/whatsapp-web-smoke.js",
+    "smoke:whatsapp-cloud": "node scripts/whatsapp-cloud-smoke.js",
     "test:integration": "node --test --test-concurrency=1 \"tests/mongo-integration/*.itest.js\""
   },
   "keywords": [],

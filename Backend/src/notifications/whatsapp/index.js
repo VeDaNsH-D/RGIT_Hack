@@ -47,3 +47,8 @@ export {
 export {
   WhatsAppWebSeleniumAdapter,
 } from './whatsappWebAdapter.js';
+
+export {
+  WhatsAppCloudApiAdapter,
+} from './whatsappCloudAdapter.js';
+

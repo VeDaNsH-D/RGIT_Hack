@@ -68,6 +68,7 @@ export {
 
 export {
   WhatsAppWebSeleniumAdapter,
+  WhatsAppCloudApiAdapter,
   WHATSAPP_ERROR_CODES,
   WhatsAppAdapterError,
   WhatsAppConfigError,
