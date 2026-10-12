@@ -6,6 +6,7 @@ import OAuthCallbackPage from './pages/OAuthCallbackPage'
 import WorkspaceLayout from './workspace/WorkspaceLayout'
 import { DashboardPage, ProjectsPage, ProjectDetailPage, TasksPage, HandoffsPage } from './workspace/WorkspacePages'
 import HandoffDetailPage from './workspace/HandoffDetailPage'
+import { AgoraRoom } from './components/AgoraRoom'
 import './App.css'
 
 function HomeRoute() {
