@@ -1,0 +1,10 @@
+{
+  "eventId": "evt_handoff_ack_005",
+  "type": "HANDOFF_ACKNOWLEDGED",
+  "projectId": "proj_relay_alpha_101",
+  "recipientUserId": "usr_outgoing_owner_101",
+  "occurredAt": "2026-10-12T11:10:00Z",
+  "entityId": "hnd_payment_service_001",
+  "acknowledgedByUserId": "usr_incoming_owner_202",
+  "notes": "Acknowledged and verified handover package."
+}

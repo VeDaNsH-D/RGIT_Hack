@@ -66,6 +66,54 @@ describe('Notification Event Contracts & Validation Suite', () => {
       assert.ok(fixture.conflictType);
       assert.ok(fixture.description);
     });
+
+    it('should validate handoff-acknowledged fixture successfully', () => {
+      const fixture = loadFixture('handoff-acknowledged.json');
+      const result = validateNotificationEvent(fixture);
+      assert.equal(result.valid, true, `Errors: ${result.errors.join(', ')}`);
+      assert.equal(result.errors.length, 0);
+      assert.doesNotThrow(() => assertValidNotificationEvent(fixture));
+      assert.equal(fixture.type, NOTIFICATION_EVENT_TYPES.HANDOFF_ACKNOWLEDGED);
+      assert.ok(fixture.acknowledgedByUserId);
+    });
+
+    it('should validate clarification-answered fixture successfully', () => {
+      const fixture = loadFixture('clarification-answered.json');
+      const result = validateNotificationEvent(fixture);
+      assert.equal(result.valid, true, `Errors: ${result.errors.join(', ')}`);
+      assert.equal(result.errors.length, 0);
+      assert.doesNotThrow(() => assertValidNotificationEvent(fixture));
+      assert.equal(fixture.type, NOTIFICATION_EVENT_TYPES.HANDOFF_CLARIFICATION_ANSWERED);
+      assert.ok(fixture.answeredByUserId);
+    });
+
+    it('should validate handoff-ack-overdue fixture successfully', () => {
+      const fixture = loadFixture('handoff-ack-overdue.json');
+      const result = validateNotificationEvent(fixture);
+      assert.equal(result.valid, true, `Errors: ${result.errors.join(', ')}`);
+      assert.equal(result.errors.length, 0);
+      assert.doesNotThrow(() => assertValidNotificationEvent(fixture));
+      assert.equal(fixture.type, NOTIFICATION_EVENT_TYPES.HANDOFF_ACK_OVERDUE);
+    });
+
+    it('should validate task-overdue fixture successfully', () => {
+      const fixture = loadFixture('task-overdue.json');
+      const result = validateNotificationEvent(fixture);
+      assert.equal(result.valid, true, `Errors: ${result.errors.join(', ')}`);
+      assert.equal(result.errors.length, 0);
+      assert.doesNotThrow(() => assertValidNotificationEvent(fixture));
+      assert.equal(fixture.type, NOTIFICATION_EVENT_TYPES.TASK_OVERDUE);
+      assert.ok(fixture.taskId);
+    });
+
+    it('should validate conflict-resolved fixture successfully', () => {
+      const fixture = loadFixture('conflict-resolved.json');
+      const result = validateNotificationEvent(fixture);
+      assert.equal(result.valid, true, `Errors: ${result.errors.join(', ')}`);
+      assert.equal(result.errors.length, 0);
+      assert.doesNotThrow(() => assertValidNotificationEvent(fixture));
+      assert.equal(fixture.type, NOTIFICATION_EVENT_TYPES.CONFLICT_RESOLVED);
+    });
   });
 
   describe('Unsupported Event Types', () => {

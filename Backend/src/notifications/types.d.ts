@@ -5,8 +5,13 @@
 export type NotificationEventType =
   | 'HANDOFF_SUBMITTED'
   | 'HANDOFF_ACCEPTED'
+  | 'HANDOFF_ACKNOWLEDGED'
   | 'HANDOFF_NEEDS_CLARIFICATION'
-  | 'CRITICAL_CONFLICT_DETECTED';
+  | 'HANDOFF_CLARIFICATION_ANSWERED'
+  | 'HANDOFF_ACK_OVERDUE'
+  | 'TASK_OVERDUE'
+  | 'CRITICAL_CONFLICT_DETECTED'
+  | 'CONFLICT_RESOLVED';
 
 export type DeliveryStatus = 'PENDING' | 'SENT' | 'FAILED';
 
@@ -31,11 +36,43 @@ export interface HandoffAcceptedEvent extends BaseNotificationEvent {
   notes?: string;
 }
 
+export interface HandoffAcknowledgedEvent extends BaseNotificationEvent {
+  type: 'HANDOFF_ACKNOWLEDGED';
+  acknowledgedByUserId?: string;
+  acceptedByUserId?: string;
+  notes?: string;
+}
+
 export interface HandoffNeedsClarificationEvent extends BaseNotificationEvent {
   type: 'HANDOFF_NEEDS_CLARIFICATION';
   requestedByUserId: string;
   clarificationNote: string;
   unresolvedItems?: string[];
+}
+
+export interface HandoffClarificationAnsweredEvent extends BaseNotificationEvent {
+  type: 'HANDOFF_CLARIFICATION_ANSWERED';
+  answeredByUserId: string;
+  clarificationNote?: string;
+  answerNote?: string;
+  notes?: string;
+  resolvedItems?: string[];
+}
+
+export interface HandoffAckOverdueEvent extends BaseNotificationEvent {
+  type: 'HANDOFF_ACK_OVERDUE';
+  overdueSince?: string;
+  dueDate?: string;
+  hoursOverdue?: number;
+  handoffTitle?: string;
+}
+
+export interface TaskOverdueEvent extends BaseNotificationEvent {
+  type: 'TASK_OVERDUE';
+  taskId?: string;
+  taskTitle?: string;
+  dueDate?: string;
+  assigneeId?: string;
 }
 
 export interface CriticalConflictDetectedEvent extends BaseNotificationEvent {
@@ -50,11 +87,24 @@ export interface CriticalConflictDetectedEvent extends BaseNotificationEvent {
   }>;
 }
 
+export interface ConflictResolvedEvent extends BaseNotificationEvent {
+  type: 'CONFLICT_RESOLVED';
+  conflictType?: string;
+  resolvedByUserId?: string;
+  resolutionNotes?: string;
+  description?: string;
+}
+
 export type NotificationEvent =
   | HandoffSubmittedEvent
   | HandoffAcceptedEvent
+  | HandoffAcknowledgedEvent
   | HandoffNeedsClarificationEvent
-  | CriticalConflictDetectedEvent;
+  | HandoffClarificationAnsweredEvent
+  | HandoffAckOverdueEvent
+  | TaskOverdueEvent
+  | CriticalConflictDetectedEvent
+  | ConflictResolvedEvent;
 
 export interface NotificationRecord {
   id: string;
@@ -125,7 +175,5 @@ export interface RetryOptions {
 
 export interface DeliveryProvider {
   name: string;
-  send(notification: NotificationRecord): Promise<{ success: boolean; externalId?: string }>;
+  send(notification: NotificationRecord): Promise<{ success: boolean, externalId?: string }>;
 }
-
-

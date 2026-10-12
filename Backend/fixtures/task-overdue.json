@@ -1,0 +1,11 @@
+{
+  "eventId": "evt_task_overdue_008",
+  "type": "TASK_OVERDUE",
+  "projectId": "proj_relay_alpha_101",
+  "recipientUserId": "usr_task_owner_404",
+  "occurredAt": "2026-10-12T12:05:00Z",
+  "entityId": "tsk_migration_script_001",
+  "taskId": "tsk_migration_script_001",
+  "taskTitle": "Run Database Schema Migration Script",
+  "dueDate": "2026-10-11T23:59:59Z"
+}

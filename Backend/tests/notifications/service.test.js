@@ -96,6 +96,81 @@ describe('Core Notification Service & Repository Suite', () => {
       assert.equal(notification.readAt, null);
       assert.equal(notification.deliveryStatus, NOTIFICATION_DELIVERY_STATUS.PENDING);
     });
+
+    it('should process HANDOFF_ACKNOWLEDGED fixture and produce valid record', async () => {
+      const event = loadFixture('handoff-acknowledged.json');
+      const notification = await service.processEvent(event);
+
+      assert.ok(notification.id);
+      assert.equal(notification.type, NOTIFICATION_EVENT_TYPES.HANDOFF_ACKNOWLEDGED);
+      assert.ok(notification.title.includes('Handoff Acknowledged'));
+      assert.ok(notification.message.includes(event.acknowledgedByUserId));
+      assert.equal(notification.deliveryStatus, NOTIFICATION_DELIVERY_STATUS.PENDING);
+    });
+
+    it('should process HANDOFF_CLARIFICATION_ANSWERED fixture and produce valid record', async () => {
+      const event = loadFixture('clarification-answered.json');
+      const notification = await service.processEvent(event);
+
+      assert.ok(notification.id);
+      assert.equal(notification.type, NOTIFICATION_EVENT_TYPES.HANDOFF_CLARIFICATION_ANSWERED);
+      assert.ok(notification.title.includes('Clarification Answered'));
+      assert.ok(notification.message.includes(event.answeredByUserId));
+      assert.equal(notification.deliveryStatus, NOTIFICATION_DELIVERY_STATUS.PENDING);
+    });
+
+    it('should process HANDOFF_ACK_OVERDUE fixture and produce valid record', async () => {
+      const event = loadFixture('handoff-ack-overdue.json');
+      const notification = await service.processEvent(event);
+
+      assert.ok(notification.id);
+      assert.equal(notification.type, NOTIFICATION_EVENT_TYPES.HANDOFF_ACK_OVERDUE);
+      assert.ok(notification.title.includes('Acknowledgment Overdue'));
+      assert.equal(notification.deliveryStatus, NOTIFICATION_DELIVERY_STATUS.PENDING);
+    });
+
+    it('should process TASK_OVERDUE fixture and produce valid record', async () => {
+      const event = loadFixture('task-overdue.json');
+      const notification = await service.processEvent(event);
+
+      assert.ok(notification.id);
+      assert.equal(notification.type, NOTIFICATION_EVENT_TYPES.TASK_OVERDUE);
+      assert.ok(notification.title.includes('Task Overdue'));
+      assert.ok(notification.message.includes(event.taskId));
+      assert.equal(notification.deliveryStatus, NOTIFICATION_DELIVERY_STATUS.PENDING);
+    });
+
+    it('should process CONFLICT_RESOLVED fixture and produce valid record', async () => {
+      const event = loadFixture('conflict-resolved.json');
+      const notification = await service.processEvent(event);
+
+      assert.ok(notification.id);
+      assert.equal(notification.type, NOTIFICATION_EVENT_TYPES.CONFLICT_RESOLVED);
+      assert.ok(notification.title.includes('Conflict Resolved'));
+      assert.ok(notification.message.includes(event.resolvedByUserId));
+      assert.equal(notification.deliveryStatus, NOTIFICATION_DELIVERY_STATUS.PENDING);
+    });
+
+    it('should normalize and process payload-wrapped events from schema adapter', async () => {
+      const wrappedEvent = {
+        type: 'TASK_OVERDUE',
+        recipientUserId: 'usr_task_owner_999',
+        projectId: 'proj_relay_101',
+        payload: {
+          taskId: 'tsk_999',
+          taskTitle: 'Database Migration',
+          dueDate: '2026-10-12T00:00:00Z',
+        },
+        dedupeKey: 'dedupe_task_999',
+      };
+
+      const notification = await service.processEvent(wrappedEvent);
+      assert.ok(notification.id);
+      assert.equal(notification.eventId, 'dedupe_task_999');
+      assert.equal(notification.entityId, 'tsk_999');
+      assert.equal(notification.type, 'TASK_OVERDUE');
+      assert.ok(notification.title.includes('Task Overdue'));
+    });
   });
 
   describe('2. Recipient and Event Metadata Integrity', () => {

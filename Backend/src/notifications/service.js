@@ -59,16 +59,42 @@ export class NotificationService {
    * @returns {Promise<import('./records.js').NotificationRecord>}
    */
   async processEvent(event, options = {}) {
+    let targetEvent = event;
+    if (event && typeof event === 'object' && event.payload && typeof event.payload === 'object') {
+      targetEvent = {
+        eventId: event.eventId || event.dedupeKey || `evt_${crypto.randomUUID()}`,
+        occurredAt: event.occurredAt || new Date().toISOString(),
+        entityId: event.entityId || event.payload.entityId || event.payload.taskId || event.payload.handoffId || event.payload.conflictId || event.eventId || event.dedupeKey || 'entity_1',
+        projectId: event.projectId || event.payload.projectId || 'default-project',
+        recipientUserId: event.recipientUserId,
+        type: event.type,
+        ...event.payload,
+        ...event,
+      };
+      if (!targetEvent.entityId) {
+        targetEvent.entityId = targetEvent.taskId || targetEvent.handoffId || targetEvent.conflictId || 'entity_1';
+      }
+      if (!targetEvent.projectId) {
+        targetEvent.projectId = 'default-project';
+      }
+      if (!targetEvent.occurredAt) {
+        targetEvent.occurredAt = new Date().toISOString();
+      }
+      if (!targetEvent.eventId) {
+        targetEvent.eventId = `evt_${crypto.randomUUID()}`;
+      }
+    }
+
     // 1. Deterministic validation of the incoming domain event
-    assertValidNotificationEvent(event);
+    assertValidNotificationEvent(targetEvent);
 
     // 2. Check for duplicate event processing if repository supports eventId lookup
     if (typeof this.repository.findByEventId === 'function') {
       try {
-        const existingRecord = await this.repository.findByEventId(event.eventId);
+        const existingRecord = await this.repository.findByEventId(targetEvent.eventId);
         if (existingRecord) {
           if (options.throwOnDuplicate) {
-            throw new DuplicateNotificationEventError(event.eventId, existingRecord);
+            throw new DuplicateNotificationEventError(targetEvent.eventId, existingRecord);
           }
           // Idempotent return of the already generated notification
           return existingRecord;
@@ -78,14 +104,14 @@ export class NotificationService {
           throw err;
         }
         throw new NotificationRepositoryError(
-          `Failed to check duplicate eventId '${event.eventId}': ${err.message}`,
+          `Failed to check duplicate eventId '${targetEvent.eventId}': ${err.message}`,
           err
         );
       }
     }
 
     // 3. Centralized presentation template rendering
-    const { title, message } = renderNotificationTemplate(event);
+    const { title, message } = renderNotificationTemplate(targetEvent);
 
     // 4. Construct standard notification record
     const notificationId = this.idGenerator();
@@ -93,13 +119,13 @@ export class NotificationService {
 
     const record = {
       id: notificationId,
-      recipientUserId: event.recipientUserId,
-      eventId: event.eventId,
-      type: event.type,
+      recipientUserId: targetEvent.recipientUserId,
+      eventId: targetEvent.eventId,
+      type: targetEvent.type,
       title,
       message,
-      projectId: event.projectId,
-      entityId: event.entityId,
+      projectId: targetEvent.projectId,
+      entityId: targetEvent.entityId,
       readAt: null,
       createdAt: nowIso,
       deliveryStatus: NOTIFICATION_DELIVERY_STATUS.PENDING,
@@ -121,7 +147,7 @@ export class NotificationService {
         // the second insert is rejected by the database unique constraint.
         // Return the winning record to guarantee idempotent behavior.
         if (typeof this.repository.findByEventId === 'function') {
-          const winner = await this.repository.findByEventId(event.eventId);
+          const winner = await this.repository.findByEventId(targetEvent.eventId);
           if (winner) return winner;
         }
         return err.existingRecord || record;
