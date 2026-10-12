@@ -15,3 +15,4 @@ export { NotificationModel } from './Notification.js';
 export { GitHubInstallation } from './GitHubInstallation.js';
 export { GitHubInstallState } from './GitHubInstallState.js';
 export { WhatsAppConnection } from './WhatsAppConnection.js';
+export { JiraConnection } from './JiraConnection.js';

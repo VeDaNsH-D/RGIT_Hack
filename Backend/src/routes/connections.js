@@ -2,7 +2,8 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
-import { WhatsAppConnection } from '../models/index.js';
+import { WhatsAppConnection, JiraConnection } from '../models/index.js';
+import { JiraConnector } from '../integrations/jira/index.js';
 import { ConnectError, completeInstall, consumeState, createInstallUrl, getStatus } from '../services/githubConnectionService.js';
 
 /**
@@ -138,6 +139,142 @@ router.delete('/whatsapp', requireAuth, needUser, async (req, res, next) => {
       sandboxCode: 'join fear-company',
       sandboxNumber: '+14155238886',
       whatsappUrl: 'https://wa.me/14155238886?text=join%20fear-company',
+    });
+  } catch (err) { next(err); }
+});
+
+router.get('/jira', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const conn = await JiraConnection.findOne({ userId: req.user.id });
+    const envHost = process.env.JIRA_HOST || process.env.JIRA_BASE_URL || '';
+    const envConfigured = Boolean(envHost && (process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN));
+
+    if (!conn || !conn.active) {
+      return res.set('Cache-Control', 'no-store').json({
+        configured: envConfigured,
+        connected: false,
+        host: envHost,
+        email: process.env.JIRA_EMAIL || '',
+        projectKey: process.env.JIRA_PROJECT_KEY || '',
+      });
+    }
+
+    return res.set('Cache-Control', 'no-store').json({
+      configured: true,
+      connected: true,
+      host: conn.host,
+      email: conn.email,
+      projectKey: conn.projectKey,
+      connectedAt: conn.connectedAt,
+      lastSyncAt: conn.lastSyncAt,
+      syncedIssueCount: conn.syncedIssueCount,
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/jira', requireAuth, needUser, async (req, res, next) => {
+  try {
+    let { host, email, apiToken, projectKey } = req.body || {};
+    host = (host || process.env.JIRA_HOST || process.env.JIRA_BASE_URL || '').trim();
+    email = (email || process.env.JIRA_EMAIL || '').trim();
+    apiToken = (apiToken || process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN || '').trim();
+    projectKey = (projectKey || process.env.JIRA_PROJECT_KEY || '').trim().toUpperCase();
+
+    if (!host) {
+      return res.status(400).json({
+        error: 'invalid_host',
+        message: 'Please provide your Jira instance domain (e.g. https://your-domain.atlassian.net).',
+      });
+    }
+    if (!apiToken) {
+      return res.status(400).json({
+        error: 'invalid_token',
+        message: 'Please provide your Jira API token.',
+      });
+    }
+
+    if (!host.startsWith('http://') && !host.startsWith('https://')) {
+      host = `https://${host}`;
+    }
+
+    try {
+      const connector = new JiraConnector({ host, email, apiToken });
+      const check = await connector.verifyConnection();
+      if (!check.ok) {
+        return res.status(400).json({
+          error: 'jira_verification_failed',
+          message: check.error || 'Could not verify Jira credentials. Please check your domain and API token.',
+        });
+      }
+    } catch (checkErr) {
+      return res.status(400).json({
+        error: 'jira_verification_failed',
+        message: checkErr.message || 'Verification failed. Please check your Jira host and token.',
+      });
+    }
+
+    const conn = await JiraConnection.findOneAndUpdate(
+      { userId: req.user.id },
+      {
+        userId: req.user.id,
+        host,
+        email,
+        apiToken,
+        projectKey,
+        active: true,
+        connectedAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    return res.status(200).json({
+      connected: true,
+      host: conn.host,
+      email: conn.email,
+      projectKey: conn.projectKey,
+      connectedAt: conn.connectedAt,
+      lastSyncAt: conn.lastSyncAt,
+      syncedIssueCount: conn.syncedIssueCount,
+    });
+  } catch (err) { next(err); }
+});
+
+router.delete('/jira', requireAuth, needUser, async (req, res, next) => {
+  try {
+    await JiraConnection.deleteOne({ userId: req.user.id });
+    return res.status(200).json({
+      connected: false,
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/jira/sync', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const conn = await JiraConnection.findOne({ userId: req.user.id, active: true });
+    if (!conn) {
+      return res.status(400).json({ error: 'not_connected', message: 'Jira is not connected.' });
+    }
+
+    const connector = new JiraConnector({
+      host: conn.host,
+      email: conn.email,
+      apiToken: conn.apiToken,
+    });
+
+    const syncResult = await connector.sync({
+      projectKey: conn.projectKey || undefined,
+      maxPages: 3,
+      perPage: 25,
+    });
+
+    conn.lastSyncAt = new Date();
+    conn.syncedIssueCount = syncResult.recordsCount || 0;
+    await conn.save();
+
+    return res.status(200).json({
+      ok: true,
+      syncedIssueCount: conn.syncedIssueCount,
+      lastSyncAt: conn.lastSyncAt,
     });
   } catch (err) { next(err); }
 });

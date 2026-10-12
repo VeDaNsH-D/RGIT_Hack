@@ -6,6 +6,10 @@ import {
   getWhatsAppStatus,
   connectWhatsApp,
   disconnectWhatsApp,
+  getJiraStatus,
+  connectJira,
+  disconnectJira,
+  syncJira,
 } from '../api/connections'
 import { formatDate } from './utils'
 import { Icon, PageHeading } from './ui'
@@ -38,7 +42,7 @@ const CATEGORIES = [
     id: 'management',
     title: 'Project management',
     items: [
-      { id: 'jira', name: 'Jira', description: 'Bring issues and project tracking into Relay.' },
+      { id: 'jira', name: 'Jira', description: 'Bring issues, epics, and sprint tracking into Relay.', available: true },
     ],
   },
 ]
@@ -49,7 +53,7 @@ const RETURN_MESSAGES = {
   error: 'We couldn’t verify the GitHub installation. Nothing was connected. Please try again.',
 }
 
-function ConnectionCard({ integration, github, whatsapp }) {
+function ConnectionCard({ integration, github, whatsapp, jira }) {
   const { id, name, description, available } = integration
 
   if (id === 'whatsapp') {
@@ -133,6 +137,160 @@ function ConnectionCard({ integration, github, whatsapp }) {
     )
   }
 
+  if (id === 'jira') {
+    const connected = Boolean(jira.status?.connected)
+    const badge = connected ? 'Connected' : 'Available'
+    return (
+      <article className="ws-connection-card" aria-labelledby={`connection-${id}`}>
+        <div className="ws-project-card-top">
+          <span className="ws-project-symbol"><Icon name={id}/></span>
+          <span className={`ws-badge ${connected ? 'ws-badge-completed' : 'ws-badge-pending'}`}>{badge}</span>
+        </div>
+        <h3 id={`connection-${id}`}>{name}</h3>
+        <p>{description}</p>
+
+        {connected ? (
+          <>
+            <p className="ws-muted" style={{ marginTop: '8px' }}>
+              Connected to {jira.status.host} {jira.status.projectKey ? `(${jira.status.projectKey})` : ''} · {formatDate(jira.status.connectedAt)}
+            </p>
+            <div className="ws-connection-action" style={{ display: 'grid', gap: '10px' }}>
+              <span className="ws-muted">
+                {jira.status.lastSyncAt
+                  ? `Synced ${jira.status.syncedIssueCount || 0} issues · Last sync ${formatDate(jira.status.lastSyncAt)}`
+                  : 'Issues and project context are ready to sync.'}
+              </span>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  className="ws-button ws-button-primary"
+                  onClick={jira.onSync}
+                  disabled={jira.syncing || jira.disconnecting}
+                >
+                  {jira.syncing ? 'Syncing issues…' : 'Sync issues'}
+                </button>
+                <button
+                  className="ws-button"
+                  onClick={jira.onDisconnect}
+                  disabled={jira.syncing || jira.disconnecting}
+                >
+                  {jira.disconnecting ? 'Disconnecting…' : 'Disconnect'}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="ws-connection-action" style={{ display: 'grid', gap: '10px' }}>
+            <div style={{ display: 'grid', gap: '4px' }}>
+              <label htmlFor="jira-host-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
+                Jira Host URL
+              </label>
+              <input
+                id="jira-host-input"
+                type="url"
+                placeholder="https://your-domain.atlassian.net"
+                value={jira.form.host}
+                onChange={e => jira.setForm(f => ({ ...f, host: e.target.value }))}
+                disabled={jira.connecting}
+                style={{
+                  border: '1px solid var(--ws-border)',
+                  borderRadius: '7px',
+                  padding: '8px 10px',
+                  fontSize: '12px',
+                  color: 'var(--ws-ink)',
+                  background: '#fff',
+                  outline: 'none',
+                  width: '100%',
+                }}
+              />
+            </div>
+            <div style={{ display: 'grid', gap: '4px' }}>
+              <label htmlFor="jira-email-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
+                Atlassian Email
+              </label>
+              <input
+                id="jira-email-input"
+                type="email"
+                placeholder="developer@example.com"
+                value={jira.form.email}
+                onChange={e => jira.setForm(f => ({ ...f, email: e.target.value }))}
+                disabled={jira.connecting}
+                style={{
+                  border: '1px solid var(--ws-border)',
+                  borderRadius: '7px',
+                  padding: '8px 10px',
+                  fontSize: '12px',
+                  color: 'var(--ws-ink)',
+                  background: '#fff',
+                  outline: 'none',
+                  width: '100%',
+                }}
+              />
+            </div>
+            <div style={{ display: 'grid', gap: '4px' }}>
+              <label htmlFor="jira-token-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
+                API Token
+              </label>
+              <input
+                id="jira-token-input"
+                type="password"
+                placeholder="Atlassian API token"
+                value={jira.form.apiToken}
+                onChange={e => jira.setForm(f => ({ ...f, apiToken: e.target.value }))}
+                disabled={jira.connecting}
+                style={{
+                  border: '1px solid var(--ws-border)',
+                  borderRadius: '7px',
+                  padding: '8px 10px',
+                  fontSize: '12px',
+                  color: 'var(--ws-ink)',
+                  background: '#fff',
+                  outline: 'none',
+                  width: '100%',
+                }}
+              />
+            </div>
+            <div style={{ display: 'grid', gap: '4px' }}>
+              <label htmlFor="jira-proj-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
+                Project Key (optional)
+              </label>
+              <input
+                id="jira-proj-input"
+                type="text"
+                placeholder="e.g. RELAY"
+                value={jira.form.projectKey}
+                onChange={e => jira.setForm(f => ({ ...f, projectKey: e.target.value }))}
+                disabled={jira.connecting}
+                style={{
+                  border: '1px solid var(--ws-border)',
+                  borderRadius: '7px',
+                  padding: '8px 10px',
+                  fontSize: '12px',
+                  color: 'var(--ws-ink)',
+                  background: '#fff',
+                  outline: 'none',
+                  width: '100%',
+                }}
+              />
+            </div>
+            <button
+              className="ws-button ws-button-primary"
+              onClick={jira.onConnect}
+              disabled={jira.connecting || !jira.form.host.trim() || !jira.form.apiToken.trim()}
+            >
+              {jira.connecting ? 'Connecting…' : 'Connect Jira'}
+            </button>
+            <span className="ws-muted" style={{ fontSize: '11px' }}>
+              Requires Atlassian API token with project browse permissions.
+            </span>
+          </div>
+        )}
+
+        {jira.syncNotice && <p className="ws-notice" role="status" style={{ marginTop: '12px' }}>{jira.syncNotice}</p>}
+        {jira.error && <p className="ws-error" role="alert" style={{ marginTop: '12px' }}>{jira.error}</p>}
+      </article>
+    )
+  }
+
   const connected = available && github.status?.connected
   const badge = connected ? 'Connected' : available ? 'Available' : 'Coming soon'
   const notice = available && (github.error || github.message)
@@ -172,8 +330,8 @@ function ConnectionCard({ integration, github, whatsapp }) {
   )
 }
 
-export function ConnectionsView({ github, whatsapp }) {
-  const loading = (github.loading || !github.status) && (whatsapp.loading || !whatsapp.status)
+export function ConnectionsView({ github, whatsapp, jira }) {
+  const loading = (github.loading || !github.status) && (whatsapp.loading || !whatsapp.status) && (jira.loading || !jira.status)
   return (
     <>
       <PageHeading eyebrow="WORKSPACE" title="Connections" description="Connect your tools to bring your team’s work and context together."/>
@@ -189,7 +347,7 @@ export function ConnectionsView({ github, whatsapp }) {
           </div>
           <div className="ws-connection-grid">
             {category.items.map(item => (
-              <ConnectionCard key={item.id} integration={item} github={github} whatsapp={whatsapp}/>
+              <ConnectionCard key={item.id} integration={item} github={github} whatsapp={whatsapp} jira={jira}/>
             ))}
           </div>
         </section>
@@ -214,6 +372,21 @@ export default function ConnectionsPage() {
   const [waDisconnecting, setWaDisconnecting] = useState(false)
   const [waError, setWaError] = useState('')
 
+  // Jira state
+  const [jiraStatus, setJiraStatus] = useState(null)
+  const [jiraLoading, setJiraLoading] = useState(true)
+  const [jiraForm, setJiraForm] = useState({
+    host: '',
+    email: '',
+    apiToken: '',
+    projectKey: '',
+  })
+  const [jiraConnecting, setJiraConnecting] = useState(false)
+  const [jiraDisconnecting, setJiraDisconnecting] = useState(false)
+  const [jiraSyncing, setJiraSyncing] = useState(false)
+  const [jiraError, setJiraError] = useState('')
+  const [jiraSyncNotice, setJiraSyncNotice] = useState('')
+
   // Read once so the notice survives the URL cleanup below.
   const [message] = useState(() => (returned && returned !== 'connected' ? (RETURN_MESSAGES[returned] || RETURN_MESSAGES.error) + (params.get('reason') ? ` (${params.get('reason')})` : '') : ''))
 
@@ -233,6 +406,24 @@ export default function ConnectionsPage() {
         if (failure.name !== 'AbortError') {
           setWaStatus({ connected: false })
           setWaLoading(false)
+        }
+      })
+
+    getJiraStatus(controller.signal)
+      .then(data => {
+        setJiraStatus(data)
+        setJiraForm(f => ({
+          ...f,
+          host: data.host || f.host,
+          email: data.email || f.email,
+          projectKey: data.projectKey || f.projectKey,
+        }))
+        setJiraLoading(false)
+      })
+      .catch(failure => {
+        if (failure.name !== 'AbortError') {
+          setJiraStatus({ connected: false })
+          setJiraLoading(false)
         }
       })
 
@@ -285,6 +476,53 @@ export default function ConnectionsPage() {
     }
   }
 
+  async function onConnectJira() {
+    setJiraConnecting(true)
+    setJiraError('')
+    setJiraSyncNotice('')
+    try {
+      const data = await connectJira(jiraForm)
+      setJiraStatus(data)
+      setJiraConnecting(false)
+    } catch (failure) {
+      setJiraError(failure.message)
+      setJiraConnecting(false)
+    }
+  }
+
+  async function onDisconnectJira() {
+    setJiraDisconnecting(true)
+    setJiraError('')
+    setJiraSyncNotice('')
+    try {
+      const data = await disconnectJira()
+      setJiraStatus(data)
+      setJiraDisconnecting(false)
+    } catch (failure) {
+      setJiraError(failure.message)
+      setJiraDisconnecting(false)
+    }
+  }
+
+  async function onSyncJira() {
+    setJiraSyncing(true)
+    setJiraError('')
+    setJiraSyncNotice('')
+    try {
+      const data = await syncJira()
+      setJiraStatus(prev => ({
+        ...prev,
+        lastSyncAt: data.lastSyncAt,
+        syncedIssueCount: data.syncedIssueCount,
+      }))
+      setJiraSyncNotice(`Successfully synced ${data.syncedIssueCount} Jira issues.`)
+      setJiraSyncing(false)
+    } catch (failure) {
+      setJiraError(failure.message)
+      setJiraSyncing(false)
+    }
+  }
+
   return (
     <ConnectionsView
       github={{ status, loading, starting, error, message, onConnect: onConnectGitHub }}
@@ -298,6 +536,20 @@ export default function ConnectionsPage() {
         error: waError,
         onConnect: onConnectWhatsApp,
         onDisconnect: onDisconnectWhatsApp,
+      }}
+      jira={{
+        status: jiraStatus,
+        loading: jiraLoading,
+        form: jiraForm,
+        setForm: setJiraForm,
+        connecting: jiraConnecting,
+        disconnecting: jiraDisconnecting,
+        syncing: jiraSyncing,
+        error: jiraError,
+        syncNotice: jiraSyncNotice,
+        onConnect: onConnectJira,
+        onDisconnect: onDisconnectJira,
+        onSync: onSyncJira,
       }}
     />
   )
