@@ -1,0 +1,10 @@
+{
+  "eventId": "evt_handoff_acc_002",
+  "type": "HANDOFF_ACCEPTED",
+  "projectId": "proj_relay_alpha_101",
+  "recipientUserId": "usr_outgoing_owner_101",
+  "occurredAt": "2026-10-12T11:05:00Z",
+  "entityId": "hnd_payment_service_001",
+  "acceptedByUserId": "usr_incoming_owner_202",
+  "notes": "All documentation verified and staging access confirmed."
+}

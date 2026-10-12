@@ -1,0 +1,10 @@
+{
+  "eventId": "evt_handoff_clr_003",
+  "type": "HANDOFF_NEEDS_CLARIFICATION",
+  "projectId": "proj_relay_alpha_101",
+  "recipientUserId": "usr_outgoing_owner_101",
+  "occurredAt": "2026-10-12T10:45:00Z",
+  "entityId": "hnd_payment_service_001",
+  "requestedByUserId": "usr_incoming_owner_202",
+  "clarificationNote": "Missing production rollback procedure and staging deployment credentials."
+}

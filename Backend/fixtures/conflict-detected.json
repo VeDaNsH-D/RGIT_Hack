@@ -1,0 +1,11 @@
+{
+  "eventId": "evt_conflict_det_004",
+  "type": "CRITICAL_CONFLICT_DETECTED",
+  "projectId": "proj_relay_alpha_101",
+  "recipientUserId": "usr_project_lead_303",
+  "occurredAt": "2026-10-12T10:32:00Z",
+  "entityId": "cnf_deadline_mismatch_001",
+  "conflictType": "DEADLINE_MISMATCH",
+  "description": "Project document specifies completion deadline as 2026-10-14, whereas task tracker specifies 2026-10-16.",
+  "severity": "CRITICAL"
+}
