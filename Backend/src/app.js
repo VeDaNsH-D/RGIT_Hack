@@ -12,6 +12,7 @@ import handoffsRouter from './routes/handoffs.js';
 import conflictsRouter from './routes/conflicts.js';
 import cronRouter from './routes/cron.js';
 import { notificationRouter } from './notifications/routes.js';
+import { agoraRouter } from './routes/agora.js';
 
 export const app = express();
 
@@ -50,6 +51,7 @@ app.use('/api', handoffsRouter);
 app.use('/api', conflictsRouter);
 app.use('/api', cronRouter);
 app.use('/api/notifications', notificationRouter);
+app.use('/api/agora', agoraRouter);
 
 // 404 for unmatched API routes.
 app.use((req, res) => {
