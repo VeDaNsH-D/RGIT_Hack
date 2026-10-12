@@ -89,7 +89,11 @@ export class SlackConnector extends BaseConnector {
    */
   async verifyConnection() {
     try {
-      const auth = await this.client.authTest();
+      const auth = typeof this.client.authTest === 'function'
+        ? await this.client.authTest()
+        : typeof this.client.testAuth === 'function'
+          ? await this.client.testAuth()
+          : await this.client._request('auth.test', { method: 'POST' });
       return {
         ok: true,
         details: {

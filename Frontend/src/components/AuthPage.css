@@ -166,7 +166,7 @@
   left:20px
 }
 .auth-page .one {
-  top:19%
+  display:none;
 }
 .auth-page .two {
   top:45%;
@@ -419,6 +419,8 @@
 }
 
 @media(max-width:1000px) {
+  .auth-page .capture-node-label { display:none; }
+  .auth-page .stage.one { display:inline; }
   .auth-page .continuity-section {
     gap:12px;
     margin-top:25px;
