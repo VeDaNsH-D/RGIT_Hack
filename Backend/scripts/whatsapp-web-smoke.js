@@ -104,6 +104,14 @@ async function main() {
     const result = await adapter.send(smokeNotification);
     console.log('\n[SUCCESS] Notification delivered successfully:');
     console.log(JSON.stringify(result, null, 2));
+
+    console.log('\nKeeping browser window open so you can verify the sent message on screen.');
+    console.log('Press Enter in this terminal to close the browser (or wait 20 seconds)...');
+    const rlClose = readline.createInterface({ input: process.stdin, output: process.stdout });
+    await Promise.race([
+      new Promise((resolve) => rlClose.question('', () => { rlClose.close(); resolve(); })),
+      new Promise((resolve) => setTimeout(resolve, 20000)),
+    ]);
   } catch (err) {
     console.error('\n[FAILURE] Delivery failed:');
     console.error(`- Error Code: ${err.code || 'UNKNOWN'}`);

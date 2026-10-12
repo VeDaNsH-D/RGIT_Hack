@@ -29,15 +29,15 @@ export function resolveWhatsAppConfig(rawConfig = {}) {
     : env.WHATSAPP_WEB_HEADLESS === 'true';
 
   const navigationTimeoutMs = Number(
-    rawConfig.navigationTimeoutMs ?? env.WHATSAPP_WEB_NAVIGATION_TIMEOUT_MS ?? 30000
+    rawConfig.navigationTimeoutMs ?? env.WHATSAPP_WEB_NAVIGATION_TIMEOUT_MS ?? 60000
   );
 
   const actionTimeoutMs = Number(
-    rawConfig.actionTimeoutMs ?? env.WHATSAPP_WEB_ACTION_TIMEOUT_MS ?? 15000
+    rawConfig.actionTimeoutMs ?? env.WHATSAPP_WEB_ACTION_TIMEOUT_MS ?? 30000
   );
 
   const authCheckTimeoutMs = Number(
-    rawConfig.authCheckTimeoutMs ?? env.WHATSAPP_WEB_AUTH_CHECK_TIMEOUT_MS ?? 10000
+    rawConfig.authCheckTimeoutMs ?? env.WHATSAPP_WEB_AUTH_CHECK_TIMEOUT_MS ?? 45000
   );
 
   const defaultPhone = rawConfig.defaultPhone || env.WHATSAPP_WEB_DEFAULT_PHONE || '+919021875564';

@@ -11,6 +11,7 @@ import ingestionRouter from './routes/ingestion.js';
 import tasksRouter from './routes/tasks.js';
 import handoffsRouter from './routes/handoffs.js';
 import conflictsRouter from './routes/conflicts.js';
+import connectionsRouter from './routes/connections.js';
 import cronRouter from './routes/cron.js';
 import { notificationRouter } from './notifications/routes.js';
 import { agoraRouter } from './routes/agora.js';
@@ -53,6 +54,7 @@ app.use('/api', handoffsRouter);
 app.use('/api', conflictsRouter);
 app.use('/api', cronRouter);
 app.use('/api/notifications', notificationRouter);
+app.use('/api/connections', connectionsRouter);
 app.use('/api/agora', agoraRouter);
 
 // 404 for unmatched API routes.

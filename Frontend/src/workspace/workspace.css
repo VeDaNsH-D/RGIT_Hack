@@ -179,3 +179,14 @@
 @media (prefers-reduced-motion: reduce) { .ws-spinner { animation: none; } .ws-project-card, .ws-handoff-card { transition: none; } }
 .ws-task-edit { background: none; border: 0; padding: 0; color: #c56837; font-size: 10px; }
 .ws-dashboard-columns .ws-task-edit { display: none; }
+.ws-connection-group { margin-bottom: 30px; }
+.ws-connection-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 17px; }
+.ws-connection-card { display: flex; flex-direction: column; padding: 22px; background: #fff; border: 1px solid var(--ws-border); border-radius: 12px; min-width: 0; }
+.ws-connection-card h3 { margin-bottom: 10px; }
+.ws-connection-card p { color: #9b8c80; font-size: 12px; line-height: 1.65; }
+.ws-connection-card .ws-notice { margin: 16px 0 0; }
+.ws-connection-action { margin-top: auto; padding-top: 20px; }
+.ws-connection-action .ws-muted { font-size: 11px; }
+.ws-button:focus-visible { outline: 2px solid #ff9b7099; outline-offset: 2px; }
+@media (max-width: 1150px) { .ws-connection-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .ws-connection-grid { grid-template-columns: 1fr; } }

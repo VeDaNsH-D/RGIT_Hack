@@ -65,6 +65,10 @@ export const config = {
     appSlug: process.env.GITHUB_APP_SLUG || '',
     // Optional default installation (e.g. for the smoke test / demo); not a secret.
     installationId: process.env.GITHUB_APP_INSTALLATION_ID || '',
+    // The App's own OAuth client ("Request user authorization during installation"),
+    // used to prove the installing user can access the installation. Secret.
+    clientId: process.env.GITHUB_APP_CLIENT_ID || '',
+    clientSecret: process.env.GITHUB_APP_CLIENT_SECRET || '',
     enabled: Boolean(process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY),
   },
   // Document uploads (src/modules/ingestion/documents). The local storage

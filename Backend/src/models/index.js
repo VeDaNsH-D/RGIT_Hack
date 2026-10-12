@@ -12,3 +12,5 @@ export { Conflict } from './Conflict.js';
 export { ConflictEvidence } from './ConflictEvidence.js';
 export { ActivityEvent } from './ActivityEvent.js';
 export { NotificationModel } from './Notification.js';
+export { GitHubInstallation } from './GitHubInstallation.js';
+export { GitHubInstallState } from './GitHubInstallState.js';

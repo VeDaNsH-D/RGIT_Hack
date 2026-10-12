@@ -165,6 +165,15 @@ export class WhatsAppWebSeleniumAdapter {
     const pollIntervalMs = 350;
 
     while (Date.now() - startTime <= effectiveTimeout) {
+      // 0. If WhatsApp Web loading screen / progress bar is active, keep waiting
+      const loadingElements = await driver.findElements({
+        css: 'progress, div[role="progressbar"], div[data-testid="startup-progress"], #initial_startup, div[data-testid="starting-chat"]',
+      });
+      if (loadingElements && loadingElements.length > 0) {
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+        continue;
+      }
+
       // 1. Check for QR code (Login required)
       const qrElements = await driver.findElements({
         css: 'canvas[aria-label*="QR"], [data-ref*="qr"], [data-testid="qrcode"], div[data-testid="landing-title"]',
@@ -204,6 +213,10 @@ export class WhatsAppWebSeleniumAdapter {
         css: '#main header, header [data-testid="conversation-info-header"], header div[role="button"], header [dir="auto"], footer div[contenteditable="true"], div[title="Type a message"]',
       });
       if (readyElements && readyElements.length > 0) {
+        // Allow a brief settlement period on real browsers for DOM/decryption to settle
+        if (!this.sessionManager?.driverFactory) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
         return; // Chat loaded successfully
       }
 

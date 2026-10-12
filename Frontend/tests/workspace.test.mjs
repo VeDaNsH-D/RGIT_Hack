@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { createServer } from 'vite'
 
-let server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout
+let ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout
 const storage = new Map()
 const originalWindow = globalThis.window
 const originalStorage = globalThis.sessionStorage
@@ -31,6 +31,7 @@ before(async () => {
   ;({ WorkspaceContext } = await server.ssrLoadModule('/src/workspace/WorkspaceContext.js'))
   pages = await server.ssrLoadModule('/src/workspace/WorkspacePages.jsx')
   ;({ default: HandoffDetailPage } = await server.ssrLoadModule('/src/workspace/HandoffDetailPage.jsx'))
+  ;({ default: ConnectionsPage, ConnectionsView } = await server.ssrLoadModule('/src/workspace/ConnectionsPage.jsx'))
   ;({ default: WorkspaceLayout } = await server.ssrLoadModule('/src/workspace/WorkspaceLayout.jsx'))
 })
 after(async () => {
@@ -124,4 +125,28 @@ test('network errors retain their underlying cause and validation errors are rea
   await assert.rejects(api.request('/projects'), error => error.cause === offline)
   globalThis.fetch = async () => response({ error: 'validation_error', message: JSON.stringify([{ message: 'Project name is required' }]) }, 400)
   await assert.rejects(api.request('/projects'), /Project name is required/)
+})
+
+const view = github => renderToString(React.createElement(MemoryRouter, null, React.createElement(ConnectionsView, { github: { loading: false, starting: false, error: '', message: '', onConnect() {}, ...github } })))
+test('connections page lists five integrations with only GitHub connectable', () => {
+  const html = view({ status: { configured: true, connected: false, accounts: [] } })
+  for (const name of ['GitHub', 'Slack', 'Email', 'Notion', 'Jira']) assert.match(html, new RegExp(`>${name}<`))
+  assert.equal((html.match(/Coming soon/g) || []).length, 4)
+  assert.equal((html.match(/Connect GitHub/g) || []).length, 1)
+  assert.doesNotMatch(html, /Connect (Slack|Email|Notion|Jira)/)
+})
+test('connections page shows a loading state before status arrives', () => {
+  const html = render(ConnectionsPage, '/connections')
+  assert.match(html, /Checking your connections/)
+  assert.doesNotMatch(html, /Connect GitHub/)
+})
+test('connections view shows failures, and connected only when the backend confirms it', () => {
+  assert.match(view({ status: null, error: 'Couldn’t connect to your workspace.' }), /role="alert"[^>]*>Couldn’t connect/)
+  assert.doesNotMatch(view({ status: null, error: 'x' }), /Connected/)
+  assert.match(view({ status: { configured: true, connected: false, accounts: [] }, message: 'GitHub installation was cancelled. Nothing was connected.' }), /cancelled/)
+  const connected = view({ status: { configured: true, connected: true, accounts: [{ id: 'a', login: 'acme', connectedAt: '2026-01-02T00:00:00Z' }] } })
+  assert.match(connected, />Connected</)
+  assert.match(connected, /Connected to acme/)
+  assert.doesNotMatch(connected, /Connect GitHub/)
+  assert.match(view({ status: { configured: false, connected: false, accounts: [] } }), /disabled=""[^>]*>Connect GitHub/)
 })
