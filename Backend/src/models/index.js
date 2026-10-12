@@ -27,3 +27,4 @@ export { GitHubWebhookDelivery } from './GitHubWebhookDelivery.js';
 export { RepositorySnapshot } from './RepositorySnapshot.js';
 export { RepositoryFile } from './RepositoryFile.js';
 export { HandoffReport } from './HandoffReport.js';
+export { ProjectOnboarding } from './ProjectOnboarding.js';

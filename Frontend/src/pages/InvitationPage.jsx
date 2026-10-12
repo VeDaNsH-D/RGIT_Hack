@@ -24,7 +24,11 @@ export default function InvitationPage() {
     setBusy(true); setError('')
     try {
       const data = await request('/invitations/accept', { method: 'POST', body: { token } })
-      navigate(`/projects/${data.projectId}`, { replace: true })
+      if (data.onboardingId) {
+        navigate(`/projects/${data.projectId}/onboarding`, { replace: true })
+      } else {
+        navigate(`/projects/${data.projectId}`, { replace: true })
+      }
     } catch (failure) { setError(failure.message); setBusy(false) }
   }
   if (checking) return <div className="ws-loading ws-full-screen" role="status">Checking your session…</div>

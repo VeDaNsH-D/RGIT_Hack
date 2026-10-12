@@ -23,6 +23,7 @@ import githubWebhookRouter from './routes/githubWebhook.js';
 import cronRouter from './routes/cron.js';
 import { notificationRouter } from './notifications/routes.js';
 import { agoraRouter } from './routes/agora.js';
+import onboardingRouter from './routes/onboarding.js';
 
 export const app = express();
 const proxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
@@ -80,6 +81,7 @@ app.use('/api/notifications', notificationRouter);
 app.use('/api/connections', connectionsRouter);
 app.use('/api/webhooks', githubWebhookRouter);
 app.use('/api/agora', agoraRouter);
+app.use('/api/projects', onboardingRouter);
 
 // 404 for unmatched API routes.
 app.use((req, res) => {

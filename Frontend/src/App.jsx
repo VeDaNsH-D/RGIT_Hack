@@ -12,6 +12,7 @@ import InvitationPage from './pages/InvitationPage'
 import McpAuthorizePage from './workspace/McpAuthorizePage'
 import { AgoraRoom } from './components/AgoraRoom'
 import CallsPage from './workspace/CallsPage'
+import MemberOnboardingPage from './workspace/MemberOnboardingPage'
 import './App.css'
 
 
@@ -66,6 +67,7 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+          <Route path="/projects/:projectId/onboarding" element={<MemberOnboardingPage />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/emails" element={<EmailsPage />} />
           <Route path="/handoffs" element={<HandoffsPage />} />
