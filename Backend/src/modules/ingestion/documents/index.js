@@ -10,3 +10,4 @@ export * from './documentExtraction.js';
 export * from './documentStorage.js';
 export * from './documentNormalizer.js';
 export * from './documentProcessingService.js';
+export * from './documentRecovery.js';

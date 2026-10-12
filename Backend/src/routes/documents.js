@@ -6,6 +6,8 @@ import { attachProject, requireRole } from '../middleware/access.js';
 import {
   processDocumentUpload,
   createLocalDocumentStorage,
+  recoverDocumentSourceRecord,
+  RECOVERY_STATUS,
   DOCUMENT_ERROR_CODES as C,
 } from '../modules/ingestion/documents/index.js';
 
@@ -16,7 +18,11 @@ import {
  * projectId comes from attachProject() (membership-checked) and uploadedBy from
  * requireAuth; any projectId/uploadedBy sent in the body is ignored. Auth and
  * role checks run before the multipart body is parsed, so unauthorized uploads
- * are never buffered. Listing/retrieval endpoints are not part of this router yet.
+ * are never buffered. Listing/retrieval endpoints live in routes/ingestion.js.
+ *
+ * POST /api/projects/:id/documents/:documentId/reindex — member-level, idempotent
+ * recovery for a 'partial' upload (Document saved, SourceRecord missing). See
+ * documentRecovery.js.
  */
 
 // Validation codes from the processing service -> HTTP status.
@@ -156,6 +162,33 @@ export function createDocumentsRouter(deps = {}) {
           });
         }
       }
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  const RECOVERY_HTTP = { [RECOVERY_STATUS.RECOVERED]: 200, [RECOVERY_STATUS.ALREADY_INDEXED]: 200, [RECOVERY_STATUS.NOT_FOUND]: 404 };
+  const RECOVERY_FAILURE_HTTP = { [C.ORIGINAL_UNAVAILABLE]: 409, [C.EXTRACTION_FAILED]: 422, [C.MALFORMED_DOCUMENT]: 422 };
+
+  router.post('/:id/documents/:documentId/reindex', requireAuth, attachProject(), requireRole('member'), async (req, res, next) => {
+    try {
+      if (!/^[a-f0-9]{24}$/i.test(req.params.documentId)) {
+        return res.status(400).json({ error: 'validation_error', message: 'Invalid documentId' });
+      }
+      const result = await recoverDocumentSourceRecord({
+        projectId: req.project._id,
+        documentId: req.params.documentId,
+        storage,
+        ...models,
+      });
+      if (result.status === RECOVERY_STATUS.NOT_FOUND) {
+        return res.status(404).json({ error: 'not_found', message: 'Document not found' });
+      }
+      if (result.status === RECOVERY_STATUS.FAILED) {
+        const status = RECOVERY_FAILURE_HTTP[result.errors[0]?.code] ?? 500;
+        return res.status(status).json({ error: 'document_recovery_failed', code: result.errors[0]?.code, message: result.errors[0]?.message ?? 'Document recovery failed.', ...result });
+      }
+      return res.status(RECOVERY_HTTP[result.status]).json(result);
     } catch (err) {
       next(err);
     }

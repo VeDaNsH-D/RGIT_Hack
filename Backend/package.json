@@ -7,9 +7,10 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "test": "node --test",
+    "test": "node scripts/test-runner.js",
     "seed": "node scripts/seed.js",
-    "smoke:github-app": "node scripts/github-app-smoke.js"
+    "smoke:github-app": "node scripts/github-app-smoke.js",
+    "test:integration": "node --test --test-concurrency=1 \"tests/mongo-integration/*.itest.js\""
   },
   "keywords": [],
   "author": "",

@@ -478,17 +478,18 @@ storageProvider, uploadedBy }`.
 
 All routes live in `src/routes/ingestion.js`, are mounted under `/api/projects`, and run
 `requireAuth` → ObjectId validation → `attachProject()` → `requireRole('viewer')`.
-Viewer, member and owner may all read. Non-members and unknown projects get `404`
-(project existence is not leaked); a missing/invalid bearer token gets `401`.
+Viewer, member and owner may all read. Malformed/unknown projects and non-members get `404`
+(same body; project existence is not leaked). Malformed `recordId`/`documentId` get `400`, checked after membership; a missing/invalid bearer token gets `401`.
 Every query is scoped to the authorized project; no client filter object reaches MongoDB.
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/api/projects/:id/source-records` | Paginated list (no `content`) |
+| GET | `/api/projects/:id/ingestion/source-records` | Paginated list (no `content`). **Use this path** — see "Route conflict" below |
 | GET | `/api/projects/:id/source-records/:recordId` | One record incl. `content` and redacted provider metadata |
 | GET | `/api/projects/:id/documents` | Paginated Document metadata + processing status |
 | GET | `/api/projects/:id/documents/:documentId` | One Document's metadata |
 | GET | `/api/projects/:id/ingestion/status` | Supported/connected providers, record counts |
+| POST | `/api/projects/:id/documents/:documentId/reindex` | Member role. Recovers a `partial` upload (section 11) |
 
 **Pagination** (list endpoints): `page` (default 1, max 10000) and `limit` (default 20,
 max 100); positive integers only. Order is `createdAt desc, _id desc`. Response:
@@ -556,3 +557,86 @@ that repo. Sync can then be a member-role `POST` that loads the connection by pr
 `requireAuth` (`src/middleware/auth.js`) accepts an `x-user-id` header as identity when no
 bearer token is sent. The Phase 7 routes do not rely on or extend this; it should be removed
 or gated to `NODE_ENV=test` as a separate fix.
+
+### Route conflict: `GET /api/projects/:id/source-records` (needs a Person 2 decision)
+
+`routes/projects.js` also defines `GET /:id/source-records` and is mounted before the
+ingestion router, so in the assembled app that path is served by Person 2's handler, not
+this module's: it requires the **member** role, returns the **full `content` and raw
+`metadata`** in list items, and uses a `{ sourceRecords, total, page, limit }` envelope with
+no provider whitelist or redaction. The ingestion handler is therefore also registered at
+`/ingestion/source-records`, which is what this README documents. Options for Person 2:
+remove their list route, mount `ingestionRouter` before `projectsRouter` (changes their
+response shape for existing clients), or keep both. The detail route
+(`/source-records/:recordId`) has no conflict.
+
+---
+
+## 11. Reliability and recovery
+
+### Partial upload recovery (`documents/documentRecovery.js`)
+
+`processDocumentUpload` returns `status: 'partial'` when the Document was saved but its
+SourceRecord was not. `POST /api/projects/:id/documents/:documentId/reindex` (member role)
+finishes that job:
+
+- the Document is looked up by `(_id, projectId)`; another project's id is a plain `404`;
+- the content hash and extraction are recomputed from the **stored original bytes** (never
+  from the client), then the existing `persistDocumentSourceRecord` upserts the SourceRecord
+  keyed on `(projectId, 'document', Document._id)` — repeated or concurrent calls cannot
+  create duplicates and no second Document is ever created;
+- `200 { status: 'recovered' | 'already_indexed' }`; `404` unknown document; `409
+  ORIGINAL_UNAVAILABLE` when the stored file is gone; `422` if the file no longer
+  validates/extracts; `500` generic on database failure. A failed recovery changes nothing,
+  so the document still shows `processing.status: 'pending_indexing'`.
+- There is no scheduler: recovery is operator/owner-triggered (find candidates with
+  `GET …/documents` and look for `pending_indexing`). **Limitation:** it needs the original
+  bytes, which the local adapter only keeps in an ephemeral directory on Vercel (see below).
+
+### Document storage durability (blocked)
+
+The deployment is Vercel (`vercel.json`, `api/index.js`), where the local adapter's
+directory is ephemeral and per-instance. The Document schema already allows
+`storageRef.provider` of `vercel-blob` or `s3`, but no SDK is installed, no credentials or
+variables are configured, and no provider has been approved. No adapter was added.
+**Decision for Person 2:** pick the provider (Vercel Blob is the natural fit), provision
+it, and name the env variable(s); the adapter then implements the existing
+`put/delete/read` interface in `documentStorage.js`, with mocked tests and one real
+round-trip test using a throwaway store.
+
+### Integration tests against real MongoDB
+
+`npm run test:integration` starts a disposable `mongodb-memory-server` (database
+`relay_ingest_test`; the harness refuses any name not ending in `_test` and never reads
+`MONGODB_URI`). It exercises the real unique index, upserts, races, the Phase 7 query
+chains, uploads, recovery and the assembled app (`tests/mongo-integration/*.itest.js`, not
+picked up by `npm test`). The first run downloads a `mongod` binary; if that fails the run
+fails loudly rather than skipping.
+
+### Auth security issue (Person 2)
+
+`requireAuth` accepts `x-user-id` with no bearer token in every environment, and
+`tests/notifications/api.test.js` depends on it. Required fix: in `src/middleware/auth.js`
+honour the header only when `config.nodeEnv === 'test'`, and make that test file set
+`NODE_ENV=test` (or switch it to `signAuthToken`). Then flip the `todo` in
+`app.itest.js` into a regression test asserting 401. Not changed here because it alters
+Person 2's auth contract and Person 4's tests.
+
+### Person 3 context-pack compatibility
+
+`services/contextBuilder.js` (`mapToContextPackRequest`) is the existing contract.
+Ingested records satisfy every field it maps (verified on real data). One gap: it reads
+`r.contentType`, but ingestion stores it at `metadata.contentType`, so `content_type` is
+always `text/plain`. Person 3 should read `metadata.contentType`.
+
+### GitHub association (unchanged, blocked on Person 2)
+
+See "Not implemented: GitHub sync endpoint" above. Minimum design: (1) owner starts the
+install flow, server issues a signed, short-lived `state` binding user id + project id;
+(2) the GitHub App callback verifies `state`, then lists the installation's repositories
+with an installation token; (3) the owner picks a repo from that verified list;
+(4) the server writes `SourceConnection{ projectId, provider:'github', connectedBy,
+config:{ installationId, owner, repo } }` — ids only, never tokens; (5) sync is
+`POST /api/projects/:id/github/sync` (member), loading the connection by project and
+never accepting owner/repo/installation from the request. Live GitHub verification also
+needs a valid `GITHUB_APP_PRIVATE_KEY` and `GITHUB_APP_INSTALLATION_ID` locally.
