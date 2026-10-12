@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
 import AuthForm from './AuthForm'
 import Workflow from './Workflow'
 import ContinuityBranch from './ContinuityBranch'
@@ -7,12 +7,23 @@ import BrandIcon from './BrandIcon'
 import './AuthPage.css'
 
 export default function AuthPage({ mode }) {
-  const [session, setSession] = useState(null)
+  const { session, acceptSession, checking, error } = useAuth()
+  const location = useLocation()
   const navigate = useNavigate()
   const signup = mode === 'register'
+  const requestedDestination = location.state?.from
+  const destination = /^\/(?:dashboard|projects|tasks|handoffs)(?:\/|\?|$)/.test(requestedDestination || '') ? requestedDestination : '/dashboard'
+
+  if (checking) return <div className="ws-loading ws-full-screen" role="status"><span className="ws-spinner"/>Checking your session…</div>
+  if (session && !error) return <Navigate to={destination} replace />
+
+  function authenticated(value) {
+    acceptSession(value)
+    navigate(destination, { replace: true })
+  }
 
   function switchMode(next) {
-    navigate(next === 'login' ? '/signin' : '/signup')
+    navigate(next === 'login' ? '/signin' : '/signup', { state: location.state })
   }
 
   return (
@@ -46,14 +57,7 @@ export default function AuthPage({ mode }) {
           </section>
           <Workflow />
           <section className="form-panel" aria-label="Over2u account">
-            {session ? (
-              <div className="success-state" role="status">
-                <span>✓</span>
-                <h2>{signup ? 'Your account is ready.' : 'Welcome back.'}</h2>
-                <p>You’re signed in as <strong>{session.user.name}</strong>. Your Over2u session is active.</p>
-                <Link to="/">Back to home →</Link>
-              </div>
-            ) : <AuthForm key={mode} mode={mode} onSwitch={switchMode} onAuthenticated={setSession} />}
+            <AuthForm key={mode} mode={mode} onSwitch={switchMode} onAuthenticated={authenticated} />
           </section>
         </main>
         <footer>

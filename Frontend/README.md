@@ -4,7 +4,7 @@ React 19, Vite, and React Router landing page, signup, and sign-in UI.
 
 ## Run locally
 
-Run `npm ci`, then `npm run dev` in this directory. Start the existing backend on port 5000. Vite proxies `/api` to that backend. For a separately hosted backend, copy `.env.example` to `.env` and set `VITE_API_BASE_URL` to its API root (including `/api`). Production hosting must route `/api` to the backend or configure this variable at build time.
+Run `npm ci`, then `npm run dev` in this directory. Start the existing backend on port 8000 (`PORT=8000` in `Backend/.env`). Vite proxies `/api` to that backend for development and preview. For a different local port, set `VITE_API_PROXY_TARGET` in `Frontend/.env`. For a separately hosted backend, set `VITE_API_BASE_URL` to its API root (including `/api`). Production hosting must route `/api` to the backend or configure this variable at build time.
 
 ## Authentication integration
 
@@ -14,10 +14,29 @@ Production hosting must serve `index.html` for frontend paths such as `/signup` 
 
 The API layer in `src/api/auth.js` uses the existing `POST /api/auth/register` and `POST /api/auth/login` endpoints. The signup username maps to the backend's `name` field; the backend does not enforce unique usernames. Password constraints match its 8–200 character registration schema.
 
-Successful responses remain in React memory and emit a `relay:authenticated` CustomEvent with `{ token, user }`, allowing a future authentication provider to consume the session. Reloading clears the session. There is no dashboard in this starter, so successful authentication displays confirmation instead of redirecting to an invented route.
+Successful authentication opens `/dashboard`, or the protected page that prompted sign-in. The auth provider keeps the session in memory and session storage, verifies it with `GET /api/auth/me` after refresh, and clears it on sign-out or a 401 response. Authenticated requests include the bearer token. Session storage lasts for the browser tab; unavailable storage falls back to memory.
+
+## Signed-in workspace
+
+- `/dashboard`: live project, task, and handoff counts, project shortcuts, open tasks, and incoming handoffs.
+- `/projects` and `/projects/:projectId`: create and edit projects, view project context, and add registered teammates as members or viewers.
+- `/tasks`: search and filter tasks, create tasks, edit title/priority/assignee/deadline, and mark work complete or reopen it.
+- `/handoffs` and `/handoffs/:handoffId`: create drafts, document status and typed notes, add supporting links, check readiness, submit, acknowledge ownership, request/respond to clarification, and cancel an open outgoing handoff.
+
+Workspace routes require authentication. Viewer roles do not expose task mutations; project ownership controls member management and handoff creation. The backend rechecks authorization and handoff readiness. Project context and handoff lists drive workspace data, with visible errors and empty states. There is no seeded dashboard data in the frontend.
 
 Terms and privacy controls display an explicit unpublished-policy notice until real legal pages are supplied.
 
+## Google sign-in
+
+Both auth pages include Google sign-in. Configure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `Backend/.env`, then restart the backend. For local development, Google’s Web application OAuth client must authorize `http://localhost:8000/api/auth/oauth/google/callback` as a redirect URI. Keep `API_BASE_URL=http://localhost:8000` and `FRONTEND_URL=http://localhost:5173`. Use matching public HTTPS URLs when deploying.
+
+The frontend checks `/api/auth/oauth/providers` to enable the button only when Google is configured. The backend signs provider state and binds it to a short-lived HttpOnly browser cookie, exchanges the code, requires a verified email, and returns to `/auth/callback`. The session token is delivered in the URL fragment, removed before rendering, and verified with `/api/auth/me` before session storage and dashboard navigation. Cancelled consent and callback failures return readable errors. GitHub UI is not enabled yet.
+
 ## Checks
 
-`npm run build` and `npm run lint`.
+`npm run build`, `npm run lint`, and `npm test`. The frontend tests use mocked API responses to check authenticated requests, expired sessions, partial load failures, protected rendering, page destinations, empty states, and handoff readiness controls.
+
+`npm run test:signup` verifies the actual frontend authentication client against the backend with disposable MongoDB: registration, hashed password storage, session verification, workspace access, duplicate emails, and login. The test harness never uses your development database. MongoDB is downloaded on first use.
+
+`npm run test:oauth` runs Google OAuth integration tests using disposable MongoDB and simulated Google token/profile responses. It covers redirects, browser-bound state, callback session verification, token removal, existing-account linking, cancellation, expired state, unverified email, provider failures, and disabled accounts. These tests do not log into a real Google account; a live consent flow requires the configured Google client and a browser login.

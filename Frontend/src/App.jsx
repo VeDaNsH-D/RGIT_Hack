@@ -2,6 +2,10 @@ import { useEffect } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
 import AuthPage from './components/AuthPage'
+import OAuthCallbackPage from './pages/OAuthCallbackPage'
+import WorkspaceLayout from './workspace/WorkspaceLayout'
+import { DashboardPage, ProjectsPage, ProjectDetailPage, TasksPage, HandoffsPage } from './workspace/WorkspacePages'
+import HandoffDetailPage from './workspace/HandoffDetailPage'
 import './App.css'
 
 function HomeRoute() {
@@ -49,6 +53,16 @@ export default function App() {
         <Route path="/login" element={<Navigate to="/signin" replace />} />
         <Route path="/register" element={<Navigate to="/signup" replace />} />
         <Route path="/auth" element={<Navigate to="/signup" replace />} />
+        <Route path="/auth/callback" element={<OAuthCallbackPage />} />
+        <Route element={<WorkspaceLayout />}>
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+          <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/handoffs" element={<HandoffsPage />} />
+          <Route path="/handoffs/:handoffId" element={<HandoffDetailPage />} />
+          <Route path="/app" element={<Navigate to="/dashboard" replace />} />
+        </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </>
