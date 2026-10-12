@@ -315,22 +315,21 @@ caller.
 }
 ```
 
-**Important existing gap:** the default handler adapts into Person 4's
-already-built in-app delivery system (`src/notifications/service.js`),
-which currently only recognizes 4 event types: `HANDOFF_SUBMITTED`,
-`HANDOFF_ACCEPTED` (= our `HANDOFF_ACKNOWLEDGED`),
-`HANDOFF_NEEDS_CLARIFICATION`, and `CRITICAL_CONFLICT_DETECTED`. The other
-4 types are validated and dispatched but currently **no-op with a logged
-warning** rather than being delivered in-app — Person 4 needs to extend
-their event-type list (`src/notifications/events.js`) to close this gap.
-For the 4 supported types, `event.payload` must include:
+**In-app delivery coverage:** the default handler adapts into Person 4's
+in-app delivery system (`src/notifications/service.js`), which supports all 8
+event types across handoffs, tasks, and conflicts.
+For all 8 supported types, `event.payload` includes:
 
 | Type | Required `payload` fields |
 |---|---|
 | `HANDOFF_SUBMITTED` | `entityId`, `outgoingUserId`, `handoffTitle?` |
-| `HANDOFF_ACKNOWLEDGED` | `entityId`, `acceptedByUserId`, `notes?` |
+| `HANDOFF_ACKNOWLEDGED` | `entityId`, `acceptedByUserId` (or `acknowledgedByUserId`), `notes?` |
 | `HANDOFF_NEEDS_CLARIFICATION` | `entityId`, `requestedByUserId`, `clarificationNote`, `unresolvedItems?` |
+| `HANDOFF_CLARIFICATION_ANSWERED` | `entityId`, `answeredByUserId`, `clarificationNote?` |
+| `HANDOFF_ACK_OVERDUE` | `entityId`, `hoursOverdue?`, `handoffTitle?` |
+| `TASK_OVERDUE` | `entityId`, `taskTitle?`, `dueDate?` |
 | `CRITICAL_CONFLICT_DETECTED` | `entityId`, `conflictType`, `description`, `severity?`, `competingSources?` |
+| `CONFLICT_RESOLVED` | `entityId`, `resolvedByUserId?`, `resolutionNotes?` |
 
 ## Source record contract (for Person 1)
 
@@ -393,11 +392,11 @@ title/filename/mimeType/size/uploadedBy/createdAt only); non-members get a
   handoff acknowledgement, logging a one-time warning. Always use a real
   replica set (any MongoDB Atlas cluster) in anything beyond quick local
   testing.
-- **4 of 8 notification event types aren't delivered in-app yet** —
+- **All 8 notification event types are delivered in-app** —
+  `HANDOFF_SUBMITTED`, `HANDOFF_ACKNOWLEDGED`, `HANDOFF_NEEDS_CLARIFICATION`,
   `HANDOFF_CLARIFICATION_ANSWERED`, `HANDOFF_ACK_OVERDUE`, `TASK_OVERDUE`,
-  `CONFLICT_RESOLVED` are validated, audited, and dispatched, but Person
-  4's in-app delivery system doesn't recognize those types yet (see the
-  notification event contract above).
+  `CRITICAL_CONFLICT_DETECTED`, and `CONFLICT_RESOLVED` are validated, audited,
+  and delivered as real in-app notifications.
 - **OAuth token exchange is implemented but not live-tested** — no Google/
   GitHub OAuth app credentials are configured in this environment, so only
   the routing, state-verification, and tamper-rejection logic has been

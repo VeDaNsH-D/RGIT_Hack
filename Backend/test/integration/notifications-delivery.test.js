@@ -81,4 +81,85 @@ describe('emitNotificationEvent -> Person 4 in-app delivery (real DB)', () => {
     const count = await NotificationModel.countDocuments({ eventId: dedupeKey });
     assert.equal(count, 1);
   });
+
+  test('HANDOFF_ACKNOWLEDGED is delivered as a real Notification record', async () => {
+    const dedupeKey = `test-ack-${Date.now()}`;
+    await emitNotificationEvent({
+      type: 'HANDOFF_ACKNOWLEDGED',
+      projectId,
+      recipientUserId: String(recipient._id),
+      dedupeKey,
+      payload: { entityId, acceptedByUserId: 'user-incoming', notes: 'Verified and accepted.' },
+    });
+
+    const record = await NotificationModel.findOne({ eventId: dedupeKey }).lean();
+    assert.ok(record);
+    assert.equal(record.type, 'HANDOFF_ACKNOWLEDGED');
+    assert.ok(record.message.includes('user-incoming'));
+  });
+
+  test('HANDOFF_CLARIFICATION_ANSWERED is delivered as a real Notification record', async () => {
+    const dedupeKey = `test-clar-ans-${Date.now()}`;
+    await emitNotificationEvent({
+      type: 'HANDOFF_CLARIFICATION_ANSWERED',
+      projectId,
+      recipientUserId: String(recipient._id),
+      dedupeKey,
+      payload: { entityId, answeredByUserId: 'user-outgoing', clarificationNote: 'Docs updated.' },
+    });
+
+    const record = await NotificationModel.findOne({ eventId: dedupeKey }).lean();
+    assert.ok(record);
+    assert.equal(record.type, 'HANDOFF_CLARIFICATION_ANSWERED');
+    assert.ok(record.message.includes('user-outgoing'));
+  });
+
+  test('HANDOFF_ACK_OVERDUE is delivered as a real Notification record', async () => {
+    const dedupeKey = `test-ack-overdue-${Date.now()}`;
+    await emitNotificationEvent({
+      type: 'HANDOFF_ACK_OVERDUE',
+      projectId,
+      recipientUserId: String(recipient._id),
+      dedupeKey,
+      payload: { entityId, handoffTitle: 'Backend handoff', hoursOverdue: 12 },
+    });
+
+    const record = await NotificationModel.findOne({ eventId: dedupeKey }).lean();
+    assert.ok(record);
+    assert.equal(record.type, 'HANDOFF_ACK_OVERDUE');
+    assert.ok(record.title.includes('Acknowledgment Overdue'));
+  });
+
+  test('TASK_OVERDUE is delivered as a real Notification record', async () => {
+    const dedupeKey = `test-task-overdue-${Date.now()}`;
+    await emitNotificationEvent({
+      type: 'TASK_OVERDUE',
+      projectId,
+      recipientUserId: String(recipient._id),
+      dedupeKey,
+      payload: { entityId, taskId: entityId, taskTitle: 'Migrate indexes', dueDate: '2026-10-12T00:00:00Z' },
+    });
+
+    const record = await NotificationModel.findOne({ eventId: dedupeKey }).lean();
+    assert.ok(record);
+    assert.equal(record.type, 'TASK_OVERDUE');
+    assert.ok(record.title.includes('Task Overdue'));
+  });
+
+  test('CONFLICT_RESOLVED is delivered as a real Notification record', async () => {
+    const dedupeKey = `test-conflict-res-${Date.now()}`;
+    await emitNotificationEvent({
+      type: 'CONFLICT_RESOLVED',
+      projectId,
+      recipientUserId: String(recipient._id),
+      dedupeKey,
+      payload: { entityId, conflictType: 'DEADLINE_MISMATCH', resolvedByUserId: 'user-lead', resolutionNotes: 'Merged dates.' },
+    });
+
+    const record = await NotificationModel.findOne({ eventId: dedupeKey }).lean();
+    assert.ok(record);
+    assert.equal(record.type, 'CONFLICT_RESOLVED');
+    assert.ok(record.title.includes('Conflict Resolved'));
+    assert.ok(record.message.includes('user-lead'));
+  });
 });

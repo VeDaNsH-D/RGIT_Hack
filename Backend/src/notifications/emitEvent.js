@@ -13,46 +13,56 @@ import { MongooseNotificationRepository } from './mongooseRepository.js';
  *    handler throwing never breaks another, or the caller
  *  - never throws itself once the event shape is valid
  *
- * Person 4 already built a complete in-app notification system
- * (src/notifications/service.js + mongooseRepository.js + routes.js) with
- * its OWN 4-type event contract (src/notifications/events.js) and its own
- * stricter envelope. The default handler below is an adapter into that
- * system, not a second implementation of it.
- *
- * IMPORTANT GAP: their contract currently only covers 4 of our 8 types:
- *   HANDOFF_SUBMITTED, HANDOFF_ACCEPTED (= our HANDOFF_ACKNOWLEDGED),
- *   HANDOFF_NEEDS_CLARIFICATION, CRITICAL_CONFLICT_DETECTED.
- * For the other 4 (HANDOFF_CLARIFICATION_ANSWERED, HANDOFF_ACK_OVERDUE,
- * TASK_OVERDUE, CONFLICT_RESOLVED), the adapter logs a warning and no-ops
- * rather than silently dropping the event or throwing. Person 4 should
- * extend their event type list to close this gap; until then, those 4
- * event types are validated and dispatched but not actually delivered
- * in-app.
- *
- * For the 4 supported types, event.payload must include:
- *   HANDOFF_SUBMITTED:           { entityId, outgoingUserId, handoffTitle? }
- *   HANDOFF_ACKNOWLEDGED:        { entityId, acceptedByUserId, notes? }
- *   HANDOFF_NEEDS_CLARIFICATION: { entityId, requestedByUserId, clarificationNote, unresolvedItems? }
- *   CRITICAL_CONFLICT_DETECTED:  { entityId, conflictType, description, severity?, competingSources? }
+ * Fully supports all 8 event types in the in-app delivery system:
+ *   1. HANDOFF_SUBMITTED
+ *   2. HANDOFF_ACKNOWLEDGED (and alias HANDOFF_ACCEPTED)
+ *   3. HANDOFF_NEEDS_CLARIFICATION
+ *   4. HANDOFF_CLARIFICATION_ANSWERED
+ *   5. HANDOFF_ACK_OVERDUE
+ *   6. TASK_OVERDUE
+ *   7. CRITICAL_CONFLICT_DETECTED
+ *   8. CONFLICT_RESOLVED
  */
 
 const OUR_TO_THEIR_TYPE = {
   HANDOFF_SUBMITTED: 'HANDOFF_SUBMITTED',
-  HANDOFF_ACKNOWLEDGED: 'HANDOFF_ACCEPTED',
+  HANDOFF_ACCEPTED: 'HANDOFF_ACCEPTED',
+  HANDOFF_ACKNOWLEDGED: 'HANDOFF_ACKNOWLEDGED',
   HANDOFF_NEEDS_CLARIFICATION: 'HANDOFF_NEEDS_CLARIFICATION',
+  HANDOFF_CLARIFICATION_ANSWERED: 'HANDOFF_CLARIFICATION_ANSWERED',
+  HANDOFF_ACK_OVERDUE: 'HANDOFF_ACK_OVERDUE',
+  TASK_OVERDUE: 'TASK_OVERDUE',
   CRITICAL_CONFLICT_DETECTED: 'CRITICAL_CONFLICT_DETECTED',
+  CONFLICT_RESOLVED: 'CONFLICT_RESOLVED',
 };
 
 const EVENT_SPECIFIC_PAYLOAD_KEYS = {
   HANDOFF_SUBMITTED: { required: ['outgoingUserId'], optional: ['handoffTitle'] },
-  HANDOFF_ACKNOWLEDGED: { required: ['acceptedByUserId'], optional: ['notes'] },
+  HANDOFF_ACCEPTED: { required: ['acceptedByUserId'], optional: ['notes'] },
+  HANDOFF_ACKNOWLEDGED: { required: ['acceptedByUserId'], optional: ['notes', 'acknowledgedByUserId'] },
   HANDOFF_NEEDS_CLARIFICATION: {
     required: ['requestedByUserId', 'clarificationNote'],
     optional: ['unresolvedItems'],
   },
+  HANDOFF_CLARIFICATION_ANSWERED: {
+    required: ['answeredByUserId'],
+    optional: ['clarificationNote', 'answerNote', 'notes', 'resolvedItems'],
+  },
+  HANDOFF_ACK_OVERDUE: {
+    required: [],
+    optional: ['overdueSince', 'dueDate', 'hoursOverdue', 'handoffTitle'],
+  },
+  TASK_OVERDUE: {
+    required: [],
+    optional: ['taskId', 'taskTitle', 'dueDate', 'assigneeId'],
+  },
   CRITICAL_CONFLICT_DETECTED: {
     required: ['conflictType', 'description'],
     optional: ['severity', 'competingSources'],
+  },
+  CONFLICT_RESOLVED: {
+    required: [],
+    optional: ['conflictType', 'resolvedByUserId', 'resolutionNotes', 'description'],
   },
 };
 
@@ -65,28 +75,33 @@ function getPerson4Service() {
 }
 
 /**
- * Default handler: delivers to Person 4's in-app notification system for
- * the 4 event types it supports; no-ops with a warning for the rest.
+ * Default handler: delivers to Person 4's in-app notification system across all 8 supported event types.
  */
 async function deliverToInAppSystem(event) {
   const theirType = OUR_TO_THEIR_TYPE[event.type];
   if (!theirType) {
     console.warn(
-      `[notifications] event type '${event.type}' is not yet supported by the in-app delivery system (src/notifications/) — validated and dispatched, but not delivered.`
+      `[notifications] event type '${event.type}' is not supported by the in-app delivery system (src/notifications/) — validated and dispatched, but not delivered.`
     );
     return;
   }
 
   const payload = event.payload || {};
-  const entityId = payload.entityId;
+  const entityId = payload.entityId || payload.taskId || payload.handoffId || payload.conflictId;
   if (!entityId) {
     throw new Error(`event.payload.entityId is required to deliver a '${event.type}' notification`);
   }
 
   const spec = EVENT_SPECIFIC_PAYLOAD_KEYS[event.type];
   const specificFields = {};
-  for (const key of [...spec.required, ...(spec.optional || [])]) {
-    if (payload[key] !== undefined) specificFields[key] = payload[key];
+  if (spec) {
+    for (const key of [...spec.required, ...(spec.optional || [])]) {
+      if (payload[key] !== undefined) specificFields[key] = payload[key];
+    }
+  }
+
+  if (event.type === 'HANDOFF_ACKNOWLEDGED' && payload.acknowledgedByUserId && !specificFields.acceptedByUserId) {
+    specificFields.acceptedByUserId = payload.acknowledgedByUserId;
   }
 
   const envelope = {
