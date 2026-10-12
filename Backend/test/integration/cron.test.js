@@ -122,13 +122,20 @@ describe('GET /api/cron/overdue', () => {
       const assignedNotif = await NotificationModel.findOne({
         eventId: { $regex: `^task-overdue-${assignedTask._id}-` },
       }).lean();
-      // TASK_OVERDUE isn't in Person 4's 4 supported types, so no in-app
-      // Notification row is created — confirm via the audit log instead.
+      const unassignedNotif = await NotificationModel.findOne({
+        eventId: { $regex: `^task-overdue-${unassignedTask._id}-` },
+      }).lean();
+
       const events = await ActivityEvent.find({ chainKey: String(project._id), action: 'TASK_OVERDUE' }).lean();
       const targetIds = events.map((e) => String(e.targetId));
       assert.ok(targetIds.includes(String(assignedTask._id)));
       assert.ok(targetIds.includes(String(unassignedTask._id)));
-      assert.equal(assignedNotif, null); // sanity: confirms the gap, not a false positive
+
+      // TASK_OVERDUE gap is closed: in-app Notification rows are delivered
+      assert.ok(assignedNotif, 'assigned task should produce an in-app notification for the assignee');
+      assert.equal(assignedNotif.recipientUserId, String(assignee._id));
+      assert.ok(unassignedNotif, 'unassigned task should produce an in-app notification for the project owner');
+      assert.equal(unassignedNotif.recipientUserId, String(owner._id));
     });
 
     test('an immediate second cron run does not re-claim the same tasks (24h cooldown)', async () => {

@@ -110,6 +110,11 @@ export function validateNotificationEvent(event) {
   if (eventType && EVENT_SPECIFIC_FIELDS[eventType]) {
     const specs = EVENT_SPECIFIC_FIELDS[eventType];
     for (const reqField of specs.required) {
+      if (eventType === NOTIFICATION_EVENT_TYPES.HANDOFF_ACKNOWLEDGED && reqField === 'acceptedByUserId') {
+        if (isNonEmptyString(event.acknowledgedByUserId) || isNonEmptyString(event.acceptedByUserId)) {
+          continue;
+        }
+      }
       if (!isNonEmptyString(event[reqField])) {
         errors.push(
           `Event-specific field '${reqField}' is required for type '${eventType}' and must be a non-empty string.`

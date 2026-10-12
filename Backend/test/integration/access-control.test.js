@@ -97,6 +97,15 @@ describe('access control: unauthenticated / wrong-role / non-member', () => {
   });
 
   describe('OAuth routing (providers disabled in this env: no client id/secret)', () => {
+    let originalGoogleEnabled;
+    before(() => {
+      originalGoogleEnabled = config.oauth.google.enabled;
+      config.oauth.google.enabled = false;
+    });
+    after(() => {
+      config.oauth.google.enabled = originalGoogleEnabled;
+    });
+
     test('disabled provider (no client id/secret configured) returns 404', async () => {
       const res = await fetch(`${baseUrl}/api/auth/oauth/google`, { redirect: 'manual' });
       assert.equal(res.status, 404);
