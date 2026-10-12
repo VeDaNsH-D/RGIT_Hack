@@ -21,6 +21,8 @@ const repositorySnapshotSchema = new Schema(
     changes: { type: Schema.Types.Mixed, default: null },
     // [{ path, blobSha, size, category }] for every file whose content was analyzed.
     fileManifest: { type: [Schema.Types.Mixed], default: [] },
+    // [{ path, blobSha, reason: 'binary'|'secret' }] files fetched once and permanently unusable at that blob; never re-fetched.
+    skipped: { type: [Schema.Types.Mixed], default: [] },
     knowledge: { type: Schema.Types.Mixed, required: true },
   },
   { timestamps: true }
