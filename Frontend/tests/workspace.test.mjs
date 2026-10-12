@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { createServer } from 'vite'
 
-let ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout
+let McpAuthorizePage, NotificationBell, notificationLinks, InvitationPage, oauth, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout
 const storage = new Map()
 const originalWindow = globalThis.window
 const originalStorage = globalThis.sessionStorage
@@ -32,6 +32,11 @@ before(async () => {
   pages = await server.ssrLoadModule('/src/workspace/WorkspacePages.jsx')
   ;({ default: HandoffDetailPage } = await server.ssrLoadModule('/src/workspace/HandoffDetailPage.jsx'))
   ;({ default: ConnectionsPage, ConnectionsView } = await server.ssrLoadModule('/src/workspace/ConnectionsPage.jsx'))
+  ;({ default: InvitationPage } = await server.ssrLoadModule('/src/pages/InvitationPage.jsx'))
+  ;({ default: McpAuthorizePage } = await server.ssrLoadModule('/src/workspace/McpAuthorizePage.jsx'))
+  ;({ default: NotificationBell } = await server.ssrLoadModule('/src/workspace/NotificationBell.jsx'))
+  notificationLinks = await server.ssrLoadModule('/src/workspace/notificationLinks.js')
+  oauth = await server.ssrLoadModule('/src/auth/oauth.js')
   ;({ default: WorkspaceLayout } = await server.ssrLoadModule('/src/workspace/WorkspaceLayout.jsx'))
 })
 after(async () => {
@@ -127,11 +132,14 @@ test('network errors retain their underlying cause and validation errors are rea
   await assert.rejects(api.request('/projects'), /Project name is required/)
 })
 
-const view = github => renderToString(React.createElement(MemoryRouter, null, React.createElement(ConnectionsView, { github: { loading: false, starting: false, error: '', message: '', onConnect() {}, ...github } })))
-test('connections page lists five integrations with only GitHub connectable', () => {
+const view = github => renderToString(React.createElement(MemoryRouter, null, React.createElement(WorkspaceContext.Provider, { value: workspace }, React.createElement(ConnectionsView, { github: { loading: false, starting: false, error: '', message: '', onConnect() {}, ...github } }))))
+test('connections page includes project Notion controls and MCP access key setup', () => {
   const html = view({ status: { configured: true, connected: false, accounts: [] } })
   for (const name of ['GitHub', 'Slack', 'Email', 'Notion', 'Jira']) assert.match(html, new RegExp(`>${name}<`))
-  assert.equal((html.match(/Coming soon/g) || []).length, 4)
+  assert.match(html, /AI &amp; MCP/)
+  assert.match(html, /Create access key/)
+  assert.match(html, /Read only/)
+  assert.equal((html.match(/Coming soon/g) || []).length, 3)
   assert.equal((html.match(/Connect GitHub/g) || []).length, 1)
   assert.doesNotMatch(html, /Connect (Slack|Email|Notion|Jira)/)
 })
@@ -149,4 +157,43 @@ test('connections view shows failures, and connected only when the backend confi
   assert.match(connected, /Connected to acme/)
   assert.doesNotMatch(connected, /Connect GitHub/)
   assert.match(view({ status: { configured: false, connected: false, accounts: [] } }), /disabled=""[^>]*>Connect GitHub/)
+})
+
+test('invitation destinations survive Google sign-in and reject external redirects', () => {
+  const destination = '/invite#' + 'a'.repeat(64)
+  let target
+  const previous = window.location.assign
+  window.location.assign = url => { target = url }
+  try {
+    oauth.beginGoogleSignIn(destination)
+    assert.match(target, /auth\/oauth\/google$/)
+    assert.equal(oauth.takeOAuthDestination(), destination)
+    assert.equal(oauth.safeDestination('https://outside.example'), '/dashboard')
+    assert.equal(oauth.safeDestination('//outside.example/invite'), '/dashboard')
+  } finally { window.location.assign = previous }
+})
+test('signed-in recipients get an invitation review page', () => {
+  const html = render(InvitationPage, '/invite#' + 'a'.repeat(64), '/invite')
+  assert.match(html, /Your project invitation/)
+  assert.match(html, /Checking your invitation/)
+  assert.match(html, /Use a different account/)
+})
+
+test('notification bell is accessible and destinations stay within workspace routes', () => {
+  const html = render(NotificationBell, '/dashboard')
+  assert.match(html, /aria-label="Notifications"/)
+  assert.match(html, /aria-expanded="false"/)
+  const id = 'a'.repeat(24)
+  assert.equal(notificationLinks.notificationDestination({ type: 'PROJECT_ACTIVITY', projectId: id }), '/projects/' + id)
+  assert.equal(notificationLinks.notificationDestination({ type: 'HANDOFF_SUBMITTED', projectId: id, entityId: 'b'.repeat(24) }), '/handoffs/' + 'b'.repeat(24))
+  assert.equal(notificationLinks.notificationDestination({ projectId: 'https://outside.example' }), '/dashboard')
+})
+
+test('hosted MCP consent renders and sign-in preserves its authorization request', () => {
+  const destination = '/mcp/authorize?request=' + 'a'.repeat(64)
+  assert.equal(oauth.safeDestination(destination), destination)
+  const html = render(McpAuthorizePage, destination, '/mcp/authorize')
+  assert.match(html, /Connect your projects/)
+  assert.match(html, /Loading connection request/)
+  assert.match(html, /Manage AI connections/)
 })

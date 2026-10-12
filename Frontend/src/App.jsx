@@ -8,6 +8,8 @@ import { DashboardPage, ProjectsPage, ProjectDetailPage, TasksPage, HandoffsPage
 import ConnectionsPage from './workspace/ConnectionsPage'
 import HandoffDetailPage from './workspace/HandoffDetailPage'
 import EmailsPage from './workspace/EmailsPage'
+import InvitationPage from './pages/InvitationPage'
+import McpAuthorizePage from './workspace/McpAuthorizePage'
 import { AgoraRoom } from './components/AgoraRoom'
 import './App.css'
 
@@ -57,6 +59,7 @@ export default function App() {
         <Route path="/register" element={<Navigate to="/signup" replace />} />
         <Route path="/auth" element={<Navigate to="/signup" replace />} />
         <Route path="/auth/callback" element={<OAuthCallbackPage />} />
+        <Route path="/invite" element={<InvitationPage />} />
         <Route element={<WorkspaceLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
@@ -66,6 +69,7 @@ export default function App() {
           <Route path="/handoffs" element={<HandoffsPage />} />
           <Route path="/handoffs/:handoffId" element={<HandoffDetailPage />} />
           <Route path="/connections" element={<ConnectionsPage />} />
+          <Route path="/mcp/authorize" element={<McpAuthorizePage />} />
           <Route path="/app" element={<Navigate to="/dashboard" replace />} />
         </Route>
         {/* Agora Real-Time Audio, Video, and Chat Routes */}

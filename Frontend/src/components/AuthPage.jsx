@@ -12,7 +12,7 @@ export default function AuthPage({ mode }) {
   const navigate = useNavigate()
   const signup = mode === 'register'
   const requestedDestination = location.state?.from
-  const destination = /^\/(?:dashboard|projects|tasks|handoffs|emails)(?:\/|\?|$)/.test(requestedDestination || '') ? requestedDestination : '/dashboard'
+  const destination = /^\/(?:dashboard|projects|tasks|handoffs|emails|invite|mcp)(?:\/|\?|#|$)/.test(requestedDestination || '') ? requestedDestination : '/dashboard'
 
   if (checking) return <div className="ws-loading ws-full-screen" role="status"><span className="ws-spinner"/>Checking your session…</div>
   if (session && !error) return <Navigate to={destination} replace />
@@ -34,7 +34,7 @@ export default function AuthPage({ mode }) {
             <BrandIcon />Over2u<span className="brand-dot">.</span>
           </Link>
           <span className="header-note">Good work deserves a seamless handoff.</span>
-          <Link className="header-signin" to={signup ? '/signin' : '/signup'}>
+          <Link className="header-signin" to={signup ? '/signin' : '/signup'} state={location.state}>
             {signup ? 'Sign in' : 'Create an account'} ↗
           </Link>
         </header>

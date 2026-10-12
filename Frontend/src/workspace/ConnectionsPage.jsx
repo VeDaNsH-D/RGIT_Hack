@@ -3,8 +3,12 @@ import { useSearchParams } from 'react-router-dom'
 import { getGitHubStatus, startGitHubInstall } from '../api/connections'
 import { formatDate } from './utils'
 import { Icon, PageHeading } from './ui'
+import NotionConnection from './NotionConnection'
+import McpConnection from './McpConnection'
+import './email.css'
 
 const CATEGORIES = [
+  { id: 'ai', title: 'AI & MCP', items: [{ id: 'mcp', name: 'Over2u MCP' }] },
   { id: 'development', title: 'Development', items: [{ id: 'github', name: 'GitHub', description: 'Bring repositories, issues, pull requests, and commits into Relay.', available: true }] },
   { id: 'communication', title: 'Communication', items: [
     { id: 'slack', name: 'Slack', description: 'Bring team discussions and decisions into Relay.' },
@@ -46,7 +50,7 @@ export function ConnectionsView({ github }) {
     {github.loading && <div className="ws-loading" role="status"><span className="ws-spinner"/>Checking your connections…</div>}
     {!github.loading && CATEGORIES.map(category => <section className="ws-connection-group" key={category.title} aria-labelledby={`group-${category.id}`}>
       <div className="ws-section-heading"><h2 id={`group-${category.id}`}>{category.title}</h2></div>
-      <div className="ws-connection-grid">{category.items.map(item => <ConnectionCard key={item.id} integration={item} github={github}/>)}</div>
+      <div className="ws-connection-grid">{category.items.map(item => item.id === 'mcp' ? <McpConnection key={item.id}/> : item.id === 'notion' ? <NotionConnection key={item.id}/> : <ConnectionCard key={item.id} integration={item} github={github}/>)}</div>
     </section>)}
   </>
 }

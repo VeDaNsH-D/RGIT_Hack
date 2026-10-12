@@ -54,3 +54,69 @@ Tokens stay on the backend, encrypted with AES-256-GCM using `EMAIL_TOKEN_ENCRYP
 Analyze selected imported records with the existing AI service (`AI_SERVICE_URL`, default `http://127.0.0.1:8001`). Proposed tasks and refinements are persisted in `EmailReview`; they do not automatically modify tasks. Reviewers can edit proposed fields, choose a new task or an existing project task, apply a change, or dismiss it. Approval records source IDs in task provenance and the audit log. Applying an already reviewed proposal is idempotent. Existing task refinements use AI-identified information gaps; proposed deadline/status changes must be explicitly confirmed in the review form.
 
 Run `npm run test:email` for disposable-database integration checks with simulated Gmail, Microsoft Graph, and AI responses. Real mailbox consent and live AI responses require provider setup and a running AI service.
+# Notion project connection
+
+On **Connections → Knowledge & documentation → Notion**, a project owner selects
+a project and pastes a Notion page URL or ID. Share the page with the integration
+whose token is configured as `NOTION_API_KEY` on the backend first.
+
+Connect page imports the page text and nested blocks into project source records.
+Sync again updates the same source record. The imported content appears in the
+connection card and is available to the existing project context generation flow.
+Disconnect removes the connection while retaining imported project knowledge.
+This uses the server's configured internal integration; it is not per-user Notion OAuth.
+
+
+## Teammate invitations
+
+Project owners use **Add teammate → Send invitation**. The recipient receives a
+7-day invitation link, signs in or creates an account using the invited email,
+then accepts in the website. Password and Google sign-in preserve the invitation.
+Membership is created only upon acceptance. Owners can see and cancel pending
+invitations. Tokens are stored hashed; email delivery failures are displayed.
+
+Configure Nodemailer SMTP in `Backend/.env` (Gmail example):
+
+```dotenv
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=your-address@gmail.com
+SMTP_PASS=your-16-character-app-password
+INVITE_FROM_EMAIL="Over2u <your-address@gmail.com>"
+```
+
+Enable Google 2-Step Verification and generate an App Password for the sender.
+Use that App Password, without spaces, rather than the normal account password.
+Restart the backend after editing `.env`, then run `npm run verify:email` from
+`Backend` to check SMTP authentication without sending mail. Other SMTP providers
+can use their supplied host, credentials, and port (587 with `SMTP_SECURE=false`
+uses STARTTLS). Keep `FRONTEND_URL` set to the URL recipients can actually open;
+localhost links work only on the machine hosting the frontend.
+
+Run `npm run test:invitations` from `Frontend` for tests against a disposable
+MongoDB and mocked Nodemailer delivery.
+
+## In-app notifications
+
+The workspace top bar includes a notification bell with an unread badge, a
+paginated activity dropdown, individual read state, and Mark all read. Opening a
+notification marks it read and opens the related project or handoff. Notifications
+refresh every 15 seconds while the tab is visible and on window focus.
+
+Project activity is sent to other current project members; your own actions do
+not notify you. Accepted invitations notify the project owner. Tasks, notes,
+handoffs, conflicts, email workflow changes, document uploads, and Notion syncs
+produce notifications through the project audit events. Existing targeted
+handoff notifications remain supported. Notifications are stored in MongoDB,
+and read operations are scoped to the signed-in recipient. No extra credentials
+are required for in-app notifications.
+
+## MCP project access
+
+Use the URL shown in **Connections → AI & MCP** to sign in and authorize selected
+projects from a remote MCP client. Revocable access keys are also available.
+The backend serves Streamable HTTP MCP at `http://localhost:8000/mcp`; the local
+bridge is `Backend/scripts/mcp-stdio.js`. See [MCP_SETUP.md](../Backend/MCP_SETUP.md)
+for the complete Codex/Claude Desktop configuration, private `.mcp.env` setup,
+tool list, HTTPS deployment, hosted OAuth sign-in and access-key alternatives.

@@ -1,5 +1,6 @@
 import { ActivityEvent } from '../models/ActivityEvent.js';
 import { computeEventHash, GENESIS_HASH, verifyEvents } from './hash.js';
+import { notifyProjectActivity } from '../notifications/projectActivity.js';
 
 const MAX_SEQ_RACE_ATTEMPTS = 5;
 
@@ -48,7 +49,9 @@ export async function logActivity({
   payload = {},
 }) {
   try {
-    return await attemptLog({ projectId, actorId, actorType, action, targetType, targetId, payload });
+    const event = await attemptLog({ projectId, actorId, actorType, action, targetType, targetId, payload });
+    await notifyProjectActivity(event);
+    return event;
   } catch (err) {
     console.error('[audit] logActivity failed:', err);
     return null;
