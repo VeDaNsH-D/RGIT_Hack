@@ -1,0 +1,10 @@
+{
+  "eventId": "evt_ack_overdue_007",
+  "type": "HANDOFF_ACK_OVERDUE",
+  "projectId": "proj_relay_alpha_101",
+  "recipientUserId": "usr_incoming_owner_202",
+  "occurredAt": "2026-10-12T12:00:00Z",
+  "entityId": "hnd_payment_service_001",
+  "handoffTitle": "Payment Service Transition to Q4 Owner",
+  "hoursOverdue": 24
+}

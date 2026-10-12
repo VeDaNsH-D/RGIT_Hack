@@ -1,0 +1,10 @@
+{
+  "eventId": "evt_clarification_ans_006",
+  "type": "HANDOFF_CLARIFICATION_ANSWERED",
+  "projectId": "proj_relay_alpha_101",
+  "recipientUserId": "usr_incoming_owner_202",
+  "occurredAt": "2026-10-12T11:20:00Z",
+  "entityId": "hnd_payment_service_001",
+  "answeredByUserId": "usr_outgoing_owner_101",
+  "clarificationNote": "Rollback runbook link added and staging credentials updated in 1Password."
+}

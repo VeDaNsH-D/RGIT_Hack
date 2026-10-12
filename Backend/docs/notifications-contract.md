@@ -8,9 +8,13 @@ This document specifies the notification event contracts, envelope schema, prese
 | Event Type | Intended Recipient | Description / Domain Purpose |
 | :--- | :--- | :--- |
 | `HANDOFF_SUBMITTED` | Incoming Owner | Emitted when an outgoing owner submits a handoff package for review and acceptance. |
-| `HANDOFF_ACCEPTED` | Outgoing Owner | Emitted when the incoming owner accepts the handoff and assumes project responsibility. |
+| `HANDOFF_ACCEPTED` / `HANDOFF_ACKNOWLEDGED` | Outgoing Owner | Emitted when the incoming owner accepts/acknowledges the handoff and assumes project responsibility. |
 | `HANDOFF_NEEDS_CLARIFICATION` | Outgoing Owner | Emitted when the incoming owner requests clarification on specific handoff items or blockers. |
+| `HANDOFF_CLARIFICATION_ANSWERED` | Incoming Owner | Emitted when the outgoing owner provides answers to requested clarifications. |
+| `HANDOFF_ACK_OVERDUE` | Incoming Owner | Emitted when handoff acknowledgment deadline has lapsed without acknowledgment. |
+| `TASK_OVERDUE` | Task Owner | Emitted when a project task milestone passes its scheduled due date. |
 | `CRITICAL_CONFLICT_DETECTED` | Designated Reviewer / Project Owner | Emitted when the conflict detection engine identifies critical discrepancies (e.g., deadline mismatches, conflicting owners). |
+| `CONFLICT_RESOLVED` | Designated Reviewer / Project Owner | Emitted when a previously detected discrepancy or conflict is reviewed and resolved. |
 
 ---
 
@@ -20,28 +24,46 @@ All events use a consistent envelope structure containing common metadata:
 
 ### Common Envelope Fields
 - `eventId` (`string`): Unique event identifier (e.g., `evt_handoff_sub_001`).
-- `type` (`string`): One of the 4 supported types above.
+- `type` (`string`): One of the 8 supported domain event types above.
 - `projectId` (`string`): Associated project identifier.
 - `recipientUserId` (`string`): Intended recipient user identifier.
 - `occurredAt` (`string`): ISO 8601 formatted timestamp (e.g., `2026-10-12T10:30:00Z`).
-- `entityId` (`string`): Primary entity ID (e.g., `handoffId` or `conflictId`).
+- `entityId` (`string`): Primary entity ID (e.g., `handoffId`, `taskId`, or `conflictId`).
 
 ### Event-Specific Fields
 - **`HANDOFF_SUBMITTED`**:
   - `outgoingUserId` (`string`, required): Outgoing owner submitting the handoff.
   - `handoffTitle` (`string`, optional): Human-readable handoff title.
-- **`HANDOFF_ACCEPTED`**:
-  - `acceptedByUserId` (`string`, required): User accepting the handoff.
+- **`HANDOFF_ACCEPTED` / `HANDOFF_ACKNOWLEDGED`**:
+  - `acceptedByUserId` or `acknowledgedByUserId` (`string`, required): User accepting the handoff.
   - `notes` (`string`, optional): Acceptance notes.
 - **`HANDOFF_NEEDS_CLARIFICATION`**:
   - `requestedByUserId` (`string`, required): User requesting clarification.
   - `clarificationNote` (`string`, required): Details of missing or ambiguous items.
   - `unresolvedItems` (`string[]`, optional): Specific item IDs or references.
+- **`HANDOFF_CLARIFICATION_ANSWERED`**:
+  - `answeredByUserId` (`string`, required): User providing clarification.
+  - `clarificationNote` / `answerNote` (`string`, optional): Response details.
+  - `resolvedItems` (`string[]`, optional): Resolved item IDs or references.
+- **`HANDOFF_ACK_OVERDUE`**:
+  - `handoffTitle` (`string`, optional): Handoff title.
+  - `hoursOverdue` (`number`, optional): Hours past deadline.
+  - `dueDate` / `overdueSince` (`string`, optional): Deadline timestamp.
+- **`TASK_OVERDUE`**:
+  - `taskId` (`string`, optional): Task identifier (if distinct from entityId).
+  - `taskTitle` (`string`, optional): Task title.
+  - `dueDate` (`string`, optional): Task due date.
+  - `assigneeId` (`string`, optional): Assigned user ID.
 - **`CRITICAL_CONFLICT_DETECTED`**:
   - `conflictType` (`string`, required): Category of conflict (e.g., `DEADLINE_MISMATCH`, `STATUS_MISMATCH`).
   - `description` (`string`, required): Explanation of the detected contradiction.
   - `severity` (`string`, optional): Severity level (e.g., `CRITICAL`).
   - `competingSources` (`array`, optional): Supporting evidence references.
+- **`CONFLICT_RESOLVED`**:
+  - `conflictType` (`string`, optional): Category of resolved conflict.
+  - `resolvedByUserId` (`string`, optional): User who resolved the conflict.
+  - `resolutionNotes` (`string`, optional): Explanation of resolution outcome.
+
 
 ---
 
@@ -97,15 +119,27 @@ Deterministic mapping that converts validated event payloads into user-facing ti
 - **`HANDOFF_SUBMITTED`**:
   - Title: `"Project Handoff Submitted"`
   - Message: `"Project handoff ['<handoffTitle>'] (ID: <entityId>) was submitted by <outgoingUserId> for project <projectId> and is awaiting review."`
-- **`HANDOFF_ACCEPTED`**:
-  - Title: `"Project Handoff Accepted"`
+- **`HANDOFF_ACCEPTED` / `HANDOFF_ACKNOWLEDGED`**:
+  - Title: `"Project Handoff Accepted"` (or `"Project Handoff Acknowledged"`)
   - Message: `"Handoff <entityId> for project <projectId> was accepted by <acceptedByUserId>. [Note: "<notes>".] Ownership transfer is complete."`
 - **`HANDOFF_NEEDS_CLARIFICATION`**:
   - Title: `"Handoff Clarification Requested"`
   - Message: `"Clarification requested by <requestedByUserId> on handoff <entityId> for project <projectId>: "<clarificationNote>"."`
+- **`HANDOFF_CLARIFICATION_ANSWERED`**:
+  - Title: `"Handoff Clarification Answered"`
+  - Message: `"Clarification on handoff <entityId> for project <projectId> was answered by <answeredByUserId>. [Response: "<answerNote>".]"`
+- **`HANDOFF_ACK_OVERDUE`**:
+  - Title: `"Handoff Acknowledgment Overdue"`
+  - Message: `"Handoff ['<handoffTitle>'] (ID: <entityId>) for project <projectId> is overdue for acknowledgment [by <hoursOverdue> hours]."`
+- **`TASK_OVERDUE`**:
+  - Title: `"Task Overdue"`
+  - Message: `"Task ['<taskTitle>'] (ID: <entityId>) for project <projectId> is overdue [(due: <dueDate>)]."`
 - **`CRITICAL_CONFLICT_DETECTED`**:
   - Title: `"Critical Conflict Detected"`
   - Message: `"[<severity>] Conflict (<conflictType>) detected in project <projectId> (ID: <entityId>): <description>"`
+- **`CONFLICT_RESOLVED`**:
+  - Title: `"Conflict Resolved"`
+  - Message: `"Conflict (<conflictType>) in project <projectId> (ID: <entityId>) has been resolved by <resolvedByUserId>. [Resolution: "<resolutionNotes>".]"`
 
 ### Repository Interface (`repository.js`)
 A database-agnostic interface decoupling service logic from Prisma, MongoDB, or PostgreSQL:
@@ -260,6 +294,7 @@ node --test tests/notifications/contracts.test.js
 node --test tests/notifications/service.test.js
 node --test tests/notifications/api.test.js
 node --test tests/notifications/reliability.test.js
+node --test tests/notifications/whatsapp-adapter.test.js
 ```
 
 ---

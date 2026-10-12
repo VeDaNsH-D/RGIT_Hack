@@ -8,7 +8,8 @@
  * - unordered execution that continues past per-operation errors
  * - MongoBulkWriteError shape: `writeErrors[{ index, code, errmsg }]`, `result.upsertedIds`
  *
- * Fault injection for tests: `failOn`, `raceOn`, `failNextBulkWrite`.
+ * Fault injection for tests: `failOn`, `raceOn`, `failNextBulkWrite`, `failNextFind`.
+ * Also supports `findOne(filter).lean()` with dotted-path equality.
  */
 
 import mongoose from 'mongoose';
@@ -51,6 +52,7 @@ export class InMemorySourceRecordModel {
   #failures;
   #races;
   #fatal;
+  #findError = null;
 
   /** Make every write for this externalId fail with the given server error. */
   failOn(externalId, { code = 121, errmsg = 'Document failed validation' } = {}) {
@@ -73,6 +75,27 @@ export class InMemorySourceRecordModel {
 
   find(filter) {
     return this.docs.get(keyOf(filter)) || null;
+  }
+
+  /**
+   * Minimal Model.findOne(filter, projection).lean() emulation: equality on
+   * (dotted) paths, ObjectIds compared by hex value. Projection is ignored.
+   */
+  findOne(filter) {
+    const getPath = (obj, p) => p.split('.').reduce((node, part) => (node == null ? undefined : node[part]), obj);
+    const same = (a, b) => (a instanceof mongoose.Types.ObjectId || b instanceof mongoose.Types.ObjectId ? String(a) === String(b) : a === b);
+    if (this.#findError) {
+      const err = this.#findError;
+      this.#findError = null;
+      return { lean: () => Promise.reject(err) };
+    }
+    const match = this.all().find((doc) => Object.entries(filter).every(([p, v]) => same(getPath(doc, p), v))) || null;
+    return { lean: async () => (match ? clone(match) : null) };
+  }
+
+  /** Make the next findOne() reject (e.g. database unavailable). */
+  failNextFind(error = new Error('connection closed')) {
+    this.#findError = error;
   }
 
   /** Seed an existing document (as if persisted earlier). */

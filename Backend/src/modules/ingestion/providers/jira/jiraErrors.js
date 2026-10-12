@@ -1,18 +1,21 @@
 /**
  * @file jiraErrors.js
- * @description Error classifications and domain exceptions for Jira REST API interactions.
+ * @description Error classifications and domain exceptions for Jira REST API interactions, extending the common IntegrationError taxonomy.
  */
 
-export class JiraClientError extends Error {
-  constructor(message, { statusCode, status, code, retryAfter, data } = {}) {
-    super(message);
+import { IntegrationError } from '../../../../integrations/common/errors.js';
+
+export class JiraClientError extends IntegrationError {
+  constructor(message, { statusCode, status, code, retryAfter, data, cause } = {}) {
+    super(message, {
+      provider: 'jira',
+      statusCode: statusCode || status,
+      code,
+      retryAfter,
+      data,
+      cause,
+    });
     this.name = 'JiraClientError';
-    this.statusCode = statusCode || status;
-    this.status = this.statusCode;
-    this.code = code;
-    this.retryAfter = retryAfter;
-    this.retryAfterSeconds = retryAfter;
-    this.data = data;
   }
 }
 

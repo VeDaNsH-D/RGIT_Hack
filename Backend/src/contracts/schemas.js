@@ -6,6 +6,7 @@ import {
   HANDOFF_ITEM_TYPES,
   VALIDATION_CHECK_NAMES,
   CONFLICT_SEVERITIES,
+  CONFLICT_STATUSES,
   CONFLICT_RESOLUTION_OUTCOMES,
   NOTIFICATION_EVENT_TYPES,
 } from '../constants.js';
@@ -115,6 +116,15 @@ export const taskQuerySchema = z
   })
   .strict();
 
+export const sourceRecordQuerySchema = z
+  .object({
+    provider: z.string().trim().min(1).max(100).optional(),
+    type: z.string().trim().min(1).max(100).optional(),
+    page: z.coerce.number().int().min(1).optional().default(1),
+    limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+  })
+  .strict();
+
 // --- Handoffs ---------------------------------------------------------
 
 export const createHandoffSchema = z
@@ -178,6 +188,12 @@ export const createConflictSchema = z
     severity: z.enum(CONFLICT_SEVERITIES).optional().default('medium'),
     fingerprint: z.string().trim().min(1).max(500).optional(),
     evidence: z.array(conflictEvidenceInputSchema).min(2, 'At least 2 evidence items are required'),
+  })
+  .strict();
+
+export const conflictQuerySchema = z
+  .object({
+    status: z.enum(CONFLICT_STATUSES).optional(),
   })
   .strict();
 

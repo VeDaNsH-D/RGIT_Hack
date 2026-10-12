@@ -17,9 +17,9 @@ This module pulls project information from external sources, normalizes it into
 | Notion    | Implemented: authorized pages, recursive block trees, database records (see `Backend/docs/notion-integration.md`) |
 | Jira      | Implemented: Jira Cloud issues via JQL search (see `Backend/docs/jira-integration.md`) |
 | Slack     | Implemented: channel messages and threads (see `Backend/docs/slack-integration.md`) |
-| Documents | Planned (`.pdf`, `.docx`, `.txt`); contract fields already reserved |
+| Documents | Implemented (internal): `.pdf`, `.docx`, `.txt` validation, extraction, storage, Document + SourceRecord persistence (section 9). No upload route yet. |
 
-Persistence is implemented (section 3a). HTTP routes and document extraction are **not** implemented here yet.
+Persistence (section 3a) and document processing (section 9) are implemented. HTTP routes are **not** implemented here yet.
 
 ```
 contracts/sourceRecord.js            Shared contract, validation, persistence mapping, ingestion result
@@ -34,6 +34,7 @@ providers/github/
   githubNormalizer.js                Raw GitHub payloads -> SourceRecordCandidate
   githubIngestionService.js          Unified fetch-and-normalize with partial-failure reporting (no DB)
   githubSyncService.js               Fetch -> normalize -> persist; SourceConnection-driven sync
+documents/                           Validation, extraction, storage, normalizer, processing service (section 9)
 providers/notion/, providers/jira/, providers/slack/   Client, connector, extractor, normalizer per provider
 scripts/github-app-smoke.js          Read-only live check (Backend/scripts)
 ```
@@ -356,3 +357,286 @@ node --test 'src/modules/ingestion/**/*.test.js'
 
 (`node --test src/modules/ingestion/` does not work on Node 22 — pass the glob.) All
 GitHub responses are mocked; no credentials or network are required.
+
+---
+
+## 9. Documents (Part 6; upload route: POST /api/projects/:id/documents)
+
+```
+documents/
+  documentErrors.js              Error codes; safe messages (no content, stacks, or paths)
+  zipInspector.js                Bounded in-memory ZIP inspection (no disk extraction)
+  documentValidation.js          Allowlists, filename sanitizing, signature/structure/encoding checks
+  documentExtraction.js          extractDocumentText({ buffer, filename, mimeType }) — PDF.js / mammoth / TXT
+  documentStorage.js             Storage adapter interface + local filesystem adapter
+  documentNormalizer.js          Persisted Document -> SourceRecordCandidate
+  documentProcessingService.js   processDocumentUpload(): the pipeline
+```
+
+### Validation
+
+A file is accepted only if extension, client MIME type and content all agree:
+
+| Format | Extension | Accepted MIME                                   | Content check |
+|--------|-----------|-------------------------------------------------|---------------|
+| PDF    | `.pdf`    | `application/pdf`, `application/x-pdf`          | `%PDF-` in first 1 KiB, then a full PDF.js parse |
+| DOCX   | `.docx`   | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | ZIP container; every entry inflated with a hard size cap and CRC-checked; `[Content_Types].xml` must declare a WordprocessingML **document** main part that exists; macro-enabled (`.docm`), templates and `vbaProject.bin` rejected; plain ZIPs rejected |
+| TXT    | `.txt`    | `text/plain` (parameters ignored)               | Strict UTF-8 (BOM optional) or UTF-16 LE/BE with BOM; NUL/binary content and PDF/ZIP signatures rejected |
+
+Also: missing/empty files, size > `maxBytes` (default 10 MiB, `DOCUMENT_MAX_BYTES`),
+filenames with path separators, `..`, or > 255 chars. ZIP limits: 2000 entries, 50 MiB
+total inflated, no ZIP64 / encryption / multi-disk / unsafe entry names.
+
+### Extraction
+
+`extractDocumentText({ buffer, filename, mimeType, limits })` returns
+`{ extractedText, detectedFormat, status: 'extracted' | 'empty', metadata }`.
+
+- **PDF** (pdfjs-dist, `isEvalSupported: false`): text per page, pages separated by a blank
+  line; `pageCount`; max 1000 pages. No OCR — scanned PDFs return `status: 'empty'`.
+  Encrypted → `ENCRYPTED_DOCUMENT`; unparseable → `MALFORMED_DOCUMENT`.
+- **DOCX** (mammoth `extractRawText`): paragraphs separated by a blank line. Only runs after
+  ZIP inspection has bounded every entry. Unparseable XML → `MALFORMED_DOCUMENT`.
+- **TXT**: strict decoding; invalid encodings → `UNSUPPORTED_ENCODING` (never guessed).
+- All: CRLF/CR → LF, trailing spaces trimmed, 3+ newlines → 2, control characters removed;
+  text limit 1,000,000 characters (= SourceRecord content limit) → `TEXT_TOO_LARGE`.
+- `empty` (valid document, no text) is distinct from a thrown parse failure.
+
+### Storage
+
+Adapter interface: `put({ buffer, extension }) -> { key, storageRef, warnings }`,
+`delete(key)`, `read(key)`. `createLocalDocumentStorage({ rootDir })` (default
+`<os tmpdir>/relay-documents`, `DOCUMENT_STORAGE_DIR`) writes `<uuid>.<ext>` via a temp
+file + hard link (never overwrites), mode 0600, and never exposes paths.
+
+**Limitations:** local storage is not durable on Vercel (ephemeral, per-instance `/tmp`) or
+multi-instance hosts. The Document schema's `storageRef.provider` enum is
+`'vercel-blob' | 's3' | 'none'` with no `'local'`, so local files are recorded as
+`{ provider: 'none', key: '<uuid>.<ext>', url: '' }`. A Vercel Blob / S3 adapter with the same
+interface is needed for production. Extracted text is stored in MongoDB regardless.
+
+### Pipeline: `processDocumentUpload(...)`
+
+validate → SHA-256 → extract → identical-content check → store file → `Document.create`
+→ normalize → `persistSourceRecordCandidates`.
+
+```javascript
+import { processDocumentUpload, createLocalDocumentStorage } from './documents/index.js';
+
+const result = await processDocumentUpload({
+  projectId: req.project._id,     // from attachProject() — never from the request body
+  uploadedBy: req.user._id,       // from requireAuth
+  file: { buffer, filename: originalName, mimeType },
+  title,                          // optional; defaults to the filename without extension
+  storage: createLocalDocumentStorage({ rootDir: config.documents.storageDir || undefined }),
+  duplicatePolicy: 'reuse',       // or 'allow'
+  limits: { maxBytes: config.documents.maxBytes },
+});
+// result.status: 'succeeded' | 'duplicate' | 'partial' | 'failed'
+```
+
+Result: `{ status, stage, projectId, document: { id, title, filename, mimeType, size,
+storageProvider, createdAt }, contentHash, extraction, duplicateOf, sourceRecord
+(persistence result), persisted: { file, document, sourceRecord }, errors[{ stage, code,
+message }], warnings, reconciliation, startedAt, completedAt }`.
+
+| Failure stage | Outcome |
+|---------------|---------|
+| validation / extraction / duplicate_check | `failed`; nothing stored or persisted |
+| storage | `failed`; no Document; adapter removed its temp file |
+| document | `failed`; the newly stored file is deleted; if that fails: `CLEANUP_FAILED` + `reconciliation: { action: 'delete_orphaned_file', storageKey }` |
+| source_record | `partial`; Document and file kept; `reconciliation: { action: 'retry_source_record', documentId, contentHash }` — retry with `persistDocumentSourceRecord({ document, extraction, contentHash })` using the stored Document and its `extractedText` |
+
+### Document ↔ SourceRecord
+
+`provider: 'document'`, `type: 'document'`, `externalId` = the Document's `_id` (one
+SourceRecord per upload instance), `title`, `content` = extracted text,
+`metadata.sourceCreatedAt/sourceUpdatedAt` = Document timestamps,
+`metadata.authorId` = uploader, `metadata.extractionStatus` = `extracted | empty`,
+`metadata.providerMetadata = { documentId, filename, mimeType, size, contentHash,
+contentHashAlgorithm: 'sha256', detectedFormat, characterCount, pageCount?, encoding?,
+storageProvider, uploadedBy }`.
+
+### Identical content and versions
+
+- The Document schema has no hash field, so the SHA-256 lives in
+  `SourceRecord.metadata.providerMetadata.contentHash`.
+- `duplicatePolicy: 'reuse'` (default): identical bytes already ingested **in the same
+  project** → `status: 'duplicate'` with `duplicateOf`; nothing new is stored.
+  `'allow'` always creates a new instance.
+- Same filename with different bytes → a new Document and SourceRecord; nothing is
+  overwritten. Filenames never identify documents.
+- No version chain: uploads are independent instances (no "v2 of document X" link).
+  The duplicate check is not atomic (no unique index on the hash), so two concurrent
+  identical uploads can both be stored, and a `partial` upload (no SourceRecord) is not
+  seen by later duplicate checks.
+
+
+---
+
+## 10. Read APIs (Phase 7)
+
+All routes live in `src/routes/ingestion.js`, are mounted under `/api/projects`, and run
+`requireAuth` → ObjectId validation → `attachProject()` → `requireRole('viewer')`.
+Viewer, member and owner may all read. Malformed/unknown projects and non-members get `404`
+(same body; project existence is not leaked). Malformed `recordId`/`documentId` get `400`, checked after membership; a missing/invalid bearer token gets `401`.
+Every query is scoped to the authorized project; no client filter object reaches MongoDB.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/projects/:id/ingestion/source-records` | Paginated list (no `content`). **Use this path** — see "Route conflict" below |
+| GET | `/api/projects/:id/source-records/:recordId` | One record incl. `content` and redacted provider metadata |
+| GET | `/api/projects/:id/documents` | Paginated Document metadata + processing status |
+| GET | `/api/projects/:id/documents/:documentId` | One Document's metadata |
+| GET | `/api/projects/:id/ingestion/status` | Supported/connected providers, record counts |
+| POST | `/api/projects/:id/documents/:documentId/reindex` | Member role. Recovers a `partial` upload (section 11) |
+
+**Pagination** (list endpoints): `page` (default 1, max 10000) and `limit` (default 20,
+max 100); positive integers only. Order is `createdAt desc, _id desc`. Response:
+`{ items: [...], pagination: { page, limit, total, totalPages, hasNextPage } }`.
+
+**Filters** (`source-records` only): `provider` ∈ `github|document|notion|jira|slack`,
+`type` ∈ `repository|issue|pull_request|commit|document|note|decision|message`.
+Only ingestion providers are listed; `manual` notes/decisions (notes API) are excluded.
+
+**Errors**: `400 {error:'validation_error', message}` (bad ids, page/limit, filters, repeated
+params), `401 unauthorized`, `404 not_found`, `500 {error:'internal_error', message:'Internal server error'}`.
+
+```jsonc
+// GET /api/projects/:id/source-records?provider=github&limit=1
+{ "items": [{ "id": "…", "projectId": "…", "provider": "github", "type": "issue",
+    "externalId": "acme/app#12", "title": "…", "url": "https://…", "author": "alice",
+    "sourceCreatedAt": "…", "sourceUpdatedAt": "…", "fetchedAt": "…",
+    "extractionStatus": null, "createdAt": "…", "updatedAt": "…" }],
+  "pagination": { "page": 1, "limit": 1, "total": 7, "totalPages": 7, "hasNextPage": true } }
+```
+The detail response is `{ item }` with the same fields plus `content`, `contentType`,
+`version`, `isActive`, `isDeleted`, and `metadata` (provider metadata with any key matching
+token/secret/password/credential/authorization/api key/private key/cookie/path removed).
+
+```jsonc
+// GET /api/projects/:id/documents/:documentId  -> { item }
+{ "id": "…", "projectId": "…", "title": "Sprint 12 handoff", "filename": "handoff.txt",
+  "mimeType": "text/plain", "size": 1234, "uploadedBy": "…", "storageProvider": "none",
+  "url": null,
+  "processing": { "status": "indexed", "extractionStatus": "extracted",
+    "sourceRecordId": "…", "contentHash": "<sha256>", "characterCount": 980, "pageCount": null },
+  "createdAt": "…", "updatedAt": "…" }
+```
+The Document schema has no status field. A stored Document has already been validated and
+extracted; `processing.status` is `indexed` when its `document` SourceRecord exists and
+`pending_indexing` when it does not (a `partial` upload awaiting retry). Storage keys/paths,
+file bytes and `extractedText` are never returned by the document endpoints (the SourceRecord
+detail endpoint returns the normalized text, like the existing context APIs).
+
+```jsonc
+// GET /api/projects/:id/ingestion/status
+{ "projectId": "…",
+  "providers": [{ "provider": "github", "supported": true, "connected": false,
+                  "connectionCount": 0, "recordCount": 0 } /* jira, notion, slack */],
+  "documents": { "available": true, "uploadEndpoint": "/api/projects/:id/documents",
+                 "maxFileBytes": 10485760, "supportedFormats": ["pdf","docx","txt"], "recordCount": 3 },
+  "totalRecords": 3 }
+```
+`connected` is true only if a persisted `SourceConnection` exists for the project and provider;
+connection `config` is never read or returned.
+
+### Not implemented: GitHub sync endpoint
+
+There is deliberately no `POST …/github/sync`. `syncGitHubSourceConnection` still works
+internally, but nothing creates or verifies a project↔GitHub installation/repository
+`SourceConnection` (its `{ installationId, owner, repo }` config is "proposed; Person 2 to
+confirm"), so an endpoint would have to trust caller-supplied owner/repo. **Decision needed
+from Person 2:** an authenticated owner-only flow (e.g. GitHub App install callback with a
+signed `state` bound to user + project) that writes `SourceConnection{ provider:'github',
+config:{ installationId, owner, repo } }` after verifying the installation grants access to
+that repo. Sync can then be a member-role `POST` that loads the connection by project.
+
+### Security note (outside this phase)
+
+`requireAuth` (`src/middleware/auth.js`) accepts an `x-user-id` header as identity when no
+bearer token is sent. The Phase 7 routes do not rely on or extend this; it should be removed
+or gated to `NODE_ENV=test` as a separate fix.
+
+### Route conflict: `GET /api/projects/:id/source-records` (needs a Person 2 decision)
+
+`routes/projects.js` also defines `GET /:id/source-records` and is mounted before the
+ingestion router, so in the assembled app that path is served by Person 2's handler, not
+this module's: it requires the **member** role, returns the **full `content` and raw
+`metadata`** in list items, and uses a `{ sourceRecords, total, page, limit }` envelope with
+no provider whitelist or redaction. The ingestion handler is therefore also registered at
+`/ingestion/source-records`, which is what this README documents. Options for Person 2:
+remove their list route, mount `ingestionRouter` before `projectsRouter` (changes their
+response shape for existing clients), or keep both. The detail route
+(`/source-records/:recordId`) has no conflict.
+
+---
+
+## 11. Reliability and recovery
+
+### Partial upload recovery (`documents/documentRecovery.js`)
+
+`processDocumentUpload` returns `status: 'partial'` when the Document was saved but its
+SourceRecord was not. `POST /api/projects/:id/documents/:documentId/reindex` (member role)
+finishes that job:
+
+- the Document is looked up by `(_id, projectId)`; another project's id is a plain `404`;
+- the content hash and extraction are recomputed from the **stored original bytes** (never
+  from the client), then the existing `persistDocumentSourceRecord` upserts the SourceRecord
+  keyed on `(projectId, 'document', Document._id)` — repeated or concurrent calls cannot
+  create duplicates and no second Document is ever created;
+- `200 { status: 'recovered' | 'already_indexed' }`; `404` unknown document; `409
+  ORIGINAL_UNAVAILABLE` when the stored file is gone; `422` if the file no longer
+  validates/extracts; `500` generic on database failure. A failed recovery changes nothing,
+  so the document still shows `processing.status: 'pending_indexing'`.
+- There is no scheduler: recovery is operator/owner-triggered (find candidates with
+  `GET …/documents` and look for `pending_indexing`). **Limitation:** it needs the original
+  bytes, which the local adapter only keeps in an ephemeral directory on Vercel (see below).
+
+### Document storage durability (blocked)
+
+The deployment is Vercel (`vercel.json`, `api/index.js`), where the local adapter's
+directory is ephemeral and per-instance. The Document schema already allows
+`storageRef.provider` of `vercel-blob` or `s3`, but no SDK is installed, no credentials or
+variables are configured, and no provider has been approved. No adapter was added.
+**Decision for Person 2:** pick the provider (Vercel Blob is the natural fit), provision
+it, and name the env variable(s); the adapter then implements the existing
+`put/delete/read` interface in `documentStorage.js`, with mocked tests and one real
+round-trip test using a throwaway store.
+
+### Integration tests against real MongoDB
+
+`npm run test:integration` starts a disposable `mongodb-memory-server` (database
+`relay_ingest_test`; the harness refuses any name not ending in `_test` and never reads
+`MONGODB_URI`). It exercises the real unique index, upserts, races, the Phase 7 query
+chains, uploads, recovery and the assembled app (`tests/mongo-integration/*.itest.js`, not
+picked up by `npm test`). The first run downloads a `mongod` binary; if that fails the run
+fails loudly rather than skipping.
+
+### Auth security issue (Person 2)
+
+`requireAuth` accepts `x-user-id` with no bearer token in every environment, and
+`tests/notifications/api.test.js` depends on it. Required fix: in `src/middleware/auth.js`
+honour the header only when `config.nodeEnv === 'test'`, and make that test file set
+`NODE_ENV=test` (or switch it to `signAuthToken`). Then flip the `todo` in
+`app.itest.js` into a regression test asserting 401. Not changed here because it alters
+Person 2's auth contract and Person 4's tests.
+
+### Person 3 context-pack compatibility
+
+`services/contextBuilder.js` (`mapToContextPackRequest`) is the existing contract.
+Ingested records satisfy every field it maps (verified on real data). One gap: it reads
+`r.contentType`, but ingestion stores it at `metadata.contentType`, so `content_type` is
+always `text/plain`. Person 3 should read `metadata.contentType`.
+
+### GitHub association (unchanged, blocked on Person 2)
+
+See "Not implemented: GitHub sync endpoint" above. Minimum design: (1) owner starts the
+install flow, server issues a signed, short-lived `state` binding user id + project id;
+(2) the GitHub App callback verifies `state`, then lists the installation's repositories
+with an installation token; (3) the owner picks a repo from that verified list;
+(4) the server writes `SourceConnection{ projectId, provider:'github', connectedBy,
+config:{ installationId, owner, repo } }` — ids only, never tokens; (5) sync is
+`POST /api/projects/:id/github/sync` (member), loading the connection by project and
+never accepting owner/repo/installation from the request. Live GitHub verification also
+needs a valid `GITHUB_APP_PRIVATE_KEY` and `GITHUB_APP_INSTALLATION_ID` locally.

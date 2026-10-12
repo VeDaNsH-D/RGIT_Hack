@@ -10,16 +10,85 @@ import { config } from './config.js';
 const cache = globalThis.__relayMongo || { conn: null, promise: null, txWarned: false };
 globalThis.__relayMongo = cache;
 
-export async function connectDB() {
-  if (cache.conn) return cache.conn;
-
-  if (!cache.promise) {
-    cache.promise = mongoose
-      .connect(config.mongodbUri, { maxPoolSize: 10 })
-      .then((m) => m);
+/**
+ * Validates that the MongoDB URI target is an isolated test database.
+ * Throws immediately if pointing to Atlas/production or if the database name
+ * does not end in "_test".
+ */
+export function assertTestDatabase(uri, options = {}) {
+  if (!uri || typeof uri !== 'string') {
+    throw new Error('Refusing to connect: MONGODB_URI is empty or invalid.');
   }
 
+  const lower = uri.toLowerCase();
+  if (
+    lower.includes('mongodb.net') ||
+    lower.includes('atlas') ||
+    lower.includes('rgit_hack')
+  ) {
+    throw new Error(
+      'Refusing to connect: Automated tests must never connect to a remote or production database.'
+    );
+  }
+
+  let dbName = options?.dbName || '';
+  if (!dbName) {
+    try {
+      const parsed = new URL(uri.replace(/^mongodb(\+srv)?:\/\//, 'http://'));
+      dbName = parsed.pathname.replace(/^\//, '').split('?')[0];
+    } catch {
+      const match = uri.match(/\/([^/?]+)(\?|$)/);
+      if (match) dbName = match[1];
+    }
+  }
+
+  if (!dbName || !dbName.endsWith('_test')) {
+    throw new Error(
+      `Refusing to connect: Test database name must end in "_test" (got "${dbName || 'none'}").`
+    );
+  }
+}
+
+export async function connectDB(options = {}) {
+  const isTest = (process.env.NODE_ENV || config.nodeEnv) === 'test' ||
+                 process.execArgv.includes('--test') ||
+                 process.argv.includes('--test');
+
+  const targetUri = isTest && (process.env.MONGODB_URI_TEST || config.mongodbUriTest)
+    ? (process.env.MONGODB_URI_TEST || config.mongodbUriTest)
+    : (process.env.MONGODB_URI || config.mongodbUri);
+
+  if (cache.conn && mongoose.connection.readyState === 1) {
+    return cache.conn;
+  }
+
+  if (cache.promise && mongoose.connection.readyState === 2) {
+    cache.conn = await cache.promise;
+    return cache.conn;
+  }
+
+  cache.conn = null;
+  cache.promise = null;
+
+  if (isTest) {
+    assertTestDatabase(targetUri, options);
+  }
+
+  cache.promise = mongoose
+    .connect(targetUri, { maxPoolSize: 10, ...options })
+    .then((m) => m);
+
   cache.conn = await cache.promise;
+
+  if (isTest) {
+    const connectedName = mongoose.connection.name || '';
+    if (!connectedName.endsWith('_test')) {
+      throw new Error(
+        `Refusing to connect: Connected database name must end in "_test" (got "${connectedName}").`
+      );
+    }
+  }
+
   return cache.conn;
 }
 

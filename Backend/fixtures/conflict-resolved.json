@@ -1,0 +1,11 @@
+{
+  "eventId": "evt_conflict_res_009",
+  "type": "CONFLICT_RESOLVED",
+  "projectId": "proj_relay_alpha_101",
+  "recipientUserId": "usr_project_lead_303",
+  "occurredAt": "2026-10-12T12:30:00Z",
+  "entityId": "cnf_deadline_mismatch_001",
+  "conflictType": "DEADLINE_MISMATCH",
+  "resolvedByUserId": "usr_project_lead_303",
+  "resolutionNotes": "Aligned deadline to 2026-10-16 in both documentation and Jira sprint plan."
+}

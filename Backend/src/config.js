@@ -61,4 +61,20 @@ export const config = {
     installationId: process.env.GITHUB_APP_INSTALLATION_ID || '',
     enabled: Boolean(process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY),
   },
+  // Document uploads (src/modules/ingestion/documents). The local storage
+  // directory is NOT durable on Vercel or multi-instance deployments.
+  documents: {
+    maxBytes: Number(process.env.DOCUMENT_MAX_BYTES) || 10 * 1024 * 1024,
+    storageDir: process.env.DOCUMENT_STORAGE_DIR || '',
+  },
+  // WhatsApp Web Selenium delivery adapter (optional, disabled by default)
+  whatsappWeb: {
+    enabled: process.env.WHATSAPP_WEB_ENABLED === 'true',
+    browser: process.env.WHATSAPP_WEB_BROWSER || 'chrome',
+    profileDir: process.env.WHATSAPP_WEB_PROFILE_DIR || '.whatsapp-sessions',
+    headless: process.env.WHATSAPP_WEB_HEADLESS === 'true',
+    navigationTimeoutMs: Number(process.env.WHATSAPP_WEB_NAVIGATION_TIMEOUT_MS) || 30000,
+    actionTimeoutMs: Number(process.env.WHATSAPP_WEB_ACTION_TIMEOUT_MS) || 15000,
+    defaultPhone: process.env.WHATSAPP_WEB_DEFAULT_PHONE || '+919021875564',
+  },
 };
