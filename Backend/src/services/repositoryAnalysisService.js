@@ -117,6 +117,20 @@ function coverageLimitations(c) {
   return out;
 }
 
+/**
+ * How many files a refresh could still gain from a snapshot of the same commit: files whose fetch failed (transient), plus
+ * files that were over a limit which has since been raised. Binary, credential-bearing and over-size files are permanent
+ * until their content or the limits change, so they never count and never trigger a re-fetch.
+ */
+export function retryableFiles(coverage, limits = config.githubApp.analysis) {
+  if (!coverage) return 0;
+  const was = coverage.limits || {};
+  let n = coverage.fetchFailed || 0;
+  if (coverage.tooLarge && limits.maxFileBytes > (was.maxFileBytes ?? Infinity)) n += coverage.tooLarge;
+  if (coverage.overBudget && (limits.maxFiles > (was.maxFiles ?? Infinity) || limits.maxTotalBytes > (was.maxTotalBytes ?? Infinity))) n += coverage.overBudget;
+  return n;
+}
+
 export function serializeAnalysis(connection, snapshot, latestKnownCommit) {
   const a = connection.config?.analysis || {};
   const lockLive = a.status === 'analyzing' && a.lockedAt && Date.now() - new Date(a.lockedAt).getTime() < LOCK_TTL_MS;
@@ -139,6 +153,9 @@ export function serializeAnalysis(connection, snapshot, latestKnownCommit) {
       overview: snapshot.knowledge?.overview ? { languages: snapshot.knowledge.overview.languages, frameworks: snapshot.knowledge.overview.frameworks } : null,
     } : null,
     freshness,
+    // True when the last refresh found nothing new to analyze; `retryable` is what a refresh could still gain without a new commit.
+    upToDate: !running && Boolean(a.upToDate),
+    retryable: snapshot ? retryableFiles(snapshot.coverage) : 0,
     lastAttemptAt: a.lastAttemptAt || null,
     error: state === 'failed' || a.errorCode ? { code: a.errorCode || 'ERROR', message: a.errorMessage || safeMessage(a.errorCode) } : null,
   };
@@ -187,7 +204,8 @@ export async function analyzeConnection(connectionId, { force = false, now = () 
 
     const prevId = cfg.analysis?.currentSnapshotId;
     const prev = prevId ? await RepositorySnapshot.findById(prevId).lean() : null;
-    if (!force && prev && prev.commitSha === commitSha && prev.analyzerVersion === ANALYZER_VERSION && prev.status === 'completed') {
+    // Same commit + same analyzer and nothing a retry could gain (partial included): no tree fetch, no rebuild, no GitHub calls.
+    if (!force && prev && prev.commitSha === commitSha && prev.analyzerVersion === ANALYZER_VERSION && ['completed', 'partial'].includes(prev.status) && !retryableFiles(prev.coverage, limits)) {
       await finish(connectionId, runId, { status: prev.status, lastAttemptAt: startedAt, upToDate: true }, { errorCode: 1, errorMessage: 1, staleAt: 1 });
       return SourceConnection.findById(connectionId);
     }
@@ -203,6 +221,11 @@ export async function analyzeConnection(connectionId, { force = false, now = () 
     // Blobs are content-addressed: a renamed/copied file reuses the stored text without a GitHub request.
     const sameContent = missing.length ? await RepositoryFile.find({ projectId, repositoryId: cfg.repositoryId, blobSha: { $in: missing.map((e) => e.sha) } }).select('+content').lean() : [];
     const byBlob = new Map(sameContent.map((f) => [f.blobSha, f]));
+    // Files already fetched and found permanently unusable at this exact blob (binary / credentials) are not fetched again.
+    const sameAnalyzer = prev && prev.analyzerVersion === ANALYZER_VERSION && Array.isArray(prev.skipped);
+    const priorSkips = new Map(!force && sameAnalyzer ? prev.skipped.map((x) => [`${x.path}@${x.blobSha}`, x.reason]) : []);
+    const skippedNow = [];
+    let fetchedOk = 0;
     const toFetch = [];
     for (const e of missing) {
       const donor = byBlob.get(e.sha);
@@ -213,15 +236,18 @@ export async function analyzeConnection(connectionId, { force = false, now = () 
     const unusable = new Set();
     let fatal = null;
     await mapLimit(toFetch, limits.concurrency, async (entry) => {
+      const prior = priorSkips.get(`${entry.path}@${entry.sha}`);
+      if (prior) { skip[prior] += 1; unusable.add(entry.path); skippedNow.push({ path: entry.path, blobSha: entry.sha, reason: prior }); return; }
       if (fatal) { skip.failed += 1; unusable.add(entry.path); return; }
       try {
         const blob = await client.get(`${base}/git/blobs/${entry.sha}`);
         let text = Buffer.from(blob.data?.content || '', blob.data?.encoding === 'base64' ? 'base64' : 'utf8').toString('utf8');
-        if (looksBinary(text)) { skip.binary += 1; unusable.add(entry.path); return; }
-        if (containsSecret(text)) { skip.secret += 1; unusable.add(entry.path); return; }
+        if (looksBinary(text)) { skip.binary += 1; unusable.add(entry.path); skippedNow.push({ path: entry.path, blobSha: entry.sha, reason: 'binary' }); return; }
+        if (containsSecret(text)) { skip.secret += 1; unusable.add(entry.path); skippedNow.push({ path: entry.path, blobSha: entry.sha, reason: 'secret' }); return; }
         const truncated = text.length > limits.maxFileChars;
         if (truncated) { text = text.slice(0, limits.maxFileChars); skip.truncated += 1; }
         await RepositoryFile.updateOne({ projectId, repositoryId: cfg.repositoryId, path: entry.path, blobSha: entry.sha }, { $set: { size: entry.size, truncated, content: text } }, { upsert: true });
+        fetchedOk += 1;
       } catch (err) {
         skip.failed += 1; unusable.add(entry.path);
         if (err instanceof GitHubApiError && FATAL.has(err.code)) fatal = err;
@@ -261,8 +287,8 @@ export async function analyzeConnection(connectionId, { force = false, now = () 
     const snapshot = await RepositorySnapshot.create({
       projectId, connectionId, repositoryId: cfg.repositoryId, fullName: repo.full_name, branch, commitSha, analyzerVersion: ANALYZER_VERSION,
       status, mode: sameVersion ? 'incremental' : 'full', analyzedAt: now(), coverage,
-      changes: { ...diffManifests(sameVersion ? prev.fileManifest : [], manifest), fetched: toFetch.length - skip.failed - skip.binary - skip.secret },
-      fileManifest: manifest, knowledge,
+      changes: { ...diffManifests(sameVersion ? prev.fileManifest : [], manifest), fetched: fetchedOk },
+      fileManifest: manifest, skipped: skippedNow, knowledge,
     });
 
     const published = await finish(connectionId, runId, {

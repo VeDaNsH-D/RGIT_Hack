@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -182,10 +183,13 @@ def generate_developer_handoff_endpoint(
     except InvalidEvidenceReferenceError as err:
         raise HTTPException(status_code=422, detail=f"Invalid evidence citation in AI output: {err}") from err
     except ModelOutputError as err:
+        logging.getLogger("uvicorn.error").error("developer handoff: malformed model output: %s", err)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Malformed model output: {err}") from err
     except GroqProviderError as err:
+        logging.getLogger("uvicorn.error").error("developer handoff: provider error: %s", err)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"AI service provider error: {err}") from err
     except Exception as err:
+        logging.getLogger("uvicorn.error").exception("developer handoff failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected internal error generating developer handoff.",

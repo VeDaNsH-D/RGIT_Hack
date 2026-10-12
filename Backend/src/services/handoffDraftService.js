@@ -93,7 +93,7 @@ function rankByRelevance(records, vocabulary, keep) {
   return scored.sort((a, b) => b.score - a.score).slice(0, keep).map((x) => x.r);
 }
 
-export async function buildHandoffContext(project, { requireActivity = true, extraLimitations = [], budgetChars = LIMITS.totalChars, includePreviousHandoffs = false, scale = 1, contentChars = LIMITS.contentChars, includeDocuments = true, documentBudgetChars = 24_000, queryHints = [], documentModels, limits = LIMITS } = {}) {
+export async function buildHandoffContext(project, { requireActivity = true, extraLimitations = [], budgetChars = LIMITS.totalChars, includePreviousHandoffs = false, scale = 1, contentChars = LIMITS.contentChars, includeDocuments = true, documentBudgetChars = 24_000, queryHints = [], documentModels, limits = LIMITS, contextNotes = null } = {}) {
   const projectId = project._id;
   const cap = (n) => Math.max(2, Math.floor(n * scale));
   const allConnections = await SourceConnection.find({ projectId, provider: { $in: ['github', 'slack', 'jira'] } }).lean();
@@ -202,10 +202,11 @@ export async function buildHandoffContext(project, { requireActivity = true, ext
       ? 'Synchronize a connected repository before drafting a handoff.' : 'There is no project context to draft from yet. Connect a repository, add tasks, or add notes first.');
   }
 
+  const factsNote = typeof contextNotes === 'function' ? contextNotes({ documents: { included: docs.included, notIndexed: docs.notIndexed } }) : (contextNotes || '');
   const evidence = new Map(evidenceList);
   const freshness = limitations.length ? `\n\n[Relay data limitations] ${limitations.join(' ')}` : '';
   const pack = mapToContextPackRequest({
-    project: { _id: project._id, name: project.name, description: `${project.description || ''}${freshness}`.trim() },
+    project: { _id: project._id, name: project.name, description: `${project.description || ''}${factsNote ? `\n\n${factsNote}` : ''}${freshness}`.trim() },
     tasks,
     documents: [],
     sourceRecords: selected,

@@ -76,14 +76,19 @@ describe('developer handoff reports', () => {
     await Task.create({ projectId: project._id, title: 'Fix CORS', createdBy: alice._id });
     ai = (pack) => {
       const id = (suffix) => pack.sources.find((s) => s.id.endsWith(suffix))?.id;
+      const issue = pack.sources.find((s) => s.record_type === 'issue');
       return J({
         case_id: pack.case_id, summary: 'Relay is an Express API; CORS on the users route is the open problem.',
-        sections: [
-          { key: 'architecture', claims: [{ text: 'The Express server entry point is src/server.js and it mounts src/routes/users.js.', kind: 'fact', source_ids: [id(':src/server.js'), id(':src/routes/users.js')].filter(Boolean) }] },
-          { key: 'outstanding_work', claims: [{ text: 'CORS preflight failures on /api/users (issue #8) relate to the users route in src/routes/users.js.', kind: 'inference', source_ids: [pack.sources.find((s) => s.record_type === 'issue').id, id(':src/routes/users.js')].filter(Boolean) }] },
-          { key: 'next_steps', claims: [{ text: 'Fix headers in src/ghost/cors.js first.', kind: 'inference', source_ids: [] }, { text: 'Add tests for the users route.', kind: 'inference', source_ids: [id(':src/routes/users.js')].filter(Boolean) }] },
-          { key: 'blockers_risks', claims: [{ text: 'Unknown deployment target.', kind: 'unknown', source_ids: [] }] },
+        current_state: [{ text: 'The Express server entry point is src/server.js and it mounts src/routes/users.js.', kind: 'fact', source_ids: [id(':src/server.js'), id(':src/routes/users.js')].filter(Boolean) }],
+        implementation_paths: [{ title: 'Users request path', flow: 'src/server.js mounts the router from src/routes/users.js, which serves GET /api/users through its list handler.', files: ['src/server.js', 'src/routes/users.js'], symbols: ['list'], kind: 'fact', source_ids: [id(':src/server.js'), id(':src/routes/users.js')].filter(Boolean) }],
+        blockers: [{ text: 'CORS preflight failures on /api/users (issue #8) relate to the users route in src/routes/users.js.', kind: 'fact', source_ids: [issue.id, id(':src/routes/users.js')].filter(Boolean) }],
+        unknowns: [{ text: 'The deployment target is not documented.', kind: 'unknown', source_ids: [] }],
+        recommendations: [
+          { action: 'Fix headers in src/ghost/cors.js first', why: 'The CORS module is where the failure was reported.', priority: 'P1', basis: 'confirmed', done_when: 'Preflight to the users route succeeds with CORS headers', files: [], source_ids: [issue.id] },
+          { action: 'Return CORS headers from the users route in src/routes/users.js', why: 'Issue 8 reports that the /api/users preflight fails.', priority: 'P1', basis: 'confirmed', done_when: 'OPTIONS /api/users returns CORS headers and issue 8 can be closed', files: ['src/routes/users.js'], source_ids: [issue.id, id(':src/routes/users.js')].filter(Boolean) },
+          { action: 'Add tests for the users route', why: 'No test files exist for the route handlers.', priority: 'P2', basis: 'suggested', done_when: 'A test asserts the GET /api/users response', files: ['src/routes/users.js'], source_ids: [id(':src/routes/users.js')].filter(Boolean) },
         ],
+        start_here: [{ file: 'src/server.js', reason: 'It wires the routes together.', source_ids: [id(':src/server.js')].filter(Boolean) }],
       });
     };
   });
@@ -98,7 +103,9 @@ describe('developer handoff reports', () => {
     await analyze();
     assert.equal((await generate()).status, 201);
     const ids = sent.sources.map((s) => s.id);
-    for (const expected of ['repo:101:overview', 'repo:101:components', 'repo:101:routes', 'file:101:README.md', 'file:101:src/server.js', 'file:101:package.json']) assert.ok(ids.includes(expected), expected);
+    for (const expected of ['repo:101:overview', 'repo:101:routes', 'repo:101:symbols', 'file:101:README.md', 'file:101:src/server.js', 'file:101:package.json', 'file:101:src/routes/users.js']) assert.ok(ids.includes(expected), expected);
+    assert.ok(ids.includes('repo:101:components'), 'a multi-component repository gets a component map');
+    assert.match(sent.case_description, /\[Complexity\] medium/); assert.match(sent.case_description, /Tests executed: none/); assert.match(sent.case_description, /Completion is not established/);
     assert.ok(sent.sources.some((s) => s.record_type === 'issue' && /CORS/.test(s.title))); // activity layer
     assert.ok(sent.tasks.some((t) => t.title === 'Fix CORS')); // Relay tasks
     assert.match(sent.sources.find((s) => s.id === 'repo:101:routes').content, /GET \/api\/users \(src\/routes\/users\.js:1\)/);
@@ -114,34 +121,53 @@ describe('developer handoff reports', () => {
     assert.ok(sent.sources.filter((s) => /IGNORE ALL/.test(s.content)).every((s) => s.provider === 'repository'));
   });
 
-  it('builds a structured report: AI synthesis plus deterministic setup, files, coverage and links', async () => {
+  it('builds the engineering report: brief first, verification status, adaptive sections, compact source index', async () => {
     await analyze();
     const r = (await generate()).body.report;
+    assert.equal(r.complexity, 'medium');
+    assert.match(r.brief.summary, /Express API/);
+    assert.equal(r.brief.currentState[0].kind, 'fact');
+    assert.deepEqual(r.brief.doFirst.map((x) => [x.priority, x.basis]), [['P1', 'confirmed'], ['P2', 'suggested']]);
+    assert.ok(r.brief.doFirst.every((x) => x.why && x.doneWhen), 'every action says why and when it is done');
+    assert.match(r.brief.findings.text, /1 confirmed blocker/); assert.equal(r.brief.attention, undefined, 'page one points to findings; it does not repeat them');
     const keys = r.sections.map((s) => s.key);
-    assert.deepEqual(keys, ['executive_summary', 'architecture', 'important_files', 'setup', 'outstanding_work', 'open_items', 'blockers_risks', 'next_steps', 'links', 'coverage']);
+    const order = ['walkthrough', 'first_30', 'setup', 'recommendations', 'documented_vs_implemented', 'blockers_risks', 'outstanding_work', 'unknowns', 'verification', 'open_items', 'jira_items', 'recent_activity'];
+    assert.deepEqual(keys, order.filter((k) => keys.includes(k)), 'sections follow the reading order');
+    assert.ok(['walkthrough', 'first_30', 'setup', 'open_items', 'verification'].every((k) => keys.includes(k)));
+    assert.ok(!keys.includes('how_it_works') && !keys.includes('start_here'));
+    assert.ok(!keys.some((k) => ['important_files', 'links', 'coverage', 'executive_summary'].includes(k)), 'no generic filler sections');
     const by = Object.fromEntries(r.sections.map((s) => [s.key, s]));
-    assert.match(by.setup.items.map((i) => i.text).join('\n'), /`start` runs `node src\/server\.js`/);
-    assert.match(by.setup.items.map((i) => i.text).join('\n'), /npm install/); assert.equal(by.setup.origin, 'deterministic');
-    const arch = by.architecture.items[0];
-    assert.equal(arch.kind, 'fact');
-    assert.ok(arch.evidence.some((e) => e.url === `https://github.com/acme/relay/blob/${'a'.repeat(40)}/src/server.js`));
-    assert.ok(by.links.items.some((i) => i.evidence[0].url === 'https://github.com/acme/relay'));
-    assert.match(by.coverage.items[0].text, new RegExp(`analyzed commit ${'a'.repeat(40)} on main`));
-    assert.equal(r.repositories[0].commitSha, 'a'.repeat(40)); assert.equal(r.repositories[0].status, 'completed'); // .env is excluded by rule (reported as excluded), everything eligible was analyzed
-    assert.ok(r.generatedAt);
+    const path = by.walkthrough.items.find((i) => i.type === 'subsystem');
+    assert.deepEqual([path.files, path.symbols, path.kind], [['src/server.js', 'src/routes/users.js'], ['list'], 'fact']);
+    assert.match(by.setup.items.map((i) => i.text).join('\n'), /`start` runs `node src\/server\.js`/); assert.equal(by.setup.origin, 'deterministic');
+    // nothing from the brief is repeated below it
+    assert.ok(!JSON.stringify(r.sections).includes('Fix headers in'), 'the invented-path recommendation was removed');
+    const blocker = by.blockers_risks.items.find((i) => i.label === 'confirmed');
+    assert.match(blocker.text, /CORS preflight failures/);
+    assert.equal(r.sections.flatMap((s) => s.items).filter((i) => /CORS preflight failures/.test(i.text)).length, 1, 'the blocker is explained once');
+    // compact numbered sources
+    const n = blocker.refs; assert.ok(n.length >= 1);
+    const src = r.sourceIndex.find((x) => x.n === n[0]);
+    assert.ok(src.id && src.label && src.type);
+    assert.ok(r.sourceIndex.some((x) => x.url === `https://github.com/acme/relay/blob/${'a'.repeat(40)}/src/server.js`));
+    assert.deepEqual(r.sourceIndex.map((x) => x.n), r.sourceIndex.map((_, i) => i + 1));
+    // verification status is deterministic
+    assert.equal(r.verification.tests.executed.status, 'none_available'); assert.equal(r.verification.runtime.status, 'not_verified');
+    assert.equal(r.verification.completion.status, 'not_established'); assert.equal(r.verification.requirements.status, 'none_provided');
+    assert.equal(r.verification.workTracking.openIssues, 1); assert.equal(r.verification.coverage[0].commit, 'a'.repeat(40));
+    assert.equal(r.repositories[0].commitSha, 'a'.repeat(40)); assert.equal(r.repositories[0].status, 'completed');
   });
 
   it('removes AI statements that name files that do not exist or cite unknown sources, and says so', async () => {
     await analyze();
     const r = (await generate()).body.report;
-    const next = r.sections.find((s) => s.key === 'next_steps');
-    assert.deepEqual(next.items.map((i) => i.text), ['Add tests for the users route.']); // src/ghost/cors.js was invented
-    assert.ok(r.limitations.some((l) => /file paths that do not exist/.test(l)));
+    assert.ok(!r.brief.doFirst.some((x) => /ghost/.test(x.text)), 'src/ghost/cors.js was invented');
+    assert.ok(r.limitations.some((l) => /reference\(s\) to files not in the analyzed commit/.test(l)));
     const prev = ai;
-    ai = (pack) => J({ case_id: pack.case_id, summary: 'S', sections: [{ key: 'architecture', claims: [{ text: 'Fine claim', kind: 'fact', source_ids: ['file:101:made/up.js'] }] }] });
+    ai = (pack) => J({ case_id: pack.case_id, summary: 'S', how_it_works: [{ text: 'Fine claim', kind: 'fact', source_ids: ['file:101:made/up.js'] }], recommendations: [] });
     const r2 = (await generate(alice, true)).body.report;
-    assert.ok(!r2.sections.some((s) => s.key === 'architecture'));
-    assert.ok(r2.limitations.some((l) => /unknown sources/.test(l)));
+    assert.ok(!r2.sections.some((s) => s.key === 'walkthrough' && s.items.some((i) => i.text === 'Fine claim')));
+    assert.ok(r2.limitations.some((l) => /invalid source reference/.test(l)));
     ai = prev;
   });
 
@@ -151,9 +177,10 @@ describe('developer handoff reports', () => {
     await SourceConnection.updateOne({ _id: connection._id }, { 'config.sync.status': 'failed' });
     const r = (await generate()).body.report;
     assert.match(sent.case_description, /Relay data limitations/); assert.match(sent.case_description, /stale/);
-    assert.ok(r.limitations.some((l) => /stale/.test(l))); assert.ok(r.limitations.some((l) => /failed/.test(l)));
+    assert.ok(r.limitations.some((l) => /stale/.test(l)));
     assert.equal(r.repositories[0].freshness, 'stale');
-    assert.ok(r.sections.find((s) => s.key === 'coverage').items.some((i) => i.kind === 'unknown'));
+    assert.equal(r.verification.coverage[0].freshness, 'stale'); assert.ok(r.verification.coverage[0].staleReasons.length);
+    assert.match(r.verification.workTracking.detail, /GitHub sync was not fully successful, so these counts may be incomplete/);
   });
 
   it('handles AI failures without persisting anything or creating a team handoff', async () => {
@@ -213,8 +240,12 @@ describe('developer handoff reports', () => {
       text += (await page.getTextContent()).items.map((t) => t.str).join(' ') + '\n';
       for (const a of await page.getAnnotations()) if (a.url) links.add(a.url);
     }
-    for (const expected of ['Relay Platform', 'acme/relay', 'a'.repeat(40), 'Repository architecture', 'Development setup and test instructions', 'Data freshness and analysis coverage', 'Relevant source links', 'src/routes/users.js', 'node src/server.js', 'Source-backed']) assert.ok(text.replace(/\s+/g, ' ').includes(expected), expected);
-    assert.ok(links.has(`https://github.com/acme/relay/blob/${'a'.repeat(40)}/src/server.js`)); assert.ok(links.has('https://github.com/acme/relay'));
+    const flat = text.replace(/\s+/g, ' ');
+    for (const expected of ['Relay Platform', 'acme/relay', 'main @ aaaaaaa', 'Tests', 'Completion is not established', 'Architecture and Technical Walkthrough', 'Your First 30 Minutes', 'Known Risks, Unknowns, and Verification Status', 'Setup and run', 'Sources', 'src/routes/users.js', 'node src/server.js', 'Verified fact', 'P1 confirmed']) assert.ok(flat.includes(expected), expected);
+    for (const label of ['EXECUTIVE SUMMARY', 'CURRENT VERIFIED STATE', 'DO FIRST']) assert.ok(flat.replace(/\s/g, '').includes(label.replace(/\s/g, '')), label); // letter-spaced labels
+    assert.ok(doc.numPages <= 3, `a medium repository with this little content fits ${doc.numPages} page(s)`);
+    assert.ok(!/Source-backed|Repository architecture|Important files and entry points/.test(flat), 'no legacy generic sections');
+    assert.ok(links.has(`https://github.com/acme/relay/blob/${'a'.repeat(40)}/src/server.js`));
     assert.doesNotMatch(text, /supersecretvalue|PWNED/);
   });
 

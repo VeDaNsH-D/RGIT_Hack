@@ -208,24 +208,27 @@ describe('slack and jira in the handoff', () => {
       ai = (pack) => {
         const j = pack.sources.find((x) => x.provider === 'jira' && x.metadata.key === 'PAY-12');
         const sl = pack.sources.find((x) => x.provider === 'slack');
-        return J({ case_id: pack.case_id, summary: 'S', sections: [{ key: 'tracked_work_and_discussion', claims: [
-          { text: 'PAY-12 is in progress and assigned to Priya.', kind: 'fact', source_ids: [j.id] },
-          { text: 'Slack suggests three retries were agreed.', kind: 'inference', source_ids: [sl.id, j.id] },
-          { text: 'Made up.', kind: 'fact', source_ids: ['jira:nope'] }] }] });
+        return J({ case_id: pack.case_id, summary: 'S', current_state: [], recommendations: [],
+          outstanding_work: [{ text: 'PAY-12 is in progress and assigned to Priya.', kind: 'fact', source_ids: [j.id] }, { text: 'Made up.', kind: 'fact', source_ids: ['jira:nope'] }],
+          risks: [{ text: 'Slack suggests three retries were agreed, which PAY-12 may not yet reflect.', kind: 'inference', source_ids: [sl.id, j.id] }],
+          blockers: [{ text: 'Slack says the retry work is blocked on staging keys.', kind: 'fact', source_ids: [sl.id] }] });
       };
       const r = (await generate()).body.report;
       const by = Object.fromEntries(r.sections.map((s) => [s.key, s]));
-      const t = by.tracked_work_and_discussion.items;
-      assert.equal(t.length, 2);
-      assert.equal(t[0].evidence[0].type, 'jira_issue'); assert.equal(t[0].evidence[0].label, 'Jira PAY-12');
-      assert.match(t[0].evidence[0].url, /atlassian\.net/);
-      assert.deepEqual(t[1].evidence.map((e) => e.type).sort(), ['jira_issue', 'slack_message']);
-      assert.match(t[1].evidence.find((e) => e.type === 'slack_message').label, /^Slack #payments 2026-10-01$/);
+      const work = by.outstanding_work.items;
+      assert.equal(work.length, 1);
+      assert.equal(work[0].evidence[0].type, 'jira_issue'); assert.equal(work[0].evidence[0].label, 'Jira PAY-12');
+      assert.match(work[0].evidence[0].url, /atlassian\.net/);
+      const risks = by.blockers_risks.items;
+      assert.equal(risks.length, 2, 'the Slack-only "blocker" is demoted to an inferred risk next to the genuine risk');
+      assert.ok(risks.every((i) => i.kind === 'inference' && i.label === 'inferred risk'));
+      assert.ok(risks.some((i) => i.evidence.some((e) => e.type === 'slack_message' && /^Slack #payments 2026-10-01$/.test(e.label))));
+      assert.equal(risks.some((a) => a.label === 'confirmed' && /Slack says/.test(a.text)), false, 'Slack alone cannot confirm a blocker');
       assert.match(by.jira_items.items.map((i) => i.text).join('\n'), /PAY-12: Failed Stripe payments are not retried \(Bug; status In Progress; priority High; assigned to Priya; due 2026-11-15\)/);
       assert.match(by.jira_items.items.map((i) => i.text).join('\n'), /PAY-15: PDF export is slow \(.*unassigned/);
       assert.ok(!by.jira_items.items.some((i) => /PAY-9/.test(i.text)), 'resolved issues are not listed as open');
-      assert.ok(by.coverage.items.some((i) => /Jira project PAY: sync completed/.test(i.text)));
-      assert.ok(by.coverage.items.some((i) => /Slack #payments: sync completed/.test(i.text)));
+      assert.deepEqual(r.verification.integrations.map((i) => [i.provider, i.status]).sort(), [['jira', 'completed'], ['slack', 'completed']]);
+      assert.equal(r.verification.workTracking.openJira, 2);
       assert.ok(r.limitations.some((l) => /Slack content is informal discussion/.test(l)));
       assert.ok(r.basedOn.jira >= 1 && r.basedOn.slack === 1);
     });
