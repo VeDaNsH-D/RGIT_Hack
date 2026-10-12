@@ -2,8 +2,12 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
-import { WhatsAppConnection, JiraConnection } from '../models/index.js';
+import { WhatsAppConnection, JiraConnection, SlackConnection, NotionConnection } from '../models/index.js';
 import { JiraConnector } from '../integrations/jira/index.js';
+import { SlackClient } from '../modules/ingestion/providers/slack/slackClient.js';
+import { SlackConnector } from '../modules/ingestion/providers/slack/slackConnector.js';
+import { NotionClient } from '../modules/ingestion/providers/notion/notionClient.js';
+import { NotionConnector } from '../modules/ingestion/providers/notion/notionConnector.js';
 import { ConnectError, completeInstall, consumeState, createInstallUrl, getStatus } from '../services/githubConnectionService.js';
 
 /**
@@ -146,21 +150,13 @@ router.delete('/whatsapp', requireAuth, needUser, async (req, res, next) => {
 router.get('/jira', requireAuth, needUser, async (req, res, next) => {
   try {
     const conn = await JiraConnection.findOne({ userId: req.user.id });
-    const envHost = process.env.JIRA_HOST || process.env.JIRA_BASE_URL || '';
-    const envConfigured = Boolean(envHost && (process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN));
-
     if (!conn || !conn.active) {
       return res.set('Cache-Control', 'no-store').json({
-        configured: envConfigured,
         connected: false,
-        host: envHost,
-        email: process.env.JIRA_EMAIL || '',
-        projectKey: process.env.JIRA_PROJECT_KEY || '',
       });
     }
 
     return res.set('Cache-Control', 'no-store').json({
-      configured: true,
       connected: true,
       host: conn.host,
       email: conn.email,
@@ -175,10 +171,10 @@ router.get('/jira', requireAuth, needUser, async (req, res, next) => {
 router.post('/jira', requireAuth, needUser, async (req, res, next) => {
   try {
     let { host, email, apiToken, projectKey } = req.body || {};
-    host = (host || process.env.JIRA_HOST || process.env.JIRA_BASE_URL || '').trim();
-    email = (email || process.env.JIRA_EMAIL || '').trim();
-    apiToken = (apiToken || process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN || '').trim();
-    projectKey = (projectKey || process.env.JIRA_PROJECT_KEY || '').trim().toUpperCase();
+    host = String(host || '').trim();
+    email = String(email || '').trim();
+    apiToken = String(apiToken || '').trim();
+    projectKey = String(projectKey || '').trim().toUpperCase();
 
     if (!host) {
       return res.status(400).json({
@@ -274,6 +270,210 @@ router.post('/jira/sync', requireAuth, needUser, async (req, res, next) => {
     return res.status(200).json({
       ok: true,
       syncedIssueCount: conn.syncedIssueCount,
+      lastSyncAt: conn.lastSyncAt,
+    });
+  } catch (err) { next(err); }
+});
+
+router.get('/slack', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const conn = await SlackConnection.findOne({ userId: req.user.id });
+    if (!conn || !conn.active) {
+      return res.set('Cache-Control', 'no-store').json({ connected: false });
+    }
+    return res.set('Cache-Control', 'no-store').json({
+      connected: true,
+      teamDomain: conn.teamDomain,
+      teamName: conn.teamName,
+      channelId: conn.channelId,
+      connectedAt: conn.connectedAt,
+      lastSyncAt: conn.lastSyncAt,
+      syncedMessageCount: conn.syncedMessageCount,
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/slack', requireAuth, needUser, async (req, res, next) => {
+  try {
+    let { botToken, teamDomain, channelId } = req.body || {};
+    botToken = String(botToken || '').trim();
+    teamDomain = String(teamDomain || '').trim();
+    channelId = String(channelId || '').trim();
+
+    if (!botToken || !botToken.startsWith('xoxb-')) {
+      return res.status(400).json({
+        error: 'invalid_token',
+        message: 'Please provide a valid Slack Bot User OAuth Token (starts with xoxb-).',
+      });
+    }
+
+    let auth;
+    try {
+      const client = new SlackClient({ token: botToken });
+      auth = await client.testAuth();
+    } catch (err) {
+      return res.status(400).json({
+        error: 'slack_verification_failed',
+        message: err.message || 'Could not verify Slack bot token.',
+      });
+    }
+
+    const teamName = auth?.team || teamDomain || 'Slack Workspace';
+
+    const conn = await SlackConnection.findOneAndUpdate(
+      { userId: req.user.id },
+      {
+        userId: req.user.id,
+        botToken,
+        teamDomain,
+        channelId,
+        teamName,
+        active: true,
+        connectedAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    return res.status(200).json({
+      connected: true,
+      teamDomain: conn.teamDomain,
+      teamName: conn.teamName,
+      channelId: conn.channelId,
+      connectedAt: conn.connectedAt,
+      lastSyncAt: conn.lastSyncAt,
+      syncedMessageCount: conn.syncedMessageCount,
+    });
+  } catch (err) { next(err); }
+});
+
+router.delete('/slack', requireAuth, needUser, async (req, res, next) => {
+  try {
+    await SlackConnection.deleteOne({ userId: req.user.id });
+    return res.status(200).json({ connected: false });
+  } catch (err) { next(err); }
+});
+
+router.post('/slack/sync', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const conn = await SlackConnection.findOne({ userId: req.user.id, active: true });
+    if (!conn) {
+      return res.status(400).json({ error: 'not_connected', message: 'Slack is not connected.' });
+    }
+    const connector = new SlackConnector({
+      token: conn.botToken,
+      teamDomain: conn.teamDomain,
+    });
+    const result = await connector.sync({
+      channelId: conn.channelId || undefined,
+      maxPages: 3,
+      perPage: 25,
+    });
+    conn.lastSyncAt = new Date();
+    conn.syncedMessageCount = result.recordsCount || 0;
+    await conn.save();
+
+    return res.status(200).json({
+      ok: true,
+      syncedMessageCount: conn.syncedMessageCount,
+      lastSyncAt: conn.lastSyncAt,
+    });
+  } catch (err) { next(err); }
+});
+
+router.get('/notion', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const conn = await NotionConnection.findOne({ userId: req.user.id });
+    if (!conn || !conn.active) {
+      return res.set('Cache-Control', 'no-store').json({ connected: false });
+    }
+    return res.set('Cache-Control', 'no-store').json({
+      connected: true,
+      workspaceName: conn.workspaceName,
+      pageId: conn.pageId,
+      databaseId: conn.databaseId,
+      connectedAt: conn.connectedAt,
+      lastSyncAt: conn.lastSyncAt,
+      syncedPageCount: conn.syncedPageCount,
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/notion', requireAuth, needUser, async (req, res, next) => {
+  try {
+    let { apiKey, pageId, databaseId } = req.body || {};
+    apiKey = String(apiKey || '').trim();
+    pageId = String(pageId || '').trim();
+    databaseId = String(databaseId || '').trim();
+
+    if (!apiKey) {
+      return res.status(400).json({
+        error: 'invalid_token',
+        message: 'Please provide your Notion Internal Integration Secret (starts with secret_).',
+      });
+    }
+
+    try {
+      const client = new NotionClient({ apiKey });
+      await client.search({ pageSize: 1 });
+    } catch (err) {
+      return res.status(400).json({
+        error: 'notion_verification_failed',
+        message: err.message || 'Could not verify Notion token. Check your integration secret and shared pages.',
+      });
+    }
+
+    const conn = await NotionConnection.findOneAndUpdate(
+      { userId: req.user.id },
+      {
+        userId: req.user.id,
+        apiKey,
+        pageId,
+        databaseId,
+        workspaceName: 'Notion Workspace',
+        active: true,
+        connectedAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    return res.status(200).json({
+      connected: true,
+      workspaceName: conn.workspaceName,
+      pageId: conn.pageId,
+      databaseId: conn.databaseId,
+      connectedAt: conn.connectedAt,
+      lastSyncAt: conn.lastSyncAt,
+      syncedPageCount: conn.syncedPageCount,
+    });
+  } catch (err) { next(err); }
+});
+
+router.delete('/notion', requireAuth, needUser, async (req, res, next) => {
+  try {
+    await NotionConnection.deleteOne({ userId: req.user.id });
+    return res.status(200).json({ connected: false });
+  } catch (err) { next(err); }
+});
+
+router.post('/notion/sync', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const conn = await NotionConnection.findOne({ userId: req.user.id, active: true });
+    if (!conn) {
+      return res.status(400).json({ error: 'not_connected', message: 'Notion is not connected.' });
+    }
+    const connector = new NotionConnector({ apiKey: conn.apiKey });
+    const result = await connector.sync({
+      databaseId: conn.databaseId || undefined,
+      pageIds: conn.pageId ? [conn.pageId] : undefined,
+      maxPages: 3,
+    });
+    conn.lastSyncAt = new Date();
+    conn.syncedPageCount = result.recordsCount || 0;
+    await conn.save();
+
+    return res.status(200).json({
+      ok: true,
+      syncedPageCount: conn.syncedPageCount,
       lastSyncAt: conn.lastSyncAt,
     });
   } catch (err) { next(err); }
