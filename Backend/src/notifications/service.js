@@ -113,6 +113,19 @@ export class NotificationService {
       const savedRecord = await this.repository.create(record);
       return savedRecord;
     } catch (err) {
+      if (err instanceof DuplicateNotificationEventError) {
+        if (options.throwOnDuplicate) {
+          throw err;
+        }
+        // In concurrent scenarios where two requests pass step 2 simultaneously,
+        // the second insert is rejected by the database unique constraint.
+        // Return the winning record to guarantee idempotent behavior.
+        if (typeof this.repository.findByEventId === 'function') {
+          const winner = await this.repository.findByEventId(event.eventId);
+          if (winner) return winner;
+        }
+        return err.existingRecord || record;
+      }
       if (err instanceof NotificationRepositoryError) {
         throw err;
       }

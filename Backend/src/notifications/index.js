@@ -50,4 +50,21 @@ export {
   notificationRouter,
 } from './routes.js';
 
+export {
+  RetryExhaustedError,
+  isTransientError,
+  withRetry,
+} from './reliability/retry.js';
+
+export {
+  sanitizeData,
+  formatLogEntry,
+  logNotification,
+} from './reliability/logger.js';
+
+export {
+  NotificationDeliveryDispatcher,
+} from './reliability/dispatcher.js';
+
+
 

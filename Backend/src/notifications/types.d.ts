@@ -97,6 +97,11 @@ export interface NotificationRepository {
   countUnread?(recipientUserId: string): Promise<number>;
   markAsRead?(id: string, recipientUserId: string): Promise<NotificationRecord | null>;
   markAllAsRead?(recipientUserId: string): Promise<{ updatedCount: number }>;
+  updateDeliveryStatus?(
+    id: string,
+    deliveryStatus: DeliveryStatus,
+    metadata?: Record<string, unknown>
+  ): Promise<NotificationRecord | null>;
 }
 
 export interface NotificationServiceConfig {
@@ -107,4 +112,20 @@ export interface NotificationServiceConfig {
 export interface ProcessEventOptions {
   throwOnDuplicate?: boolean;
 }
+
+export interface RetryOptions {
+  maxRetries?: number;
+  initialDelayMs?: number;
+  backoffFactor?: number;
+  maxDelayMs?: number;
+  isTransient?: (error: unknown) => boolean;
+  sleepFn?: (ms: number) => Promise<void>;
+  onRetry?: (attempt: number, error: unknown, delayMs: number) => void;
+}
+
+export interface DeliveryProvider {
+  name: string;
+  send(notification: NotificationRecord): Promise<{ success: boolean; externalId?: string }>;
+}
+
 

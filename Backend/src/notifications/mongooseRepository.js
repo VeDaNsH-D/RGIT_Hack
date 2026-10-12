@@ -208,4 +208,34 @@ export class MongooseNotificationRepository {
       );
     }
   }
+
+  /**
+   * Updates deliveryStatus for a notification record in MongoDB.
+   * 
+   * @param {string} id
+   * @param {string} deliveryStatus
+   * @param {object} [metadata]
+   * @returns {Promise<import('./records.js').NotificationRecord | null>}
+   */
+  async updateDeliveryStatus(id, deliveryStatus, metadata = {}) {
+    if (!id || !deliveryStatus) return null;
+
+    try {
+      const doc = await this.model.findOneAndUpdate(
+        { id },
+        { $set: { deliveryStatus } },
+        { new: true }
+      ).lean();
+
+      if (!doc) return null;
+      delete doc._id;
+      return doc;
+    } catch (err) {
+      throw new NotificationRepositoryError(
+        `Database failure updating deliveryStatus for '${id}': ${err.message}`,
+        err
+      );
+    }
+  }
 }
+

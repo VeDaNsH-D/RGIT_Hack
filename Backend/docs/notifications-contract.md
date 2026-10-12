@@ -205,9 +205,48 @@ Atomically marks all unread notifications for the authenticated user as read in 
 
 ---
 
+## Reliability, Failure Handling & Resilience (Task 4)
+
+### 1. Concurrent & Durable Idempotency
+- **Deduplication Key**: Stable `eventId`.
+- **Durable Uniqueness**: Enforced via a unique sparse index on `eventId` in MongoDB (`NotificationModel`) and indexed mapping in memory.
+- **Race Condition Resolution**: If two concurrent processes execute `processEvent()` with the same `eventId` at the exact same millisecond:
+  - Both pass validation.
+  - The first insert succeeds.
+  - The second insert is caught by the database unique constraint and automatically resolves the winning notification record. Exactly one record is ever persisted.
+
+### 2. Bounded Retries & Error Classification (`retry.js`)
+Transient failures are retried using bounded exponential backoff (`withRetry`):
+- **Permanent Errors (Never Retried)**:
+  - Validation failures (`NotificationValidationError`, `UnsupportedTemplateEventError`)
+  - Schema/Type mismatches (`TypeError`, `RangeError`)
+  - HTTP 4xx Client Errors (except 429)
+  - Fail immediately on attempt 1 without retry overhead.
+- **Transient Errors (Retried with Backoff)**:
+  - Network connection resets/timeouts (`ECONNRESET`, `ETIMEDOUT`, `ECONNREFUSED`, `EAI_AGAIN`)
+  - Rate limiting (HTTP 429)
+  - HTTP 5xx Server Errors
+  - Database primary failover / cluster reconnections
+- **Retry Bounds**: Configurable `maxRetries` (default 3), `initialDelayMs` (default 100ms), and `backoffFactor` (default 2). On exhaustion, raises `RetryExhaustedError` preserving full attempt history.
+- **Zero-Wait Testing**: Supports custom `sleepFn` allowing test suites to execute instant, deterministic retries.
+
+### 3. Delivery State Machine & Dispatcher (`dispatcher.js`)
+State transitions are strictly managed by `NotificationDeliveryDispatcher`:
+- `PENDING`: Notification saved to database; delivery not yet confirmed.
+- `SENT`: Confirmed by delivery provider (e.g., in-app delivery confirmed, or external channel ACK received).
+- `FAILED`: Delivery failed permanently or bounded retries exhausted.
+- **Provider Boundary**: Delivery channels implement the `DeliveryProvider` interface (`send(notification)`), allowing optional providers (such as WhatsApp Business API) to plug in without modifying notification workflows.
+- **Partial Failure Isolation**: `dispatchBatch()` isolates delivery failures using `Promise.allSettled`, guaranteeing that a failure delivering to one recipient never blocks unrelated notifications.
+
+### 4. Structured Observability & Data Sanitization (`logger.js`)
+- Structured JSON logs via `logNotification(level, message, context)`.
+- Automatically redacts sensitive fields matching regex patterns (e.g., `token`, `password`, `secret`, `authorization`, `cookie`, `jwt`, `apiKey`).
+
+---
+
 ## Running Tests
 
-Run all contract, service, and API integration test suites:
+Run all contract, service, API integration, and reliability test suites:
 
 ```bash
 cd Backend
@@ -220,6 +259,7 @@ Or run individual suites:
 node --test tests/notifications/contracts.test.js
 node --test tests/notifications/service.test.js
 node --test tests/notifications/api.test.js
+node --test tests/notifications/reliability.test.js
 ```
 
 ---
@@ -230,4 +270,6 @@ node --test tests/notifications/api.test.js
 2. **Channel Delivery Decoupling**: External delivery (WhatsApp / Webhooks / Email) hooks into notification creation without altering the core API or storage contract.
 3. **Database Independence**: The API router supports dependency injection (`createNotificationRouter({ repository })`), making it fully testable in-memory and cleanly swappable between Mongoose and Prisma.
 4. **Authentication**: Upstream authentication middleware (owned by Person 2) populates `req.user`. Development testing supports `x-user-id` and Bearer JWTs via `JWT_SECRET`.
+5. **Durable Idempotency**: True exactly-once persistence requires the database unique index on `eventId` provided by `NotificationModel`. In distributed multi-worker environments, this prevents duplicate records even across independent Node processes.
+
 

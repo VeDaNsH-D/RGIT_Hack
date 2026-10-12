@@ -22,10 +22,14 @@ export class NotificationRepositoryError extends Error {
  * 
  * NOTE: Not intended for distributed production persistence.
  */
+import { DuplicateNotificationEventError } from './service.js';
+
 export class InMemoryNotificationRepository {
   constructor() {
     /** @type {Map<string, import('./records.js').NotificationRecord>} */
     this._recordsById = new Map();
+    /** @type {Map<string, import('./records.js').NotificationRecord>} */
+    this._recordsByEventId = new Map();
   }
 
   /**
@@ -43,9 +47,19 @@ export class InMemoryNotificationRepository {
       throw new NotificationRepositoryError(`Notification with id '${record.id}' already exists.`);
     }
 
+    if (record.eventId && this._recordsByEventId.has(record.eventId)) {
+      throw new DuplicateNotificationEventError(
+        record.eventId,
+        this._recordsByEventId.get(record.eventId)
+      );
+    }
+
     // Deep clone to prevent external mutation
     const cloned = structuredClone(record);
     this._recordsById.set(cloned.id, cloned);
+    if (cloned.eventId) {
+      this._recordsByEventId.set(cloned.eventId, cloned);
+    }
 
     return structuredClone(cloned);
   }
@@ -185,10 +199,34 @@ export class InMemoryNotificationRepository {
   }
 
   /**
+   * Updates deliveryStatus for a notification record.
+   * 
+   * @param {string} id
+   * @param {string} deliveryStatus
+   * @param {object} [metadata]
+   * @returns {Promise<import('./records.js').NotificationRecord | null>}
+   */
+  async updateDeliveryStatus(id, deliveryStatus, metadata = {}) {
+    if (!id || !deliveryStatus) return null;
+
+    const record = this._recordsById.get(id);
+    if (!record) return null;
+
+    record.deliveryStatus = deliveryStatus;
+    if (metadata) {
+      record.deliveryMetadata = metadata;
+    }
+
+    return structuredClone(record);
+  }
+
+  /**
    * Clears all in-memory records (useful for test resets).
    */
   clear() {
     this._recordsById.clear();
+    this._recordsByEventId.clear();
   }
 }
+
 
