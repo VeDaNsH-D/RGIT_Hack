@@ -12,7 +12,7 @@ export async function fetchAgoraConfig(signal) {
 
 /**
  * Obtains authenticated RTC and RTM session tokens for an Agora call channel.
- * 
+ *
  * @param {object} params
  * @param {string} params.channelName
  * @param {'video'|'audio'} [params.callType='video']
@@ -28,7 +28,7 @@ export async function fetchAgoraToken({ channelName, callType = 'video', role = 
 
 /**
  * Uploads an audio blob to Groq Whisper for Speech-to-Text transcription.
- * 
+ *
  * @param {Blob} audioBlob
  * @param {string} [language='en']
  * @returns {Promise<{ success: boolean, text: string }>}
@@ -58,7 +58,7 @@ export async function transcribeAudio(audioBlob, language = 'en') {
 /**
  * Dispatches call transcript to Groq LLM to generate an executive meeting summary,
  * key points, decisions, and action items.
- * 
+ *
  * @param {object} payload
  * @param {string} payload.transcript
  * @param {string} [payload.channelName]

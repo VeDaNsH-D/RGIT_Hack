@@ -245,3 +245,9 @@ Run the test suite deterministically from the repository root (all Groq API call
 ```bash
 python -m pytest aiml/tests -v
 ```
+
+### Project chatbot
+
+`POST /api/v1/project-chat` generates a plain-text answer over retrieved sources supplied by the authorized Node backend. It uses a dedicated NEW_GROQ_API_KEY with the existing GROQ_MODEL and GROQ_TIMEOUT settings, validates citations, and treats retrieved content as untrusted data. The website calls the authenticated backend's project chat API; it does not supply arbitrary project evidence directly. Deploy this endpoint alongside the Node chat route before using the deployed chatbot.
+
+Set NEW_GROQ_API_KEY in aiml/.env locally and on the Python AI Render service for deployment, then restart/redeploy that service. Project chat never falls back to GROQ_API_KEY; other AI features continue using GROQ_API_KEY.
