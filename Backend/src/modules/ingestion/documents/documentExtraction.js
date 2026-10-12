@@ -107,7 +107,7 @@ export async function extractPdfText(buffer, { maxTextLength, maxPages }) {
       pages.push(pageText);
     }
 
-    return { text: pages.join('\n\n'), metadata: { pageCount: doc.numPages } };
+    return { text: pages.join('\n\n'), pages, metadata: { pageCount: doc.numPages } };
   } finally {
     await task.destroy().catch(() => {});
   }
@@ -148,7 +148,7 @@ export function extractTxtText(buffer) {
  * @param {number} [params.limits.maxTextLength]
  * @param {number} [params.limits.maxPages]
  * @param {number} [params.limits.maxBytes]
- * @returns {Promise<{ extractedText: string, detectedFormat: 'pdf'|'docx'|'txt', status: 'extracted'|'empty',
+ * @returns {Promise<{ extractedText: string, segments: Array<{ page?: number, text: string }>, detectedFormat: 'pdf'|'docx'|'txt', status: 'extracted'|'empty',
  *   metadata: { characterCount: number, pageCount?: number, encoding?: string, parserWarnings?: number } }>}
  * @throws {DocumentProcessingError}
  */
@@ -170,8 +170,15 @@ export async function extractDocumentText({ buffer, filename, mimeType, validate
   const extractedText = normalizeExtractedText(raw.text);
   if (extractedText.length > maxTextLength) throw tooLarge(maxTextLength);
 
+  // Page-aware segments let the chunker record page numbers. Only PDFs have real pages; DOCX/TXT have no
+  // reliable page concept, so they are a single segment without a page (no page number is ever invented).
+  const segments = Array.isArray(raw.pages)
+    ? raw.pages.map((t, i) => ({ page: i + 1, text: normalizeExtractedText(t) })).filter((seg) => seg.text)
+    : (extractedText ? [{ page: undefined, text: extractedText }] : []);
+
   return {
     extractedText,
+    segments,
     detectedFormat: doc.format,
     status: extractedText.length > 0 ? 'extracted' : 'empty',
     metadata: { ...raw.metadata, characterCount: extractedText.length },

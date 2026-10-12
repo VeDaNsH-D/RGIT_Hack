@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 
 const { Schema } = mongoose;
 
+export const DOCUMENT_STATUSES = ['uploaded', 'processing', 'indexed', 'failed'];
+
 // Vercel's filesystem is ephemeral, so the actual file bytes live in
 // external storage. Person 1 owns the upload/extraction logic and populates
 // this; this schema only reserves the shape. provider defaults to 'none'
@@ -29,6 +31,19 @@ const documentSchema = new Schema(
     extractedText: { type: String, default: '', select: false },
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     isDemo: { type: Boolean, default: false },
+    // Processing lifecycle. Documents are only created after validation + extraction succeeded, so the
+    // usual states are processing -> indexed | failed. 'uploaded' is the state of rows that predate chunk indexing.
+    status: { type: String, enum: DOCUMENT_STATUSES, default: 'uploaded', index: true },
+    // Safe, content-free error summary of the last failed processing attempt.
+    statusError: { type: new Schema({ code: String, message: String, at: Date }, { _id: false }), default: undefined },
+    contentHash: { type: String, default: '' },
+    pageCount: { type: Number, default: undefined },
+    chunkCount: { type: Number, default: 0 },
+    // Deterministic outline (headings + opening sentence) built at index time; lets handoffs know every document cheaply.
+    digest: { type: String, default: '', select: false },
+    attempts: { type: Number, default: 0 },
+    processingStartedAt: { type: Date, default: undefined },
+    indexedAt: { type: Date, default: undefined },
   },
   { timestamps: true }
 );

@@ -11,3 +11,7 @@ export * from './documentStorage.js';
 export * from './documentNormalizer.js';
 export * from './documentProcessingService.js';
 export * from './documentRecovery.js';
+export * from './documentChunker.js';
+export * from './documentIndexing.js';
+export * from './documentReplace.js';
+export { InMemoryChunkModel } from './inMemoryChunkModel.js';

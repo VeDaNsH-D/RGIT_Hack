@@ -37,7 +37,7 @@ export const draftHandoffWithAi = handoffId => request(`/handoffs/${encodeURICom
 export const listRepositoryKnowledge = (projectId, signal) => request(`/projects/${encodeURIComponent(projectId)}/repository-knowledge`, { signal })
 export const analyzeRepository = (projectId, connectionId, force = false) =>
   request(`/projects/${encodeURIComponent(projectId)}/integrations/github/${encodeURIComponent(connectionId)}/analyze`, { method: 'POST', body: { force }, signal: AbortSignal.timeout(180000) })
-export const generateHandoffReport = projectId => request(`/projects/${encodeURIComponent(projectId)}/handoff-reports`, { method: 'POST', signal: AbortSignal.timeout(180000) })
+export const generateHandoffReport = (projectId, force = false) => request(`/projects/${encodeURIComponent(projectId)}/handoff-reports`, { method: 'POST', body: force ? { force: true } : {}, signal: AbortSignal.timeout(180000) })
 export const listHandoffReports = (projectId, signal) => request(`/projects/${encodeURIComponent(projectId)}/handoff-reports`, { signal })
 export const getHandoffReport = (projectId, reportId, signal) => request(`/projects/${encodeURIComponent(projectId)}/handoff-reports/${encodeURIComponent(reportId)}`, { signal })
 

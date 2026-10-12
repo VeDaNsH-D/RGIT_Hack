@@ -21,6 +21,7 @@ const actions = {
   EMAIL_WORKFLOW_CHANGE_APPLIED: ['Workflow updated', 'applied an email workflow change'], EMAIL_PROPOSAL_DISMISSED: ['Suggestion dismissed', 'dismissed a workflow suggestion'],
   NOTION_PAGE_SYNCED: ['Notion page synced', 'synced a Notion page'], NOTION_DISCONNECTED: ['Notion disconnected', 'disconnected a Notion page'],
   DOCUMENT_UPLOADED: ['Document uploaded', 'uploaded a document'], DOCUMENT_REINDEXED: ['Document updated', 'reindexed a document'],
+  DOCUMENT_REPLACED: ['Document updated', 'replaced a document'], DOCUMENT_DELETED: ['Document removed', 'deleted a document'],
 };
 export async function notifyProjectActivity(event) {
   const presentation = actions[event?.action];

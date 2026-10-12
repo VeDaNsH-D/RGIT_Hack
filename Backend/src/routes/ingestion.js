@@ -140,6 +140,10 @@ function serializeSourceRecord(r, { includeContent = false } = {}) {
   return item;
 }
 
+const PROCESSING_STALE_MS = 5 * 60 * 1000;
+const staleProcessing = (d) => d.status === 'processing' && d.processingStartedAt && Date.now() - new Date(d.processingStartedAt).getTime() > PROCESSING_STALE_MS;
+const effectiveStatus = (d) => (staleProcessing(d) ? 'failed' : (d.status || 'uploaded'));
+
 function serializeDocument(d, sourceRecord) {
   const indexed = Boolean(sourceRecord);
   return {
@@ -152,8 +156,15 @@ function serializeDocument(d, sourceRecord) {
     uploadedBy: idString(d.uploadedBy),
     storageProvider: d.storageRef?.provider ?? 'none',
     url: typeof d.url === 'string' && /^https?:\/\//i.test(d.url) ? d.url : null,
-    // The Document schema has no status field: a stored Document has been
-    // validated and extracted; it is "indexed" once its SourceRecord exists.
+    // 'indexed' only once chunks + SourceRecord were written (Document.status). A processing attempt that never
+    // finished (e.g. the server stopped mid-way) is reported as failed so it can be retried.
+    status: effectiveStatus(d),
+    error: d.status === 'failed' || staleProcessing(d) ? { code: d.statusError?.code ?? 'PROCESSING_INTERRUPTED', message: d.statusError?.message ?? 'Processing did not finish. Retry to index this document.' } : null,
+    chunkCount: d.chunkCount ?? 0,
+    pageCount: d.pageCount ?? sourceRecord?.metadata?.providerMetadata?.pageCount ?? null,
+    indexedAt: d.indexedAt ?? null,
+    noExtractableText: effectiveStatus(d) === 'indexed' && (d.chunkCount ?? 0) === 0,
+    canRetry: ['failed', 'uploaded'].includes(effectiveStatus(d)),
     processing: {
       status: indexed ? 'indexed' : 'pending_indexing',
       extractionStatus: sourceRecord?.metadata?.extractionStatus ?? null,

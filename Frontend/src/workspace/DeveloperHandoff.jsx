@@ -30,7 +30,7 @@ function RepositoryAnalysisRow({ item, analyzing, canAct, onAnalyze }) {
 }
 
 // Presentational: every state is a prop so it renders (and tests) without network access.
-export function DeveloperHandoffView({ state, repositories = [], analyzingIds = [], canAct, lastReport, busy, error, notice, onAnalyze, onGenerate, onPreview, onDownload, downloading, onRetry }) {
+export function DeveloperHandoffView({ state, repositories = [], analyzingIds = [], canAct, lastReport, busy, error, notice, onAnalyze, onGenerate, reused, onRegenerate, onPreview, onDownload, downloading, onRetry }) {
   const analyzed = repositories.filter(item => item.analysis.snapshot)
   const stale = analyzed.some(item => item.analysis.freshness?.state === 'stale')
   const partial = analyzed.some(item => item.analysis.snapshot.status === 'partial')
@@ -44,7 +44,7 @@ export function DeveloperHandoffView({ state, repositories = [], analyzingIds = 
       {stale && <p className="ws-notice" role="status">The repository changed since it was analyzed. Refresh the analysis for the most accurate handoff.</p>}
       {partial && <p className="ws-notice" role="status">The analysis is partial. The handoff will say which parts of the repository were not analyzed.</p>}
       {error && <p className={error.includes('Analyze') ? 'ws-notice' : 'ws-error'} role="alert">{error}</p>}
-      {notice && <p className="ws-notice" role="status">{notice}</p>}
+      {notice && <p className="ws-notice" role="status">{notice}{reused && canAct && <> <button type="button" className="ws-text-button" onClick={onRegenerate} disabled={Boolean(busy)}>Regenerate anyway</button></>}</p>}
       <div className="ws-ai-actions">
         {canAct && <button type="button" className="ws-button ws-button-primary" onClick={onGenerate} disabled={!analyzed.length || Boolean(busy) || analyzingIds.length > 0}>{busy === 'generating' ? 'Generating handoff…' : 'Generate Handoff'}</button>}
         {lastReport && <><button type="button" className="ws-button" onClick={onPreview} disabled={Boolean(busy)}>Preview Handoff</button><button type="button" className="ws-button" onClick={onDownload} disabled={downloading}>{downloading ? 'Preparing PDF…' : 'Download PDF'}</button></>}
@@ -63,6 +63,7 @@ export default function DeveloperHandoffSection({ projectId, canAct }) {
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [reused, setReused] = useState(false)
   const [preview, setPreview] = useState(null)
   const [downloading, setDownloading] = useState(false)
   const [previewError, setPreviewError] = useState('')
@@ -101,16 +102,17 @@ export default function DeveloperHandoffSection({ projectId, canAct }) {
     }
   }
 
-  async function generate() {
+  async function generate(force = false) {
     if (lock.current) return
     lock.current = true
     setBusy('generating')
     setError('')
     setNotice('')
     try {
-      const { report } = await generateHandoffReport(projectId)
+      const { report, reused } = await generateHandoffReport(projectId, force)
       setPreview(report)
-      setNotice('Handoff generated. Review it, then download the PDF.')
+      setReused(Boolean(reused))
+      setNotice(reused ? 'Nothing has changed since the last handoff, so it was reused and no AI call was made.' : 'Handoff generated. Review it, then download the PDF.')
       setTick(count => count + 1)
     } catch (failure) {
       setError(failure.data?.error === 'analysis_required' ? 'Analyze a connected repository first.' : describeDraftError(failure).message)
@@ -134,7 +136,7 @@ export default function DeveloperHandoffSection({ projectId, canAct }) {
 
   const lastReport = reports?.[0] || null
   return <>
-    <DeveloperHandoffView state={state} repositories={repositories || []} analyzingIds={analyzingIds} canAct={canAct} lastReport={lastReport} busy={busy} error={state === 'error' ? result.error : error} notice={notice} onAnalyze={analyze} onGenerate={generate} onPreview={open} onDownload={() => lastReport && download(lastReport)} downloading={downloading} onRetry={() => { setResult(null); setTick(count => count + 1) }}/>
+    <DeveloperHandoffView state={state} repositories={repositories || []} analyzingIds={analyzingIds} canAct={canAct} lastReport={lastReport} busy={busy} error={state === 'error' ? result.error : error} notice={notice} onAnalyze={analyze} onGenerate={() => generate(false)} reused={reused} onRegenerate={() => generate(true)} onPreview={open} onDownload={() => lastReport && download(lastReport)} downloading={downloading} onRetry={() => { setResult(null); setTick(count => count + 1) }}/>
     {preview && <HandoffReportPreview report={preview} onClose={() => setPreview(null)} onDownload={() => download(preview)} downloading={downloading} error={previewError}/>}
   </>
 }

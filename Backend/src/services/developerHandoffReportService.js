@@ -4,7 +4,9 @@ import { RepositorySnapshot } from '../models/RepositorySnapshot.js';
 import { SourceConnection } from '../models/SourceConnection.js';
 import { config } from '../config.js';
 import { AiServiceError, generateDeveloperHandoff as callAi } from './aiClient.js';
-import { DraftError, buildHandoffContext } from './handoffDraftService.js';
+import { createHash } from 'node:crypto';
+import { DraftError, buildHandoffContext, labelFor } from './handoffDraftService.js';
+import { addDocumentLinkHints } from './documentContext.js';
 import { serializeAnalysis, latestCommitSha } from './repositoryAnalysisService.js';
 import { serializeSync } from './githubSyncEngine.js';
 
@@ -19,7 +21,12 @@ import { serializeSync } from './githubSyncEngine.js';
  * the model only synthesizes architecture, relationships, status and next steps, under citation rules.
  */
 
-export const REPORT_LIMITS = Object.freeze({ fileExcerptChars: 1500, importantFiles: 12, routes: 80 });
+// Tight on purpose: the model is given what it needs to SYNTHESIZE. Complete lists (open items, recent activity, setup,
+// files, coverage, links, documents) are rendered deterministically from the database, so they cost no tokens.
+export const REPORT_LIMITS = Object.freeze({ fileExcerptChars: 900, importantFiles: 8, routes: 40 });
+export const REPORT_ACTIVITY_LIMITS = Object.freeze({ openPrs: 12, openIssues: 15, recentClosedPrs: 6, commits: 12, notes: 8, tasks: 25 });
+// Bump when the prompt or pack format changes, so cached reports are not reused across incompatible versions.
+export const PIPELINE_VERSION = 3;
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 // Provider-side "request too large" / tokens-per-minute failures: retry once or twice with less context.
 const TOO_LARGE = /\b413\b|request too large|tokens per minute|reduce your message size/i;
@@ -30,11 +37,11 @@ export class ReportError extends Error {
 }
 
 const SECTION_TITLES = {
-  executive_summary: 'Executive summary', purpose_and_state: 'Project purpose and current state', architecture: 'Repository architecture',
+  executive_summary: 'Executive summary', purpose_and_state: 'Project purpose and current state', documented_requirements: 'Documented requirements and plans', architecture: 'Repository architecture',
   modules: 'Major modules and responsibilities', important_files: 'Important files and entry points', setup: 'Development setup and test instructions',
-  recent_changes: 'Recent changes and their significance', outstanding_work: 'Outstanding issues and pull requests', work_in_progress: 'Work in progress',
+  recent_changes: 'Recent changes and their significance', outstanding_work: 'Outstanding issues and pull requests', open_items: 'Open pull requests and issues', recent_activity: 'Recent commits and merged pull requests', work_in_progress: 'Work in progress',
   decisions_constraints: 'Decisions and technical constraints', blockers_risks: 'Blockers and risks', next_steps: 'Recommended next steps',
-  inspect_first: 'Suggested files to inspect first', links: 'Relevant source links', coverage: 'Data freshness and analysis coverage',
+  inspect_first: 'Suggested files to inspect first', documents: 'Project documents used', links: 'Relevant source links', coverage: 'Data freshness and analysis coverage',
 };
 export const SECTION_ORDER = Object.keys(SECTION_TITLES);
 
@@ -85,11 +92,11 @@ function repoEvidence(snapshot, connection, fileText, caps = REPORT_LIMITS) {
 }
 
 function deterministicSections({ snapshots, connections, syncByRepo, evidenceById, freshnessByRepo }) {
-  const ev = (id) => { const e = evidenceById.get(id); return e ? [{ id: e.id, label: e.label, url: e.url }] : []; };
+  const ev = (id) => { const e = evidenceById.get(id); return e ? [evidenceRef(e.id, e)] : []; };
   const important = []; const setup = []; const coverage = [];
   for (const s of snapshots) {
     const k = s.knowledge; const id = s.repositoryId; const htmlUrl = connections.get(s.connectionId)?.config?.htmlUrl;
-    const fileEv = (path) => [{ id: `file:${id}:${path}`, label: `${s.fullName}/${path}@${short(s.commitSha)}`, url: blobUrl(htmlUrl, s.commitSha, path) }];
+    const fileEv = (path) => [{ id: `file:${id}:${path}`, label: `${s.fullName}/${path}@${short(s.commitSha)}`, url: blobUrl(htmlUrl, s.commitSha, path), type: 'repository_file' }];
     for (const p of k.entryPoints || []) important.push({ text: `Entry point: ${p}`, kind: 'fact', evidence: fileEv(p) });
     for (const f of (k.importantFiles || []).filter((x) => !(k.entryPoints || []).includes(x.path)).slice(0, 15)) important.push({ text: `${f.path} (${f.category})`, kind: 'fact', evidence: fileEv(f.path) });
     for (const b of k.buildAndTest || []) setup.push({ text: `${s.fullName}: \`${b.name}\` runs \`${b.command}\` (defined in ${b.file}).`, kind: 'fact', evidence: fileEv(b.file) });
@@ -106,9 +113,49 @@ function deterministicSections({ snapshots, connections, syncByRepo, evidenceByI
   return { important_files: important, setup, coverage };
 }
 
+const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : 'unknown date');
+const pm = (r) => r.metadata?.providerMetadata || {};
+const recRef = (r) => evidenceRef(String(r._id), { label: labelFor(r), url: /^https?:\/\//.test(r.url || '') ? r.url : null, type: r.type, provider: r.provider });
+
+/** Complete, link-backed lists of open work and recent activity straight from the synced records (no model tokens). */
+function activitySections(activity) {
+  const line = (r, extra) => `${r.title}${extra ? ` (${extra})` : ''}`;
+  const open = [
+    ...activity.openPrs.slice(0, 15).map((r) => ({ text: `PR #${pm(r).number}: ${line(r, [pm(r).draft ? 'draft' : 'ready for review', r.metadata?.author && `by ${r.metadata.author}`, `updated ${day(r.metadata?.sourceUpdatedAt)}`, pm(r).labels?.length && pm(r).labels.join(', ')].filter(Boolean).join('; '))}`, kind: 'fact', evidence: [recRef(r)] })),
+    ...activity.openIssues.slice(0, 20).map((r) => ({ text: `Issue #${pm(r).number}: ${line(r, [r.metadata?.author && `by ${r.metadata.author}`, `updated ${day(r.metadata?.sourceUpdatedAt)}`, pm(r).labels?.length && pm(r).labels.join(', '), pm(r).assignees?.length && `assigned ${pm(r).assignees.join(', ')}`].filter(Boolean).join('; '))}`, kind: 'fact', evidence: [recRef(r)] })),
+  ];
+  const recent = [
+    ...activity.closedPrs.filter((r) => pm(r).merged || pm(r).merged_at).slice(0, 6).map((r) => ({ text: `Merged PR #${pm(r).number}: ${r.title} (${day(pm(r).merged_at || r.metadata?.sourceUpdatedAt)})`, kind: 'fact', evidence: [recRef(r)] })),
+    ...activity.commits.slice(0, 10).map((r) => ({ text: `${String(pm(r).sha || '').slice(0, 7)} ${r.title}${r.metadata?.author ? ` — ${r.metadata.author}` : ''}, ${day(r.metadata?.sourceCreatedAt || r.metadata?.sourceUpdatedAt)}`, kind: 'fact', evidence: [recRef(r)] })),
+  ];
+  return { open_items: open, recent_activity: recent };
+}
+
+/** Project documents that fed this handoff (and any that could not), built from retrieval results, never from the model. */
+function documentSection({ documents, evidence }) {
+  const items = [];
+  for (const d of documents.included) {
+    const refs = [...evidence.values()].filter((e) => e.provider === 'document' && e.document?.documentId === d.documentId);
+    const pages = [...new Set(refs.map((r) => r.document.pageStart).filter((p) => p != null))].sort((a, b) => a - b);
+    const heads = [...new Set(refs.map((r) => r.document.heading).filter(Boolean))].slice(0, 6);
+    items.push({ text: `${d.title} (${d.filename}), uploaded ${new Date(d.uploadedAt).toISOString().slice(0, 10)}: ${d.chunks} excerpt(s) provided to the model${pages.length ? `, pages ${pages.join(', ')}` : ''}${heads.length ? `; sections: ${heads.join(' | ')}` : ''}.`, kind: 'fact', evidence: refs.slice(0, 1).map((r) => evidenceRef(r.id, r)) });
+  }
+  for (const d of documents.notIndexed) items.push({ text: `${d.title} was not included: its processing status is ${d.status}.`, kind: 'unknown', evidence: [] });
+  return items;
+}
+
 const hasFacts = (s) => s.items.length > 0;
 
-export async function generateDeveloperHandoffReport(project, user, { generate = callAi } = {}) {
+/** Report-stored form of an evidence entry. `type` lets the preview and PDF distinguish source kinds. */
+export function evidenceRef(id, e) {
+  const type = e.provider === 'document' ? 'document'
+    : e.provider === 'repository' ? (e.type === 'file' ? 'repository_file' : 'repository')
+    : e.type === 'issue' ? 'issue' : e.type === 'pull_request' ? 'pull_request' : e.type === 'commit' ? 'commit'
+    : e.provider === 'relay' ? 'handoff' : e.provider === 'manual' ? 'note' : e.type === 'file' ? 'repository_file' : (e.provider || 'other');
+  return { id, label: e.label, url: e.url ?? null, type, ...(e.document ? { document: e.document } : {}) };
+}
+
+export async function generateDeveloperHandoffReport(project, user, { generate = callAi, force = false } = {}) {
   const connections = await SourceConnection.find({ projectId: project._id, provider: 'github' }).lean();
   const connById = new Map(connections.map((c) => [String(c._id), c]));
   const snapshotIds = connections.map((c) => c.config?.analysis?.currentSnapshotId).filter(Boolean);
@@ -130,24 +177,33 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
   }
 
   // One attempt per context size: a provider "request too large" error retries with a smaller prompt.
-  let result = null; let reducedTo = null;
+  let result = null; let reducedTo = null; let fingerprint = null;
   for (const factor of ATTEMPT_FACTORS) {
     const budget = Math.floor(config.ai.handoffContextChars * factor);
     const caps = { itemChars: clamp(Math.floor(budget * 0.1), 500, 6000), fileExcerptChars: clamp(Math.floor(budget * 0.04), 300, REPORT_LIMITS.fileExcerptChars), importantFiles: clamp(Math.round(REPORT_LIMITS.importantFiles * factor), 3, REPORT_LIMITS.importantFiles), routes: clamp(Math.round(REPORT_LIMITS.routes * factor), 10, REPORT_LIMITS.routes), components: clamp(Math.round(25 * factor), 6, 25) };
     const repoItems = []; let used = 0;
     for (const { snapshot, connection, fileText } of loaded) {
       for (const item of repoEvidence(snapshot, connection, fileText, caps)) {
-        if (used + item.content.length > budget * 0.55) continue;
+        if (used + item.content.length > budget * 0.45) continue;
         used += item.content.length; repoItems.push(item);
       }
     }
-    const { pack, evidence, limitations, counts } = await buildHandoffContext(project, { requireActivity: false, extraLimitations: factor < 1 ? [...extraLimitations, 'The context was reduced to fit the AI provider’s request-size limit, so some details may be missing.'] : extraLimitations, budgetChars: Math.floor(budget * 0.35), includePreviousHandoffs: true, scale: factor, contentChars: clamp(Math.floor(budget * 0.015), 200, 1200) });
+    const queryHints = loaded.flatMap(({ snapshot }) => [...(snapshot.knowledge.components || []).map((c) => c.name), ...(snapshot.knowledge.overview?.frameworks || []), snapshot.fullName]);
+    const { pack, evidence, limitations, counts, documents, activity } = await buildHandoffContext(project, { requireActivity: false, extraLimitations: factor < 1 ? [...extraLimitations, 'The context was reduced to fit the AI provider’s request-size limit, so some details may be missing.'] : extraLimitations, budgetChars: Math.floor(budget * 0.3), includePreviousHandoffs: true, includeDocuments: true, documentBudgetChars: Math.floor(budget * 0.25), queryHints, limits: REPORT_ACTIVITY_LIMITS, scale: factor, contentChars: clamp(Math.floor(budget * 0.015), 200, 1200) });
     for (const item of repoItems) {
       pack.sources.unshift({ id: item.id, external_id: null, provider: 'repository', record_type: item.type, title: item.title, content: item.content, content_type: 'text/plain', url: item.url, author: null, author_id: null, created_at: null, updated_at: null, fetched_at: null, metadata: {} });
       evidence.set(item.id, { id: item.id, label: item.label, url: item.url, type: item.type, provider: 'repository' });
     }
+    addDocumentLinkHints(pack.sources);
+    if (factor === 1) {
+      fingerprint = createHash('sha256').update(JSON.stringify([PIPELINE_VERSION, pack.case_description, pack.sources.map((x) => [x.id, x.title, x.content, x.metadata]), pack.tasks.map((t) => [t.id, t.title, t.status, t.priority, t.description])])).digest('hex');
+      if (!force) {
+        const last = await HandoffReport.findOne({ projectId: project._id }).sort({ generatedAt: -1 }).lean();
+        if (last?.basedOn?.fingerprint === fingerprint) return { ...serializeReport(last), reused: true };
+      }
+    }
     try {
-      result = { ai: await generate(pack), evidence, limitations, counts };
+      result = { ai: await generate(pack), evidence, limitations, counts, documents, activity, pack };
       reducedTo = factor < 1 ? factor : null;
       break;
     } catch (err) {
@@ -156,24 +212,30 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
       throw err;
     }
   }
-  const { ai, evidence, limitations, counts } = result;
+  const { ai, evidence, limitations, counts, documents, activity, pack: sentPack } = result;
+  const contentOfDocs = sentPack.sources.filter((x) => x.provider === 'document').map((x) => [x.id, x.content]);
   if (reducedTo) limitations.push(`The AI request was reduced to ${Math.round(reducedTo * 100)}% of the normal context to fit the provider’s limit.`);
   const knownPaths = new Set(snapshots.flatMap((s) => s.fileManifest.map((f) => f.path)));
+  const docChunkText = new Map(contentOfDocs);
   const sections = new Map();
   let removedUnverified = 0; let removedUnknownRef = 0;
   for (const section of Array.isArray(ai.sections) ? ai.sections : []) {
-    if (!SECTION_ORDER.includes(section?.key) || ['important_files', 'setup', 'links', 'coverage'].includes(section.key) || sections.has(section.key)) continue;
+    if (!SECTION_ORDER.includes(section?.key) || ['important_files', 'setup', 'links', 'coverage', 'documents', 'open_items', 'recent_activity'].includes(section.key) || sections.has(section.key)) continue;
     const items = [];
     for (const claim of Array.isArray(section.claims) ? section.claims : []) {
       if (typeof claim?.text !== 'string' || !claim.text.trim()) continue;
       const ids = (Array.isArray(claim.source_ids) ? claim.source_ids : []).map(String);
       if (ids.some((id) => !evidence.has(id))) { removedUnknownRef += 1; continue; }
-      if (unverifiedPaths(claim.text, knownPaths).length) { removedUnverified += 1; continue; }
+      // A path is also acceptable when it appears in a cited uploaded document (it is then a documented path, not
+      // a verified repository file; the prompt requires such claims to be labelled as documented).
+      const docText = ids.map((id) => (docChunkText.get(id) || '')).join('\n');
+      if (unverifiedPaths(claim.text, knownPaths).filter((p) => !docText.includes(p)).length) { removedUnverified += 1; continue; }
       const kind = ['fact', 'inference', 'unknown'].includes(claim.kind) ? claim.kind : 'inference';
-      items.push({ text: claim.text.trim().slice(0, 1500), kind: !ids.length && kind !== 'unknown' ? 'inference' : kind, evidence: ids.map((id) => ({ id, label: evidence.get(id).label, url: evidence.get(id).url })) });
+      items.push({ text: claim.text.trim().slice(0, 1500), kind: !ids.length && kind !== 'unknown' ? 'inference' : kind, evidence: ids.map((id) => evidenceRef(id, evidence.get(id))) });
     }
     if (items.length) sections.set(section.key, { key: section.key, title: SECTION_TITLES[section.key], origin: 'ai', items });
   }
+  if (ai.dropped_claims) limitations.push(`${ai.dropped_claims} AI statement(s) were removed because every source they cited was invalid.`);
   if (removedUnverified) limitations.push(`${removedUnverified} AI statement(s) were removed because they mentioned file paths that do not exist in the analyzed repository.`);
   if (removedUnknownRef) limitations.push(`${removedUnknownRef} AI statement(s) were removed because they cited unknown sources.`);
   if (!sections.has('executive_summary') && ai.summary) sections.set('executive_summary', { key: 'executive_summary', title: SECTION_TITLES.executive_summary, origin: 'ai', items: [{ text: ai.summary.trim().slice(0, 1500), kind: 'inference', evidence: [] }] });
@@ -181,10 +243,12 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
   const evidenceById = new Map([...evidence.entries()]);
   const det = deterministicSections({ snapshots, connections: connById, syncByRepo, evidenceById, freshnessByRepo });
   for (const [key, items] of Object.entries(det)) sections.set(key, { key, title: SECTION_TITLES[key], origin: 'deterministic', items });
+  for (const [key, items] of Object.entries(activitySections(activity))) sections.set(key, { key, title: SECTION_TITLES[key], origin: 'deterministic', items });
+  sections.set('documents', { key: 'documents', title: SECTION_TITLES.documents, origin: 'deterministic', items: documentSection({ documents, evidence }) });
 
   // Source links: every distinct source cited anywhere, plus the repositories themselves.
   const linkMap = new Map();
-  for (const s of sections.values()) for (const it of s.items) for (const e of it.evidence) if (e.url) linkMap.set(e.url, e.label);
+  for (const s of sections.values()) for (const it of s.items) for (const e of it.evidence) if (/^https?:\/\//.test(e.url || '')) linkMap.set(e.url, e.label);
   for (const s of snapshots) { const url = connById.get(String(s.connectionId))?.config?.htmlUrl; if (url) linkMap.set(url, s.fullName); }
   sections.set('links', { key: 'links', title: SECTION_TITLES.links, origin: 'deterministic', items: [...linkMap.entries()].slice(0, 80).map(([url, label]) => ({ text: label, kind: 'fact', evidence: [{ id: url, label, url }] })) });
 
@@ -194,7 +258,7 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
     summary: ai.summary.trim().slice(0, 2000), sections: ordered,
     repositories: snapshots.map((s) => ({ fullName: s.fullName, commitSha: s.commitSha, branch: s.branch, analyzedAt: s.analyzedAt, status: s.status, coverage: { analyzed: s.coverage.analyzed, eligible: s.coverage.eligible, percent: s.coverage.percent }, freshness: freshnessByRepo.get(s.repositoryId)?.state || null, url: connById.get(String(s.connectionId))?.config?.htmlUrl || null })),
     limitations: [...new Set(limitations)].slice(0, 30),
-    basedOn: { ...counts, repositories: snapshots.length, evidence: evidence.size },
+    basedOn: { ...counts, fingerprint, repositories: snapshots.length, evidence: evidence.size, documentsNotIndexed: documents.notIndexed.length },
   });
   return serializeReport(report);
 }

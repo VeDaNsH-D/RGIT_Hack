@@ -7,6 +7,7 @@ import { Project } from '../models/Project.js';
 import { ProjectMembership } from '../models/ProjectMembership.js';
 import { Task } from '../models/Task.js';
 import { Document } from '../models/Document.js';
+import { DocumentChunk } from '../models/DocumentChunk.js';
 import { SourceRecord } from '../models/SourceRecord.js';
 import { Conflict } from '../models/Conflict.js';
 import { Handoff } from '../models/Handoff.js';
@@ -178,7 +179,7 @@ router.delete('/:id', requireAuth, attachProject(), requireRole('owner'), async 
     await Promise.all([
       Task.deleteMany({ projectId }), Handoff.deleteMany({ projectId }), Conflict.deleteMany({ projectId }),
       ConflictEvidence.deleteMany({ projectId }), SourceRecord.deleteMany({ projectId }), SourceConnection.deleteMany({ projectId }),
-      Document.deleteMany({ projectId }), EmailReview.deleteMany({ projectId }), Notification.deleteMany({ projectId }),
+      Document.deleteMany({ projectId }), DocumentChunk.deleteMany({ projectId }), EmailReview.deleteMany({ projectId }), Notification.deleteMany({ projectId }),
       RepositorySnapshot.deleteMany({ projectId }), RepositoryFile.deleteMany({ projectId }), HandoffReport.deleteMany({ projectId }),
     ]);
     await ProjectMembership.deleteMany({ projectId });

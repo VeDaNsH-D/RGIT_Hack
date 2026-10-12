@@ -95,6 +95,9 @@ export const config = {
   documents: {
     maxBytes: Number(process.env.DOCUMENT_MAX_BYTES) || 10 * 1024 * 1024,
     storageDir: process.env.DOCUMENT_STORAGE_DIR || '',
+    // Extraction limits (the text cap cannot usefully exceed the 1,000,000-character SourceRecord content limit).
+    maxTextLength: Number(process.env.DOCUMENT_MAX_TEXT_CHARS) || 1_000_000,
+    maxPdfPages: Number(process.env.DOCUMENT_MAX_PDF_PAGES) || 1000,
   },
   // WhatsApp Web Selenium delivery adapter (optional, disabled by default)
   whatsappWeb: {

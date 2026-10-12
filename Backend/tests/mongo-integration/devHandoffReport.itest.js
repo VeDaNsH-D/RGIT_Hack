@@ -37,7 +37,7 @@ describe('developer handoff reports', () => {
   };
   const P = () => `/api/projects/${project._id}`;
   const analyze = () => call('POST', `${P()}/integrations/github/${connection._id}/analyze`, alice);
-  const generate = (u = alice) => call('POST', `${P()}/handoff-reports`, u);
+  const generate = (u = alice, force = false) => call('POST', `${P()}/handoff-reports`, u, force ? { force: true } : undefined);
 
   before(async () => {
     Object.assign(config.githubApp, { appId: '5283491', privateKey, appSlug: 'x', clientId: 'c', clientSecret: 's', enabled: true });
@@ -118,7 +118,7 @@ describe('developer handoff reports', () => {
     await analyze();
     const r = (await generate()).body.report;
     const keys = r.sections.map((s) => s.key);
-    assert.deepEqual(keys, ['executive_summary', 'architecture', 'important_files', 'setup', 'outstanding_work', 'blockers_risks', 'next_steps', 'links', 'coverage']);
+    assert.deepEqual(keys, ['executive_summary', 'architecture', 'important_files', 'setup', 'outstanding_work', 'open_items', 'blockers_risks', 'next_steps', 'links', 'coverage']);
     const by = Object.fromEntries(r.sections.map((s) => [s.key, s]));
     assert.match(by.setup.items.map((i) => i.text).join('\n'), /`start` runs `node src\/server\.js`/);
     assert.match(by.setup.items.map((i) => i.text).join('\n'), /npm install/); assert.equal(by.setup.origin, 'deterministic');
@@ -139,7 +139,7 @@ describe('developer handoff reports', () => {
     assert.ok(r.limitations.some((l) => /file paths that do not exist/.test(l)));
     const prev = ai;
     ai = (pack) => J({ case_id: pack.case_id, summary: 'S', sections: [{ key: 'architecture', claims: [{ text: 'Fine claim', kind: 'fact', source_ids: ['file:101:made/up.js'] }] }] });
-    const r2 = (await generate()).body.report;
+    const r2 = (await generate(alice, true)).body.report;
     assert.ok(!r2.sections.some((s) => s.key === 'architecture'));
     assert.ok(r2.limitations.some((l) => /unknown sources/.test(l)));
     ai = prev;
@@ -165,12 +165,39 @@ describe('developer handoff reports', () => {
   });
 
   it('persists reports without creating a team handoff, and lists them', async () => {
-    await analyze(); await generate(); await generate();
+    await analyze(); await generate(); await generate(alice, true);
     assert.equal(await Handoff.countDocuments(), 0); assert.equal(await HandoffReport.countDocuments(), 2);
     const list = (await call('GET', `${P()}/handoff-reports`, viewer)).body.reports;
     assert.equal(list.length, 2); assert.equal(list[0].repositories[0].fullName, 'acme/relay');
     const one = await call('GET', `${P()}/handoff-reports/${list[0].id}`, viewer);
     assert.equal(one.status, 200); assert.equal(one.body.report.projectName, 'Relay Platform');
+  });
+
+  it('reuses the previous report (no AI call) when nothing relevant changed, unless forced or the inputs changed', async () => {
+    await analyze();
+    const first = await generate(); assert.equal(first.status, 201); assert.equal(first.body.reused, false);
+    let calls = 0; const good = ai; ai = (pack) => { calls += 1; return good(pack); };
+    const again = await generate();
+    assert.equal(again.status, 200); assert.equal(again.body.reused, true); assert.equal(again.body.report.id, first.body.report.id); assert.equal(calls, 0);
+    await Task.create({ projectId: project._id, title: 'A brand new task', createdBy: alice._id });
+    const changed = await generate(); assert.equal(changed.status, 201); assert.equal(calls, 1);
+    assert.equal((await generate(alice, true)).status, 201); assert.equal(calls, 2);
+    assert.equal(await HandoffReport.countDocuments(), 3);
+  });
+
+  it('lists every open PR/issue and recent commit deterministically with links, independent of what the model saw', async () => {
+    await analyze();
+    await SourceRecord.create({ projectId: project._id, provider: 'github', externalId: 'PR_3', type: 'pull_request', title: 'Add CORS middleware', url: 'https://github.com/acme/relay/pull/3', content: 'x', metadata: { author: 'bob', sourceUpdatedAt: new Date(), providerMetadata: { number: 3, state: 'open', draft: true, labels: ['security'], repositoryFullName: 'acme/relay', repositoryId: 101 } } });
+    await SourceRecord.create({ projectId: project._id, provider: 'github', externalId: 'C_1', type: 'commit', title: 'Fix preflight headers', url: 'https://github.com/acme/relay/commit/abcdef1', content: 'long body', metadata: { author: 'bob', sourceCreatedAt: new Date(), providerMetadata: { sha: 'abcdef1234567', repositoryFullName: 'acme/relay', repositoryId: 101 } } });
+    const r = (await generate()).body.report;
+    const by = Object.fromEntries(r.sections.map((s) => [s.key, s]));
+    assert.match(by.open_items.items.map((i) => i.text).join('\n'), /PR #3: Add CORS middleware \(draft; by bob/);
+    assert.match(by.open_items.items.map((i) => i.text).join('\n'), /Issue #8: CORS failures on users API/);
+    assert.ok(by.open_items.items[0].evidence[0].url.startsWith('https://github.com/acme/relay/'));
+    assert.match(by.recent_activity.items[0].text, /^abcdef1 Fix preflight headers — bob/);
+    assert.equal(by.open_items.origin, 'deterministic');
+    const commit = sent.sources.find((s) => s.record_type === 'commit');
+    assert.equal(commit.content, '', 'commit bodies are not sent to the model; the subject is enough');
   });
 
   it('renders a PDF with the real report content and clickable GitHub links', async () => {
@@ -219,7 +246,7 @@ describe('developer handoff reports', () => {
     assert.ok(sizes[1] < sizes[0] || sizes[0] < 20000); assert.ok(sizes[2] <= sizes[1]);
     assert.ok(r.body.report.limitations.some((l) => /reduced to 25%/.test(l)));
     ai = () => J({ detail: 'Error code: 413 - Request too large' }, 502);
-    const failed = await generate();
+    const failed = await generate(alice, true);
     assert.equal(failed.status, 413); assert.match(failed.body.message, /AI_HANDOFF_CONTEXT_CHARS/);
     assert.equal(await HandoffReport.countDocuments(), 1);
   });

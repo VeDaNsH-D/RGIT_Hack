@@ -10,6 +10,7 @@ export { Task } from './Task.js';
 export { SourceConnection } from './SourceConnection.js';
 export { SourceRecord } from './SourceRecord.js';
 export { Document } from './Document.js';
+export { DocumentChunk } from './DocumentChunk.js';
 export { Handoff } from './Handoff.js';
 export { Conflict } from './Conflict.js';
 export { ConflictEvidence } from './ConflictEvidence.js';

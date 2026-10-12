@@ -26,7 +26,11 @@ import { SOURCE_PROVIDERS } from '../contracts/sourceRecord.js';
 import { DOCUMENT_ERROR_CODES as C, toSafeDocumentError } from './documentErrors.js';
 import { validateDocumentUpload } from './documentValidation.js';
 import { extractDocumentText } from './documentExtraction.js';
-import { computeContentHash, persistDocumentSourceRecord } from './documentProcessingService.js';
+import { DocumentChunk } from '../../../models/DocumentChunk.js';
+import { computeContentHash } from './documentProcessingService.js';
+import {
+  persistDocumentSourceRecord, replaceDocumentChunks, claimDocumentForProcessing, markDocumentIndexed, markDocumentFailed,
+} from './documentIndexing.js';
 
 /** @readonly @enum {string} */
 export const RECOVERY_STATUS = Object.freeze({
@@ -52,7 +56,7 @@ const lean = (q) => (typeof q?.lean === 'function' ? q.lean() : q);
  * @returns {Promise<{ status: string, documentId: string, sourceRecord: Object|null, errors: Array<{stage:string, code:string, message:string}> }>}
  */
 export async function recoverDocumentSourceRecord({
-  projectId, documentId, storage, documentModel = Document, sourceRecordModel = SourceRecord, now = () => new Date(),
+  projectId, documentId, storage, documentModel = Document, sourceRecordModel = SourceRecord, chunkModel = DocumentChunk, force = false, limits = {}, now = () => new Date(),
 } = {}) {
   const projectObjectId = asObjectId(projectId);
   const documentObjectId = asObjectId(documentId);
@@ -80,24 +84,40 @@ export async function recoverDocumentSourceRecord({
   } catch (err) {
     return fail('lookup', err, C.RECOVERY_LOOKUP_FAILED, 'The document could not be looked up.');
   }
-  if (existing) return { ...base, status: RECOVERY_STATUS.ALREADY_INDEXED };
+  if (existing && document.status === 'indexed' && !force) return { ...base, status: RECOVERY_STATUS.ALREADY_INDEXED };
+
+  // Only one attempt at a time; a concurrent retry is refused instead of double-processing.
+  let claimed;
+  try {
+    claimed = await claimDocumentForProcessing(documentModel, { projectId: projectObjectId, documentId: documentObjectId, now });
+  } catch (err) {
+    return fail('lookup', err, C.RECOVERY_LOOKUP_FAILED, 'The document could not be looked up.');
+  }
+  if (!claimed) return fail('lookup', null, C.DOCUMENT_BUSY, 'This document is already being processed. Try again in a moment.');
+  const failed = async (stage, err, code, message) => {
+    const out = fail(stage, err, code, message);
+    await markDocumentFailed(documentModel, { projectId: projectObjectId, documentId: documentObjectId, code: out.errors[0].code, message: out.errors[0].message, now }).catch(() => {});
+    return out;
+  };
 
   let buffer;
   try {
     buffer = await storage.read(document.storageRef?.key);
   } catch {
-    return fail('storage', null, C.ORIGINAL_UNAVAILABLE, 'The original file is no longer available, so the document cannot be re-indexed.');
+    return await failed('storage', null, C.ORIGINAL_UNAVAILABLE, 'The original file is no longer available, so the document cannot be re-indexed.');
   }
 
   const validation = validateDocumentUpload({ buffer, filename: document.filename, mimeType: document.mimeType });
   if (!validation.valid) {
+    const first = validation.errors[0];
+    await markDocumentFailed(documentModel, { projectId: projectObjectId, documentId: documentObjectId, code: first?.code, message: first?.message, now }).catch(() => {});
     return { ...base, status: RECOVERY_STATUS.FAILED, errors: validation.errors.map((e) => ({ stage: 'validation', ...e })) };
   }
   let extraction;
   try {
-    extraction = await extractDocumentText({ buffer, validated: validation.document });
+    extraction = await extractDocumentText({ buffer, validated: validation.document, limits });
   } catch (err) {
-    return fail('extraction', err, C.EXTRACTION_FAILED, 'Text extraction failed.');
+    return await failed('extraction', err, C.EXTRACTION_FAILED, 'Text extraction failed.');
   }
 
   let persistence;
@@ -106,7 +126,7 @@ export async function recoverDocumentSourceRecord({
       document, extraction, contentHash: computeContentHash(buffer), sourceRecordModel, now,
     });
   } catch (err) {
-    return fail('source_record', err, C.SOURCE_RECORD_PERSISTENCE_FAILED, 'The source record could not be saved.');
+    return await failed('source_record', err, C.SOURCE_RECORD_PERSISTENCE_FAILED, 'The source record could not be saved.');
   }
 
   const summary = {
@@ -116,12 +136,16 @@ export async function recoverDocumentSourceRecord({
     failedCount: persistence.failedCount,
   };
   if (persistence.failedCount !== 0 || persistence.createdCount + persistence.updatedCount !== 1) {
-    return {
-      ...base,
-      status: RECOVERY_STATUS.FAILED,
-      sourceRecord: summary,
-      errors: persistence.errors.map((e) => ({ stage: 'source_record', code: C.SOURCE_RECORD_PERSISTENCE_FAILED, message: `${e.code}: ${e.message}` })),
-    };
+    const errors = persistence.errors.map((e) => ({ stage: 'source_record', code: C.SOURCE_RECORD_PERSISTENCE_FAILED, message: `${e.code}: ${e.message}` }));
+    await markDocumentFailed(documentModel, { projectId: projectObjectId, documentId: documentObjectId, code: errors[0]?.code, message: errors[0]?.message, now }).catch(() => {});
+    return { ...base, status: RECOVERY_STATUS.FAILED, sourceRecord: summary, errors };
+  }
+  try {
+    const contentHash = computeContentHash(buffer);
+    const chunks = await replaceDocumentChunks({ document, extraction, contentHash, chunkModel, now });
+    await markDocumentIndexed(documentModel, { projectId: projectObjectId, documentId: documentObjectId, chunkCount: chunks.count, digest: chunks.digest, contentHash, pageCount: extraction.metadata?.pageCount, now });
+  } catch (err) {
+    return await failed('chunks', err, C.CHUNK_INDEXING_FAILED, 'The document could not be indexed.');
   }
   return { ...base, status: RECOVERY_STATUS.RECOVERED, sourceRecord: summary };
 }

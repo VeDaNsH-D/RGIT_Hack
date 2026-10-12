@@ -45,7 +45,8 @@ router.post('/:id/integrations/github/:connectionId/analyze', requireAuth, attac
 /** Generate a developer handoff report from repository knowledge + project activity. Not a team handoff. */
 router.post('/:id/handoff-reports', requireAuth, attachProject(), requireRole('member'), async (req, res, next) => {
   try {
-    res.status(201).json({ report: await generateDeveloperHandoffReport(req.project, req.user) });
+    const report = await generateDeveloperHandoffReport(req.project, req.user, { force: req.body?.force === true });
+    res.status(report.reused ? 200 : 201).json({ report, reused: Boolean(report.reused) });
   } catch (err) {
     if (err instanceof ReportError || err instanceof DraftError) return res.status(err.status).json({ error: err.code, message: err.message });
     if (err instanceof AiServiceError) return res.status(err.status || 502).json({ error: err.code || 'ai_service_error', message: err.message });
