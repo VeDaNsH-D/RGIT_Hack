@@ -9,6 +9,7 @@ export const SOURCE_PROVIDERS = Object.freeze({
   GITHUB: 'github',
   NOTION: 'notion',
   JIRA: 'jira',
+  SLACK: 'slack',
   DOCUMENT: 'document',
   MANUAL: 'manual',
 });
@@ -19,6 +20,7 @@ export const RECORD_TYPES = Object.freeze({
   DOCUMENT: 'document',
   NOTE: 'note',
   DECISION: 'decision',
+  MESSAGE: 'message',
 });
 
 /**

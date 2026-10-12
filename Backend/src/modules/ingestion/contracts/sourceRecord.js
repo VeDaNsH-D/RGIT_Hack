@@ -33,6 +33,7 @@ export const SOURCE_PROVIDERS = Object.freeze({
   DOCUMENT: 'document',
   NOTION: 'notion',
   JIRA: 'jira',
+  SLACK: 'slack',
 });
 
 /**
@@ -48,6 +49,7 @@ export const SOURCE_RECORD_TYPES = Object.freeze({
   DOCUMENT: 'document',
   NOTE: 'note',
   DECISION: 'decision',
+  MESSAGE: 'message',
 });
 
 /**
