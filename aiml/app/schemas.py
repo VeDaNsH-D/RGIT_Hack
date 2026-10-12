@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 TASK_PRIORITIES = {"low", "medium", "high", "critical"}
 TASK_STATUSES = {"open", "completed"}
-SOURCE_PROVIDERS = {"github", "document", "manual", "gmail", "outlook"}
+SOURCE_PROVIDERS = {"github", "document", "manual", "gmail", "outlook", "slack", "notion", "jira"}
 SOURCE_RECORD_TYPES = {
     "message",
     "repository",

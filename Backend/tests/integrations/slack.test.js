@@ -603,4 +603,51 @@ describe('Slack Integration Suite', () => {
       );
     });
   });
+
+  // =========================================================================
+  describe('11. Connection Verification & authTest', () => {
+    it('should verify connection successfully when auth.test succeeds', async () => {
+      const mockFetch = async (url) => {
+        if (url.includes('auth.test')) {
+          return createMockResponse({
+            ok: true,
+            url: 'https://relay-team.slack.com/',
+            team: 'Relay Team',
+            user: 'relay_bot',
+            team_id: 'T12345',
+            user_id: 'U12345',
+          });
+        }
+        return createMockResponse({ ok: false, error: 'unknown_endpoint' }, { status: 404 });
+      };
+
+      const connector = new SlackConnector({
+        token: TEST_TOKEN,
+        fetchFn: mockFetch,
+      });
+
+      const result = await connector.verifyConnection();
+      assert.equal(result.ok, true);
+      assert.equal(result.details.team, 'Relay Team');
+      assert.equal(result.details.teamId, 'T12345');
+      assert.equal(result.details.user, 'relay_bot');
+      assert.equal(result.details.userId, 'U12345');
+    });
+
+    it('should return ok: false with error details when auth.test fails', async () => {
+      const mockFetch = async () => {
+        return createMockResponse({ ok: false, error: 'invalid_auth' });
+      };
+
+      const connector = new SlackConnector({
+        token: TEST_TOKEN,
+        fetchFn: mockFetch,
+        retryOptions: { maxAttempts: 1 },
+      });
+
+      const result = await connector.verifyConnection();
+      assert.equal(result.ok, false);
+      assert.ok(result.error);
+    });
+  });
 });

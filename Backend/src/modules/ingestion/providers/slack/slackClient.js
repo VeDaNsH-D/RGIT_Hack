@@ -200,6 +200,14 @@ export class SlackClient {
   }
 
   /**
+   * Alias for testAuth matching official Slack WebClient conventions.
+   * @returns {Promise<{ ok: boolean, url: string, team: string, team_id: string, user: string, user_id: string }>}
+   */
+  async authTest() {
+    return this.testAuth();
+  }
+
+  /**
    * Lists public and private channels the bot is authorized to access.
    * 
    * @param {object} [options={}]

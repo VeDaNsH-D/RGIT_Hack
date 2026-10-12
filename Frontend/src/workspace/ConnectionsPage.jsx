@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   getGitHubStatus,
@@ -7,11 +7,12 @@ import {
   connectWhatsApp,
   disconnectWhatsApp,
   getJiraStatus,
+  startJiraInstall,
   connectJira,
   disconnectJira,
   syncJira,
   getSlackStatus,
-  connectSlack,
+  startSlackInstall,
   disconnectSlack,
   syncSlack,
   getNotionStatus,
@@ -200,13 +201,13 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
         {connected ? (
           <>
             <p className="ws-muted" style={{ marginTop: '8px' }}>
-              Connected to {jira.status.host} {jira.status.projectKey ? `(${jira.status.projectKey})` : ''} · {formatDate(jira.status.connectedAt)}
+              Connected to {jira.status.siteName || jira.status.host || 'Jira Cloud'} {jira.status.siteUrl ? `(${jira.status.siteUrl})` : ''} · {formatDate(jira.status.connectedAt)}
             </p>
             <div className="ws-connection-action" style={{ display: 'grid', gap: '10px' }}>
               <span className="ws-muted">
                 {jira.status.lastSyncAt
                   ? `Synced ${jira.status.syncedIssueCount || 0} issues · Last sync ${formatDate(jira.status.lastSyncAt)}`
-                  : 'Issues and project context are ready to sync.'}
+                  : 'Issues, epics, and sprint tracking are ready to sync.'}
               </span>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <button
@@ -228,111 +229,24 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
           </>
         ) : (
           <div className="ws-connection-action" style={{ display: 'grid', gap: '10px' }}>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="jira-host-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Your Jira Cloud Domain
-              </label>
-              <input
-                id="jira-host-input"
-                type="url"
-                placeholder="https://your-domain.atlassian.net"
-                value={jira.form.host}
-                onChange={e => jira.setForm(f => ({ ...f, host: e.target.value }))}
-                disabled={jira.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="jira-email-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Your Atlassian Email
-              </label>
-              <input
-                id="jira-email-input"
-                type="email"
-                placeholder="developer@example.com"
-                value={jira.form.email}
-                onChange={e => jira.setForm(f => ({ ...f, email: e.target.value }))}
-                disabled={jira.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="jira-token-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Your API Token
-              </label>
-              <input
-                id="jira-token-input"
-                type="password"
-                placeholder="Atlassian API token"
-                value={jira.form.apiToken}
-                onChange={e => jira.setForm(f => ({ ...f, apiToken: e.target.value }))}
-                disabled={jira.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="jira-proj-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Project Key (optional)
-              </label>
-              <input
-                id="jira-proj-input"
-                type="text"
-                placeholder="e.g. RELAY"
-                value={jira.form.projectKey}
-                onChange={e => jira.setForm(f => ({ ...f, projectKey: e.target.value }))}
-                disabled={jira.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
             <button
               className="ws-button ws-button-primary"
               onClick={jira.onConnect}
-              disabled={jira.connecting || !jira.form.host.trim() || !jira.form.apiToken.trim()}
+              disabled={jira.connecting || jira.status?.configured === false}
             >
-              {jira.connecting ? 'Connecting…' : 'Connect Jira'}
+              {jira.connecting ? 'Opening Atlassian…' : 'Connect Jira'}
             </button>
             <span className="ws-muted" style={{ fontSize: '11px' }}>
-              Connects to your personal/team Jira instance.
+              Instantly authorizes your Atlassian account and connects your Jira projects.
             </span>
           </div>
         )}
 
+        {jira.status?.configured === false && !connected && (
+          <p className="ws-notice" role="status" style={{ marginTop: '12px' }}>
+            Jira OAuth credentials not configured on this server.
+          </p>
+        )}
         {jira.syncNotice && <p className="ws-notice" role="status" style={{ marginTop: '12px' }}>{jira.syncNotice}</p>}
         {jira.error && <p className="ws-error" role="alert" style={{ marginTop: '12px' }}>{jira.error}</p>}
       </article>
@@ -342,6 +256,7 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
   if (id === 'slack' && slack) {
     const connected = Boolean(slack.status?.connected)
     const badge = connected ? 'Connected' : 'Available'
+
     return (
       <article className="ws-connection-card" aria-labelledby={`connection-${id}`}>
         <div className="ws-project-card-top">
@@ -360,7 +275,7 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
               <span className="ws-muted">
                 {slack.status.lastSyncAt
                   ? `Synced ${slack.status.syncedMessageCount || 0} messages · Last sync ${formatDate(slack.status.lastSyncAt)}`
-                  : 'Team messages and thread context are ready to sync.'}
+                  : 'Workspace connected. Channels can be linked directly inside projects.'}
               </span>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <button
@@ -381,66 +296,20 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
             </div>
           </>
         ) : (
-          <div className="ws-connection-action" style={{ display: 'grid', gap: '10px' }}>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="slack-token-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Your Bot User OAuth Token
-              </label>
-              <input
-                id="slack-token-input"
-                type="password"
-                placeholder="xoxb-your-slack-bot-token"
-                value={slack.form.botToken}
-                onChange={e => slack.setForm(f => ({ ...f, botToken: e.target.value }))}
-                disabled={slack.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="slack-channel-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Channel ID (optional)
-              </label>
-              <input
-                id="slack-channel-input"
-                type="text"
-                placeholder="e.g. C0123456789"
-                value={slack.form.channelId}
-                onChange={e => slack.setForm(f => ({ ...f, channelId: e.target.value }))}
-                disabled={slack.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
+          <div className="ws-connection-action">
             <button
               className="ws-button ws-button-primary"
-              onClick={slack.onConnect}
-              disabled={slack.connecting || !slack.form.botToken.trim()}
+              onClick={slack.onInstall}
+              disabled={slack.loading || slack.starting || slack.status?.configured === false}
             >
-              {slack.connecting ? 'Connecting…' : 'Connect Slack'}
+              {slack.starting ? 'Opening Slack…' : 'Connect Slack'}
             </button>
-            <span className="ws-muted" style={{ fontSize: '11px' }}>
-              Connects to your team workspace channel.
-            </span>
           </div>
         )}
 
+        {!connected && slack.status?.configured === false && (
+          <p className="ws-notice" role="status">Slack App integration isn’t configured on this server yet.</p>
+        )}
         {slack.syncNotice && <p className="ws-notice" role="status" style={{ marginTop: '12px' }}>{slack.syncNotice}</p>}
         {slack.error && <p className="ws-error" role="alert" style={{ marginTop: '12px' }}>{slack.error}</p>}
       </article>
@@ -640,6 +509,8 @@ export default function ConnectionsPage() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const returned = params.get('github')
+  const returnedSlack = params.get('slack')
+  const returnedJira = params.get('jira')
   const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
@@ -671,12 +542,7 @@ export default function ConnectionsPage() {
   // Slack state
   const [slackStatus, setSlackStatus] = useState(null)
   const [slackLoading, setSlackLoading] = useState(true)
-  const [slackForm, setSlackForm] = useState({
-    botToken: '',
-    teamDomain: '',
-    channelId: '',
-  })
-  const [slackConnecting, setSlackConnecting] = useState(false)
+  const [slackStarting, setSlackStarting] = useState(false)
   const [slackDisconnecting, setSlackDisconnecting] = useState(false)
   const [slackSyncing, setSlackSyncing] = useState(false)
   const [slackError, setSlackError] = useState('')
@@ -765,8 +631,26 @@ export default function ConnectionsPage() {
 
   // Drop the non-sensitive return markers from the URL once read.
   useEffect(() => {
-    if (returned) setParams(current => { current.delete('github'); current.delete('reason'); return current }, { replace: true })
-  }, [returned, setParams])
+    if (returned || returnedSlack || returnedJira) {
+      if (returnedSlack === 'connected') {
+        setSlackSyncNotice('Slack workspace connected successfully.')
+      }
+      if (returnedJira === 'connected') {
+        setJiraSyncNotice('Jira connected successfully.')
+        getJiraStatus().then(setJiraStatus).catch(() => {})
+      } else if (returnedJira === 'error') {
+        setJiraError(params.get('reason') || 'Could not complete Jira authorization.')
+      }
+
+      setParams(current => {
+        current.delete('github')
+        current.delete('slack')
+        current.delete('jira')
+        current.delete('reason')
+        return current
+      }, { replace: true })
+    }
+  }, [returned, returnedSlack, returnedJira, setParams, params])
 
   async function onConnectGitHub() {
     setStarting(true)
@@ -814,9 +698,11 @@ export default function ConnectionsPage() {
     setJiraError('')
     setJiraSyncNotice('')
     try {
-      const data = await connectJira(jiraForm)
-      setJiraStatus(data)
-      setJiraConnecting(false)
+      const { url } = await startJiraInstall()
+      if (!url?.startsWith('https://auth.atlassian.com/')) {
+        throw new Error('Jira returned an unexpected authorization address.')
+      }
+      window.location.assign(url)
     } catch (failure) {
       setJiraError(failure.message)
       setJiraConnecting(false)
@@ -856,17 +742,16 @@ export default function ConnectionsPage() {
     }
   }
 
-  async function onConnectSlack() {
-    setSlackConnecting(true)
+  async function onInstallSlack() {
+    setSlackStarting(true)
     setSlackError('')
-    setSlackSyncNotice('')
     try {
-      const data = await connectSlack(slackForm)
-      setSlackStatus(data)
-      setSlackConnecting(false)
+      const { url } = await startSlackInstall()
+      if (!url?.startsWith('https://slack.com/oauth/')) throw new Error('Slack returned an unexpected installation address.')
+      window.location.assign(url)
     } catch (failure) {
       setSlackError(failure.message)
-      setSlackConnecting(false)
+      setSlackStarting(false)
     }
   }
 
@@ -951,7 +836,8 @@ export default function ConnectionsPage() {
   }
 
   return (
-    <ConnectionsView
+    <>
+      <ConnectionsView
       github={{ status, loading, starting, error, message, onConnect: onConnectGitHub }}
       whatsapp={{
         status: waStatus,
@@ -981,14 +867,12 @@ export default function ConnectionsPage() {
       slack={{
         status: slackStatus,
         loading: slackLoading,
-        form: slackForm,
-        setForm: setSlackForm,
-        connecting: slackConnecting,
+        starting: slackStarting,
         disconnecting: slackDisconnecting,
         syncing: slackSyncing,
         error: slackError,
         syncNotice: slackSyncNotice,
-        onConnect: onConnectSlack,
+        onInstall: onInstallSlack,
         onDisconnect: onDisconnectSlack,
         onSync: onSyncSlack,
       }}
@@ -1007,5 +891,6 @@ export default function ConnectionsPage() {
         onSync: onSyncNotion,
       }}
     />
+  </>
   )
 }
