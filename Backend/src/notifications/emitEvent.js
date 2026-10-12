@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { notificationEventSchema } from '../contracts/schemas.js';
 import { NotificationService } from './service.js';
 import { MongooseNotificationRepository } from './mongooseRepository.js';
+import { WhatsAppCloudApiAdapter } from './whatsapp/whatsappCloudAdapter.js';
 
 /**
  * emitNotificationEvent() is the single entrypoint the rest of this
@@ -117,17 +118,69 @@ async function deliverToInAppSystem(event) {
   await getPerson4Service().processEvent(envelope);
 }
 
-const handlers = [deliverToInAppSystem];
+let cachedWhatsAppAdapter = null;
+function getWhatsAppAdapter() {
+  if (!cachedWhatsAppAdapter) {
+    cachedWhatsAppAdapter = new WhatsAppCloudApiAdapter();
+  }
+  return cachedWhatsAppAdapter;
+}
+
+/**
+ * Delivers urgent/critical notifications and breaking alerts to WhatsApp.
+ */
+async function deliverToWhatsApp(event) {
+  const hasTwilio = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
+  const hasMeta = Boolean(process.env.META_WHATSAPP_TOKEN && process.env.META_WHATSAPP_PHONE_NUMBER_ID);
+
+  // If no cloud credentials configured, skip silently
+  if (!hasTwilio && !hasMeta) return;
+
+  const payload = event.payload || {};
+  const entityId = payload.entityId || payload.taskId || payload.handoffId || payload.conflictId || 'system';
+
+  // Target destination phone:
+  // 1. Specified in event payload
+  // 2. Or configured WHATSAPP_ALERT_RECIPIENT / default recipient (+919021875564)
+  const recipientPhone =
+    payload.recipientPhone ||
+    process.env.WHATSAPP_ALERT_RECIPIENT ||
+    process.env.WHATSAPP_DEFAULT_RECIPIENT ||
+    '+919021875564';
+
+  const notification = {
+    id: `notif_${event.dedupeKey || crypto.randomUUID()}`,
+    eventId: event.dedupeKey || `evt_${crypto.randomUUID()}`,
+    type: event.type,
+    projectId: String(event.projectId),
+    entityId: String(entityId),
+    title: payload.handoffTitle || payload.taskTitle || payload.conflictType || `${event.type.replace(/_/g, ' ')}`,
+    message: payload.description || payload.notes || payload.clarificationNote || payload.resolutionNotes || payload.answerNote || null,
+    recipientUserId: String(event.recipientUserId),
+    recipientPhone,
+    createdAt: new Date().toISOString(),
+    deliveryStatus: 'PENDING',
+  };
+
+  try {
+    await getWhatsAppAdapter().send(notification);
+  } catch (err) {
+    console.warn(`[notifications] WhatsApp delivery skipped or failed for '${event.type}':`, err.message);
+  }
+}
+
+const handlers = [deliverToInAppSystem, deliverToWhatsApp];
 
 /** For tests, or for Person 4 to add additional delivery channels later. */
 export function registerNotificationHandler(fn) {
   handlers.push(fn);
 }
 
-/** Test-only: reset to just the default in-app handler. */
+/** Test-only: reset to just the default handlers. */
 export function _resetNotificationHandlers() {
   handlers.length = 0;
   handlers.push(deliverToInAppSystem);
+  handlers.push(deliverToWhatsApp);
 }
 
 export async function emitNotificationEvent(event) {
