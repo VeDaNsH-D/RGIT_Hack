@@ -323,6 +323,10 @@ router.post('/slack', requireAuth, needUser, async (req, res, next) => {
     teamDomain = String(teamDomain || '').trim();
     channelId = String(channelId || '').trim();
 
+    if (!botToken && process.env.SLACK_BOT_TOKEN) {
+      botToken = process.env.SLACK_BOT_TOKEN.trim();
+    }
+
     if (!botToken || !botToken.startsWith('xoxb-')) {
       return res.status(400).json({
         error: 'invalid_token',
@@ -341,14 +345,16 @@ router.post('/slack', requireAuth, needUser, async (req, res, next) => {
       });
     }
 
-    const teamName = auth?.team || teamDomain || 'Slack Workspace';
+    // Prioritize user's requested workspace domain or name
+    const teamName = teamDomain || auth?.team || 'Slack Workspace';
+    const effectiveDomain = teamDomain || (auth?.url ? new URL(auth.url).hostname.replace('.slack.com', '') : '');
 
     const conn = await SlackConnection.findOneAndUpdate(
       { userId: req.user.id },
       {
         userId: req.user.id,
         botToken,
-        teamDomain,
+        teamDomain: effectiveDomain,
         channelId,
         teamName,
         active: true,

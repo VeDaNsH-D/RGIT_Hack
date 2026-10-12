@@ -402,6 +402,29 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
               />
             </div>
             <div style={{ display: 'grid', gap: '4px' }}>
+              <label htmlFor="slack-workspace-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
+                Workspace Domain or Name (optional)
+              </label>
+              <input
+                id="slack-workspace-input"
+                type="text"
+                placeholder="e.g. your-team or acme-workspace"
+                value={slack.form.teamDomain || ''}
+                onChange={e => slack.setForm(f => ({ ...f, teamDomain: e.target.value }))}
+                disabled={slack.connecting}
+                style={{
+                  border: '1px solid var(--ws-border)',
+                  borderRadius: '7px',
+                  padding: '8px 10px',
+                  fontSize: '12px',
+                  color: 'var(--ws-ink)',
+                  background: '#fff',
+                  outline: 'none',
+                  width: '100%',
+                }}
+              />
+            </div>
+            <div style={{ display: 'grid', gap: '4px' }}>
               <label htmlFor="slack-channel-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
                 Channel ID (optional)
               </label>
@@ -427,7 +450,7 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
             <button
               className="ws-button ws-button-primary"
               onClick={slack.onConnect}
-              disabled={slack.connecting || !slack.form.botToken.trim()}
+              disabled={slack.connecting || (!slack.form.botToken.trim() && !slack.form.teamDomain?.trim())}
             >
               {slack.connecting ? 'Connecting…' : 'Connect Slack'}
             </button>
