@@ -50,9 +50,25 @@ export function assertTestDatabase(uri, options = {}) {
 }
 
 export async function connectDB(options = {}) {
-  const isTest = (process.env.NODE_ENV || config.nodeEnv) === 'test' ||
-                 process.execArgv.includes('--test') ||
-                 process.argv.includes('--test');
+  const isServerEntry = process.argv[1]?.endsWith('server.js') || process.argv[1]?.endsWith('seed.js');
+  const isTest = !isServerEntry && (
+    (process.env.NODE_ENV || config.nodeEnv) === 'test' ||
+    process.execArgv.includes('--test') ||
+    process.argv.includes('--test')
+  );
+
+  if (!cache.eventsAttached) {
+    cache.eventsAttached = true;
+    mongoose.connection.on('error', (err) => {
+      console.error('[db] MongoDB connection error:', err?.message || err);
+    });
+    mongoose.connection.on('disconnected', () => {
+      console.warn('[db] MongoDB disconnected');
+    });
+    mongoose.connection.on('reconnected', () => {
+      console.log('[db] MongoDB reconnected');
+    });
+  }
 
   const targetUri = isTest && (process.env.MONGODB_URI_TEST || config.mongodbUriTest)
     ? (process.env.MONGODB_URI_TEST || config.mongodbUriTest)

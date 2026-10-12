@@ -1,4 +1,10 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config();
 
 /**
  * Reads and validates process.env once at module load, failing fast so a
@@ -76,5 +82,11 @@ export const config = {
     navigationTimeoutMs: Number(process.env.WHATSAPP_WEB_NAVIGATION_TIMEOUT_MS) || 30000,
     actionTimeoutMs: Number(process.env.WHATSAPP_WEB_ACTION_TIMEOUT_MS) || 15000,
     defaultPhone: process.env.WHATSAPP_WEB_DEFAULT_PHONE || '+919021875564',
+  },
+  // Agora Real-Time Communication (Audio, Video, Chat)
+  agora: {
+    appId: process.env.AGORA_APP_ID || '',
+    appCertificate: process.env.AGORA_APP_CERTIFICATE || '',
+    enabled: Boolean(process.env.AGORA_APP_ID && process.env.AGORA_APP_CERTIFICATE),
   },
 };

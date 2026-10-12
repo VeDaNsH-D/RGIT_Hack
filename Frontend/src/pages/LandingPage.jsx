@@ -66,6 +66,7 @@ function Header({ onOpen }) {
         {['Pricing', 'Company'].map(name => (
           <button className="nav-link" key={name} onClick={() => openPanel(name)}>{name}</button>
         ))}
+        <Link className="nav-link" to="/meet" style={{ color: '#2563eb', fontWeight: 600 }}>📹 Live Call & Chat</Link>
       </nav>
       <div className="header-actions">
         <Link className="signup" to="/signup">Sign up</Link>
