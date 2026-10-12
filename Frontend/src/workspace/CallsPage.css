@@ -1,0 +1,736 @@
+/* Over2u Google Meet-Style Audio/Video & Transcription Styles */
+
+.ws-calls-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+/* --- LOBBY / PRE-CALL VIEW --- */
+.ws-calls-lobby {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .ws-calls-lobby {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ws-lobby-card {
+  background: #fff;
+  border: 1px solid var(--ws-border);
+  border-radius: 14px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+}
+
+.ws-lobby-card h2 {
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--ws-ink);
+  letter-spacing: -0.02em;
+}
+
+.ws-lobby-card p {
+  font-size: 13px;
+  color: var(--ws-muted);
+  line-height: 1.5;
+}
+
+.ws-lobby-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ws-lobby-field label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #796e65;
+  text-transform: uppercase;
+}
+
+.ws-lobby-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--ws-border);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ws-ink);
+  background: #faf9f6;
+  outline: none;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.ws-lobby-input:focus {
+  border-color: var(--ws-orange);
+  background: #fff;
+}
+
+.ws-lobby-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* Green Room Device Preview */
+.ws-green-room {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #1b1918;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ws-green-room video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* mirror */
+}
+
+.ws-green-room-avatar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.ws-green-room-avatar span {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #fff0e5;
+  color: #ba2f12;
+  font-size: 26px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  border: 3px solid #ff3c0a40;
+}
+
+.ws-green-room-avatar p {
+  color: #c9bfb6;
+  font-size: 13px;
+}
+
+.ws-green-room-controls {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  background: rgba(34, 30, 27, 0.75);
+  backdrop-filter: blur(8px);
+  padding: 6px 14px;
+  border-radius: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ws-icon-toggle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ws-icon-toggle:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.ws-icon-toggle.off {
+  background: #ea4335;
+  border-color: #ea4335;
+  color: #fff;
+}
+
+.ws-audio-meter-bar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 14px;
+}
+
+.ws-audio-meter-bar span {
+  width: 3px;
+  background: #34a853;
+  border-radius: 2px;
+  transition: height 0.1s ease;
+}
+
+/* --- IN-CALL GOOGLE MEET STAGE --- */
+.ws-meet-stage {
+  display: flex;
+  flex-direction: column;
+  background: #141312;
+  border-radius: 16px;
+  border: 1px solid #2a2724;
+  height: calc(100vh - 160px);
+  min-height: 580px;
+  max-height: 840px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.25);
+}
+
+.ws-meet-header {
+  height: 56px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #191817;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.ws-meet-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ws-meet-badge {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: #d1c7be;
+}
+
+.ws-meet-code {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #fff;
+  font-weight: 500;
+}
+
+.ws-meet-timer {
+  font-size: 12px;
+  color: #9f948a;
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-meet-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ws-meet-recording-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(234, 67, 53, 0.15);
+  border: 1px solid rgba(234, 67, 53, 0.3);
+  color: #f28b82;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 14px;
+}
+
+.ws-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ea4335;
+  box-shadow: 0 0 8px #ea4335;
+  animation: pulseDot 1.5s infinite;
+}
+
+@keyframes pulseDot {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+/* Meet Workspace Layout: Center Grid + Right Panel */
+.ws-meet-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.ws-meet-grid {
+  flex: 1;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  min-height: 0;
+  align-content: center;
+  justify-content: center;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.ws-meet-grid.single {
+  grid-template-columns: 1fr;
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.ws-meet-grid.duo {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Video Tile */
+.ws-video-tile {
+  position: relative;
+  background: #1c1a19;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  min-height: 200px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.ws-video-tile.pinned {
+  border-color: var(--ws-orange);
+}
+
+.ws-video-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ws-video-tile.local video {
+  transform: scaleX(-1);
+}
+
+.ws-tile-avatar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  position: relative;
+}
+
+.ws-tile-avatar-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #fff0e5;
+  color: #ba2f12;
+  font-size: 32px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  position: relative;
+  z-index: 1;
+}
+
+.ws-tile-avatar.speaking .ws-tile-avatar-circle {
+  border: 3px solid #ff3c0a;
+  box-shadow: 0 0 24px rgba(255, 60, 10, 0.5);
+}
+
+.ws-tile-info-pill {
+  position: absolute;
+  bottom: 12px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(20, 19, 18, 0.7);
+  backdrop-filter: blur(6px);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #fff;
+  font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ws-tile-mic-indicator {
+  display: flex;
+  align-items: center;
+}
+
+.ws-tile-mic-indicator.muted {
+  color: #ea4335;
+}
+
+/* Captions Overlay on Video */
+.ws-live-captions-overlay {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 80%;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: center;
+  line-height: 1.4;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+  animation: fadeIn 0.2s ease;
+  z-index: 5;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* --- BOTTOM CONTROLS TOOLBAR --- */
+.ws-meet-toolbar {
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: #191817;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0 20px;
+  flex-shrink: 0;
+}
+
+.ws-meet-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.ws-meet-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  transform: translateY(-1px);
+}
+
+.ws-meet-btn.off {
+  background: #ea4335;
+  border-color: #ea4335;
+  color: #fff;
+}
+
+.ws-meet-btn.active {
+  background: var(--ws-orange);
+  border-color: var(--ws-orange);
+  color: #fff;
+}
+
+.ws-meet-btn.end-call {
+  background: #ea4335;
+  border-color: #ea4335;
+  width: 56px;
+  border-radius: 28px;
+  color: #fff;
+  margin-left: 8px;
+}
+
+.ws-meet-btn.end-call:hover {
+  background: #d93025;
+}
+
+/* --- SIDE DRAWER / PANEL --- */
+.ws-meet-drawer {
+  width: 360px;
+  background: #1c1a19;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: width 0.2s ease;
+}
+
+.ws-drawer-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #181716;
+}
+
+.ws-drawer-tab {
+  flex: 1;
+  padding: 12px 8px;
+  background: none;
+  border: none;
+  color: #9e9287;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.ws-drawer-tab:hover {
+  color: #fff;
+}
+
+.ws-drawer-tab.active {
+  color: #fff;
+  border-bottom-color: var(--ws-orange);
+  background: rgba(255, 60, 10, 0.05);
+}
+
+.ws-drawer-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Transcript & Summary Tab */
+.ws-transcript-box {
+  background: #141312;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ws-transcript-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.ws-transcript-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: var(--ws-orange);
+  font-weight: 600;
+}
+
+.ws-transcript-item-time {
+  color: #7b7167;
+  font-weight: 400;
+}
+
+.ws-transcript-item-text {
+  color: #e4dbd2;
+  line-height: 1.4;
+}
+
+.ws-transcript-empty {
+  color: #8c8075;
+  font-size: 12px;
+  text-align: center;
+  padding: 16px 8px;
+}
+
+/* AI Summary Card */
+.ws-summary-card {
+  background: #23201e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ws-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 10px;
+}
+
+.ws-summary-header h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ws-summary-header span {
+  font-size: 10px;
+  background: rgba(255, 60, 10, 0.15);
+  color: #ff6e4a;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.ws-summary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ws-summary-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #d8cec5;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ws-summary-text {
+  font-size: 12px;
+  color: #b7aba0;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.ws-summary-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #b7aba0;
+  line-height: 1.4;
+}
+
+.ws-action-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: #e4dbd2;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.ws-action-item input[type="checkbox"] {
+  margin-top: 3px;
+  accent-color: var(--ws-orange);
+}
+
+.ws-action-item small {
+  color: #9f948a;
+  margin-left: auto;
+  font-size: 10px;
+}
+
+.ws-summary-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* In-Call Chat Drawer */
+.ws-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 400px;
+}
+
+.ws-chat-bubble {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #e4dbd2;
+}
+
+.ws-chat-bubble strong {
+  display: block;
+  font-size: 10px;
+  color: #ff6e4a;
+  margin-bottom: 3px;
+}
+
+.ws-chat-input-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ws-chat-input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #fff;
+  font-size: 12px;
+  outline: none;
+}
+
+.ws-chat-input:focus {
+  border-color: var(--ws-orange);
+}
+
+/* History / Recent Summaries on Lobby Page */
+.ws-past-summaries {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ws-past-summary-card {
+  background: #fff;
+  border: 1px solid var(--ws-border);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ws-past-summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+}
