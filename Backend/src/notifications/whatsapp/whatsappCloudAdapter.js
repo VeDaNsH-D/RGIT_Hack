@@ -48,12 +48,12 @@ export class WhatsAppCloudApiAdapter {
       '+919021875564';
 
     // Twilio credentials
-    this.twilioAccountSid = config.twilioAccountSid || env.TWILIO_ACCOUNT_SID || '';
-    this.twilioAuthToken = config.twilioAuthToken || env.TWILIO_AUTH_TOKEN || '';
+    this.twilioAccountSid = config.twilioAccountSid !== undefined ? config.twilioAccountSid : (env.TWILIO_ACCOUNT_SID || '');
+    this.twilioAuthToken = config.twilioAuthToken !== undefined ? config.twilioAuthToken : (env.TWILIO_AUTH_TOKEN || '');
 
     // Meta WhatsApp Cloud API credentials
-    this.metaToken = config.metaToken || env.META_WHATSAPP_TOKEN || '';
-    this.metaPhoneNumberId = config.metaPhoneNumberId || env.META_WHATSAPP_PHONE_NUMBER_ID || '';
+    this.metaToken = config.metaToken !== undefined ? config.metaToken : (env.META_WHATSAPP_TOKEN || '');
+    this.metaPhoneNumberId = config.metaPhoneNumberId !== undefined ? config.metaPhoneNumberId : (env.META_WHATSAPP_PHONE_NUMBER_ID || '');
 
     this.attemptTracker = attemptTracker;
     this.phoneResolver = phoneResolver;
@@ -140,7 +140,14 @@ export class WhatsAppCloudApiAdapter {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      const msg = data.message || `HTTP ${res.status}: ${res.statusText}`;
+      let msg = data.message || `HTTP ${res.status}: ${res.statusText}`;
+      if (
+        data.code === 63007 ||
+        data.code === 21211 ||
+        (data.message && data.message.includes('Channel with the specified From address'))
+      ) {
+        msg += `. HINT: Your TWILIO_WHATSAPP_FROM is set to '${this.fromPhone}'. Twilio only sends from verified WhatsApp Senders or the Twilio Sandbox ('+14155238886'). Set TWILIO_WHATSAPP_FROM=+14155238886 in Backend/.env.`;
+      }
       throw new WhatsAppSendFailedError(`Twilio WhatsApp dispatch failed: ${msg}`);
     }
 

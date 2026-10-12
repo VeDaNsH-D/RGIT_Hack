@@ -52,7 +52,11 @@ async function main() {
     const sid = process.env.TWILIO_ACCOUNT_SID ? process.env.TWILIO_ACCOUNT_SID.slice(0, 6) + '...' : '(not set)';
     const hasAuth = Boolean(process.env.TWILIO_AUTH_TOKEN);
     console.log(`- Twilio Account SID:   ${sid}`);
-    console.log(`- Twilio Auth Token:    ${hasAuth ? 'Set' : '(not set)'}\n`);
+    console.log(`- Twilio Auth Token:    ${hasAuth ? 'Set' : '(not set)'}`);
+    if (fromPhone !== '+14155238886') {
+      console.log(`- Note: If using Twilio Sandbox, set TWILIO_WHATSAPP_FROM=+14155238886.`);
+    }
+    console.log('');
     if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
       console.warn('[WARNING] Twilio credentials missing. Please set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in Backend/.env.');
     }
