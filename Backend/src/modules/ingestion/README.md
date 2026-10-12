@@ -14,6 +14,9 @@ This module pulls project information from external sources, normalizes it into
 | Source    | Status                                                              |
 |-----------|---------------------------------------------------------------------|
 | GitHub    | Implemented: App auth, discovery, repository/issues/PRs/commits, fetch-and-normalize |
+| Notion    | Implemented: authorized pages, recursive block trees, database records (see `Backend/docs/notion-integration.md`) |
+| Jira      | Implemented: Jira Cloud issues via JQL search (see `Backend/docs/jira-integration.md`) |
+| Slack     | Implemented: channel messages and threads (see `Backend/docs/slack-integration.md`) |
 | Documents | Planned (`.pdf`, `.docx`, `.txt`); contract fields already reserved |
 
 Persistence, HTTP routes, and document extraction are **not** implemented here yet.
@@ -28,7 +31,8 @@ providers/github/
   repositories.js / issues.js / pullRequests.js / commits.js   Resource fetchers
   githubNormalizer.js                Raw GitHub payloads -> SourceRecordCandidate
   githubIngestionService.js          Unified fetch-and-normalize with partial-failure reporting
-scripts/github-app-smoke.js     Read-only live check (Backend/scripts)
+providers/notion/, providers/jira/, providers/slack/   Client, connector, extractor, normalizer per provider
+scripts/github-app-smoke.js          Read-only live check (Backend/scripts)
 ```
 
 ---
@@ -38,8 +42,9 @@ scripts/github-app-smoke.js     Read-only live check (Backend/scripts)
 ```javascript
 {
   projectId: string,          // Relay project ID (supplied by caller)
-  provider: "github" | "document",
-  recordType: "repository" | "issue" | "pull_request" | "commit" | "document",
+  provider: "github" | "notion" | "jira" | "slack" | "document",
+  recordType: "repository" | "issue" | "pull_request" | "commit" | "document"
+            | "note" | "decision" | "message",
   externalId: string,         // Stable provider ID (GitHub node_id; commits: "owner/repo#commit-<sha>")
   title: string,              // Non-empty
   content: string,            // Text for AI analysis ("" allowed)
@@ -70,7 +75,8 @@ scripts/github-app-smoke.js     Read-only live check (Backend/scripts)
 Every normalizer validates its output before returning it.
 
 `provider: "manual"` (`decision` / `note` records) is written directly by Person 2's
-notes route and is intentionally not an ingestion provider.
+notes route and is intentionally not an ingestion provider; the `note`/`decision`
+record types are also used by ingestion providers such as Notion.
 
 ### Timestamps
 

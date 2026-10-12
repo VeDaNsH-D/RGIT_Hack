@@ -40,6 +40,9 @@
 export const SOURCE_PROVIDERS = Object.freeze({
   GITHUB: 'github',
   DOCUMENT: 'document',
+  NOTION: 'notion',
+  JIRA: 'jira',
+  SLACK: 'slack',
 });
 
 /**
@@ -53,6 +56,9 @@ export const SOURCE_RECORD_TYPES = Object.freeze({
   PULL_REQUEST: 'pull_request',
   COMMIT: 'commit',
   DOCUMENT: 'document',
+  NOTE: 'note',
+  DECISION: 'decision',
+  MESSAGE: 'message',
 });
 
 /**
