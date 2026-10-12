@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createProjectSchema, addMemberSchema } from '../contracts/schemas.js';
+import { createProjectSchema, updateProjectSchema, addMemberSchema, sourceRecordQuerySchema } from '../contracts/schemas.js';
 import { requireAuth } from '../middleware/auth.js';
 import { attachProject, requireRole } from '../middleware/access.js';
 import { Project } from '../models/Project.js';
@@ -67,6 +67,103 @@ router.get('/', requireAuth, async (req, res, next) => {
     next(err);
   }
 });
+
+router.get('/:id', requireAuth, attachProject(), requireRole('viewer'), (req, res) => {
+  res.json({ project: serializeProject(req.project) });
+});
+
+router.patch('/:id', requireAuth, attachProject(), requireRole('owner'), async (req, res, next) => {
+  try {
+    const body = updateProjectSchema.parse(req.body);
+    if (body.name !== undefined) req.project.name = body.name;
+    if (body.description !== undefined) req.project.description = body.description;
+    await req.project.save();
+
+    await logActivity({
+      projectId: req.project._id,
+      actorId: req.user._id,
+      action: 'PROJECT_UPDATED',
+      targetType: 'Project',
+      targetId: req.project._id,
+      payload: body,
+    });
+
+    res.json({ project: serializeProject(req.project) });
+  } catch (err) {
+    if (err.name === 'ZodError') {
+      return res.status(400).json({ error: 'validation_error', message: err.message });
+    }
+    next(err);
+  }
+});
+
+router.get('/:id/ownership-history', requireAuth, attachProject(), requireRole('viewer'), async (req, res, next) => {
+  try {
+    const userIds = new Set();
+    for (const entry of req.project.ownershipHistory) {
+      userIds.add(String(entry.fromUserId));
+      userIds.add(String(entry.toUserId));
+    }
+    const users = await User.find({ _id: { $in: [...userIds] } }).select('name email').lean();
+    const userById = new Map(users.map((u) => [String(u._id), u]));
+
+    res.json({
+      ownershipHistory: req.project.ownershipHistory.map((entry) => ({
+        fromUser: userById.get(String(entry.fromUserId)) ? { id: String(entry.fromUserId), name: userById.get(String(entry.fromUserId)).name, email: userById.get(String(entry.fromUserId)).email } : { id: String(entry.fromUserId) },
+        toUser: userById.get(String(entry.toUserId)) ? { id: String(entry.toUserId), name: userById.get(String(entry.toUserId)).name, email: userById.get(String(entry.toUserId)).email } : { id: String(entry.toUserId) },
+        handoffId: String(entry.handoffId),
+        changedAt: entry.changedAt,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get(
+  '/:id/source-records',
+  requireAuth,
+  attachProject(),
+  requireRole('member'),
+  async (req, res, next) => {
+    try {
+      const query = sourceRecordQuerySchema.parse(req.query);
+      const filter = { projectId: req.project._id };
+      if (query.provider) filter.provider = query.provider;
+      if (query.type) filter.type = query.type;
+
+      const skip = (query.page - 1) * query.limit;
+      const [items, total] = await Promise.all([
+        SourceRecord.find(filter).sort({ createdAt: -1 }).skip(skip).limit(query.limit).lean(),
+        SourceRecord.countDocuments(filter),
+      ]);
+
+      res.json({
+        sourceRecords: items.map((r) => ({
+          id: String(r._id),
+          provider: r.provider,
+          externalId: r.externalId,
+          type: r.type,
+          title: r.title,
+          url: r.url,
+          content: r.content,
+          metadata: r.metadata,
+          isDemo: Boolean(r.isDemo),
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
+        })),
+        total,
+        page: query.page,
+        limit: query.limit,
+      });
+    } catch (err) {
+      if (err.name === 'ZodError') {
+        return res.status(400).json({ error: 'validation_error', message: err.message });
+      }
+      next(err);
+    }
+  }
+);
 
 router.post('/:id/members', requireAuth, attachProject(), requireRole('owner'), async (req, res, next) => {
   try {

@@ -13,6 +13,11 @@ const handoffItemSchema = new Schema(
     type: { type: String, enum: HANDOFF_ITEM_TYPES, required: true },
     text: { type: String, required: true, trim: true },
     relatedTaskId: { type: Schema.Types.ObjectId, ref: 'Task', default: null },
+    // References a decision/note SourceRecord (provider: 'manual'). The
+    // handoff route/service layer must call
+    // assertItemSourceRecordsBelongToProject() before persisting items so a
+    // reference can never point at another project's record.
+    sourceRecordId: { type: Schema.Types.ObjectId, ref: 'SourceRecord', default: null },
   },
   { timestamps: true }
 );
@@ -61,7 +66,7 @@ const clarificationSchema = new Schema(
 
 const handoffSchema = new Schema(
   {
-    projectId: { type: Schema.Types.ObjectId, ref: 'Project', required: true, index: true },
+    projectId: { type: Schema.Types.ObjectId, ref: 'Project', required: true },
     fromUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     toUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     state: { type: String, enum: HANDOFF_STATES, required: true, default: 'DRAFT' },
