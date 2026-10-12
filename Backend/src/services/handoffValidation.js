@@ -22,7 +22,7 @@
 /** Report-stored form of an evidence entry. `type` lets the preview and PDF distinguish source kinds. */
 export function evidenceRef(id, e) {
   const type = e.provider === 'document' ? 'document'
-    : e.provider === 'jira' ? 'jira_issue' : e.provider === 'slack' ? 'slack_message' : e.type === 'task' ? 'task'
+    : e.provider === 'jira' ? 'jira_issue' : e.provider === 'slack' ? 'slack_message' : e.provider === 'notion' ? 'notion_page' : e.type === 'task' ? 'task'
     : e.provider === 'repository' ? (e.type === 'file' ? 'repository_file' : 'repository')
     : e.type === 'issue' ? 'issue' : e.type === 'pull_request' ? 'pull_request' : e.type === 'commit' ? 'commit'
     : e.provider === 'relay' ? 'handoff' : e.provider === 'manual' ? 'note' : e.type === 'file' ? 'repository_file' : (e.provider || 'other');
