@@ -25,7 +25,10 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+import { notificationRouter } from './notifications/routes.js';
+
 // Route modules are mounted here in later steps (auth, projects, handoffs, ...).
+app.use('/api/notifications', notificationRouter);
 
 // 404 for unmatched API routes.
 app.use((req, res) => {

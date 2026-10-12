@@ -43,3 +43,11 @@ export {
   DuplicateNotificationEventError,
 } from './service.js';
 
+export { MongooseNotificationRepository } from './mongooseRepository.js';
+
+export {
+  createNotificationRouter,
+  notificationRouter,
+} from './routes.js';
+
+

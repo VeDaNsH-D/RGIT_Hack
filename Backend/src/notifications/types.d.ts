@@ -94,6 +94,9 @@ export interface NotificationRepository {
     options?: NotificationQueryOptions
   ): Promise<NotificationRecord[]>;
   findByEventId?(eventId: string): Promise<NotificationRecord | null>;
+  countUnread?(recipientUserId: string): Promise<number>;
+  markAsRead?(id: string, recipientUserId: string): Promise<NotificationRecord | null>;
+  markAllAsRead?(recipientUserId: string): Promise<{ updatedCount: number }>;
 }
 
 export interface NotificationServiceConfig {

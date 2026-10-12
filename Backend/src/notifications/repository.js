@@ -122,9 +122,73 @@ export class InMemoryNotificationRepository {
   }
 
   /**
+   * Counts unread notifications for a recipient user.
+   * 
+   * @param {string} recipientUserId
+   * @returns {Promise<number>}
+   */
+  async countUnread(recipientUserId) {
+    if (!recipientUserId || typeof recipientUserId !== 'string') {
+      return 0;
+    }
+
+    return Array.from(this._recordsById.values()).filter(
+      (rec) => rec.recipientUserId === recipientUserId && rec.readAt === null
+    ).length;
+  }
+
+  /**
+   * Atomically marks a single notification as read if it belongs to recipientUserId.
+   * 
+   * @param {string} id
+   * @param {string} recipientUserId
+   * @returns {Promise<import('./records.js').NotificationRecord | null>}
+   */
+  async markAsRead(id, recipientUserId) {
+    if (!id || !recipientUserId) return null;
+
+    const record = this._recordsById.get(id);
+    if (!record) return null;
+
+    // Ownership check: do not allow marking another user's notification as read
+    if (record.recipientUserId !== recipientUserId) {
+      return null;
+    }
+
+    if (!record.readAt) {
+      record.readAt = new Date().toISOString();
+    }
+
+    return structuredClone(record);
+  }
+
+  /**
+   * Marks all unread notifications for a recipient as read.
+   * 
+   * @param {string} recipientUserId
+   * @returns {Promise<{ updatedCount: number }>}
+   */
+  async markAllAsRead(recipientUserId) {
+    if (!recipientUserId) return { updatedCount: 0 };
+
+    let updatedCount = 0;
+    const nowIso = new Date().toISOString();
+
+    for (const record of this._recordsById.values()) {
+      if (record.recipientUserId === recipientUserId && record.readAt === null) {
+        record.readAt = nowIso;
+        updatedCount++;
+      }
+    }
+
+    return { updatedCount };
+  }
+
+  /**
    * Clears all in-memory records (useful for test resets).
    */
   clear() {
     this._recordsById.clear();
   }
 }
+

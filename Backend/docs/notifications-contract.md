@@ -140,9 +140,74 @@ const unread = await service.getNotificationsForRecipient('usr_123', { unreadOnl
 
 ---
 
+## Notification REST APIs & Storage Integration (Task 3)
+
+### Mongoose Storage Repository (`mongooseRepository.js`)
+Production repository integrating with the canonical MongoDB database via Mongoose:
+- Model: `NotificationModel` in `src/models/Notification.js`.
+- Indexes: Compound index on `{ recipientUserId: 1, readAt: 1, createdAt: -1 }`, unique index on `eventId` for atomic database-level deduplication.
+- Atomic updates: `findOneAndUpdate` and `updateMany` for safe, single-query state transitions.
+
+### Authenticated REST Endpoints (`routes.js`)
+All notification routes require verified authentication via JWT (`Bearer <token>`), existing session, or development header (`x-user-id`). User identity is strictly derived from the authenticated context—client-provided `recipientUserId` parameters are never trusted.
+
+Mounted at: `/api/notifications`
+
+#### 1. `GET /api/notifications`
+Returns paginated notifications for the authenticated user, ordered newest first.
+- **Query Parameters**:
+  - `limit` (optional, integer 1-100, default `20`): Page size.
+  - `offset` (optional, integer >= 0, default `0`): Pagination offset.
+  - `unreadOnly` (optional, boolean `'true'` | `'false'`, default `false`): Filter by unread status.
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "items": [ /* notification records */ ],
+      "pagination": { "limit": 20, "offset": 0, "count": 1 }
+    }
+  }
+  ```
+
+#### 2. `GET /api/notifications/unread-count`
+Efficiently counts unread notifications for the authenticated user using MongoDB `countDocuments`.
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "data": { "unreadCount": 3 }
+  }
+  ```
+
+#### 3. `PATCH /api/notifications/:id/read`
+Atomically marks a single notification as read.
+- **Ownership Security**: If the notification belongs to another user, responds with `404 Not Found` to prevent notification ID enumeration or data leakage.
+- **Idempotency**: Repeated requests safely succeed without mutating the original `readAt` timestamp.
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "data": { "id": "rec_123", "readAt": "2026-10-12T12:00:00.000Z", ... }
+  }
+  ```
+
+#### 4. `PATCH /api/notifications/read-all`
+Atomically marks all unread notifications for the authenticated user as read in a single batch query.
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "message": "All unread notifications marked as read",
+    "data": { "updatedCount": 3 }
+  }
+  ```
+
+---
+
 ## Running Tests
 
-Run all contract and service test suites using Node.js built-in test runner:
+Run all contract, service, and API integration test suites:
 
 ```bash
 cd Backend
@@ -154,13 +219,15 @@ Or run individual suites:
 ```bash
 node --test tests/notifications/contracts.test.js
 node --test tests/notifications/service.test.js
+node --test tests/notifications/api.test.js
 ```
 
 ---
 
 ## Integration Notes & Assumptions
 
-1. **Identifier Format**: IDs are currently validated as non-empty strings (e.g., string IDs, CUIDs, UUIDs, or MongoDB ObjectIds), keeping integration flexible between team members.
-2. **Channel Delivery Decoupling**: External delivery (such as WhatsApp or push notifications) subscribes to these event contracts without altering the core envelope.
-3. **Database Independence**: Database schema migrations and persistence remain owned by Person 2; Task 2's `NotificationRepository` interface allows Person 2 or Person 4 to plug in a Prisma or Mongoose repository seamlessly in Task 3.
-4. **Idempotency Dependencies**: In production (Task 3), exactly-once persistence guarantees will rely on a database unique constraint on `eventId` or a transaction provided by Person 2's persistence layer.
+1. **Identifier Format**: IDs are validated as non-empty strings, supporting CUID, UUID, or MongoDB ObjectIds.
+2. **Channel Delivery Decoupling**: External delivery (WhatsApp / Webhooks / Email) hooks into notification creation without altering the core API or storage contract.
+3. **Database Independence**: The API router supports dependency injection (`createNotificationRouter({ repository })`), making it fully testable in-memory and cleanly swappable between Mongoose and Prisma.
+4. **Authentication**: Upstream authentication middleware (owned by Person 2) populates `req.user`. Development testing supports `x-user-id` and Bearer JWTs via `JWT_SECRET`.
+
