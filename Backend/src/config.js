@@ -61,4 +61,10 @@ export const config = {
     installationId: process.env.GITHUB_APP_INSTALLATION_ID || '',
     enabled: Boolean(process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY),
   },
+  // Document uploads (src/modules/ingestion/documents). The local storage
+  // directory is NOT durable on Vercel or multi-instance deployments.
+  documents: {
+    maxBytes: Number(process.env.DOCUMENT_MAX_BYTES) || 10 * 1024 * 1024,
+    storageDir: process.env.DOCUMENT_STORAGE_DIR || '',
+  },
 };

@@ -5,6 +5,8 @@ import { config } from './config.js';
 import authRouter from './routes/auth.js';
 import projectsRouter from './routes/projects.js';
 import notesRouter from './routes/notes.js';
+import documentsRouter from './routes/documents.js';
+import ingestionRouter from './routes/ingestion.js';
 import { notificationRouter } from './notifications/routes.js';
 
 export const app = express();
@@ -31,6 +33,10 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/auth', authRouter);
 app.use('/api/projects', projectsRouter);
+// POST /api/projects/:id/documents (multipart upload; see routes/documents.js)
+app.use('/api/projects', documentsRouter);
+// Read-only ingestion APIs: source records, document list/detail, ingestion status.
+app.use('/api/projects', ingestionRouter);
 // notesRouter defines both /projects/:id/notes and /notes/:id, so it's
 // mounted at /api rather than /api/projects.
 app.use('/api', notesRouter);
