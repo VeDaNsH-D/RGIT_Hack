@@ -89,5 +89,6 @@ export function buildKnowledge({ repository, tree, files, readmeText }) {
     },
     entryPoints, buildAndTest, setupDocs, envVariables, dependencies, routes, models, components, importantFiles, docs, deploy,
     testFileCount: tests,
+    importGraph: files.filter((f) => Array.isArray(f.facts.imports) && f.facts.imports.length).map((f) => ({ file: f.path, imports: f.facts.imports })),
   };
 }

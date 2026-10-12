@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { listProjectDocuments } from '../api/documents';
 import { createOnboarding } from '../api/onboarding';
+import { useWorkspace } from './WorkspaceContext';
 import { formatDate } from './utils';
 import { formatBytes } from './documentHelpers';
 import { Icon } from './ui';
@@ -8,6 +9,10 @@ import './onboarding.css';
 
 export default function OnboardingModal({ projectId, projectName, onClose, onCreated }) {
   const dialog = useRef(null);
+  const { projects } = useWorkspace();
+  const currentProject = projects.find((p) => p.id === projectId);
+  const existingMembers = (currentProject?.context?.members || []).filter((m) => m.email);
+
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('member');
@@ -83,7 +88,9 @@ export default function OnboardingModal({ projectId, projectName, onClose, onCre
       });
 
       setSuccess('Onboarding assignment created successfully.');
-      onCreated?.(res.assignment);
+      if (onCreated) {
+        await onCreated(res.assignment);
+      }
       setTimeout(() => {
         onClose();
       }, 1200);
@@ -94,7 +101,12 @@ export default function OnboardingModal({ projectId, projectName, onClose, onCre
   }
 
   return (
-    <dialog ref={dialog} className="ws-modal" onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+    <dialog
+      ref={dialog}
+      className="ws-modal"
+      onCancel={(e) => { if (busy) e.preventDefault(); else onClose(); }}
+      onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
+    >
       <button className="ws-modal-close" aria-label="Close dialog" onClick={onClose} disabled={busy}>×</button>
       <span className="ws-eyebrow">PROJECT ONBOARDING & CONTINUITY</span>
       <h2>Onboard a Teammate</h2>
@@ -115,9 +127,19 @@ export default function OnboardingModal({ projectId, projectName, onClose, onCre
               placeholder="colleague@company.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              list="existing-teammates-datalist"
               autoFocus
             />
           </label>
+          {existingMembers.length > 0 && (
+            <datalist id="existing-teammates-datalist">
+              {existingMembers.map((m) => (
+                <option key={m.userId || m.email} value={m.email}>
+                  {m.name ? `${m.name} (${m.role})` : m.email}
+                </option>
+              ))}
+            </datalist>
+          )}
           <label>
             Assigned project role
             <select value={role} onChange={(e) => setRole(e.target.value)}>

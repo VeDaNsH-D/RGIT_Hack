@@ -543,6 +543,10 @@ test('project chat renders cited evidence as text and exposes accessible questio
   assert.match(html, /&lt;script&gt;/)
   assert.doesNotMatch(html, /<script>/)
   assert.match(html, /Ask a question about this project/)
+  const statusHtml = renderToString(React.createElement(ProjectChatView, { question: '', onQuestion() {}, knowledgeStatus: ['team/repo: partial analysis, commit abc1234.', '2 files too large.'] }))
+  assert.match(statusHtml, /Available project evidence/)
+  assert.match(statusHtml, /abc1234/)
+  assert.match(statusHtml, /2 files too large/)
 })
 
 
