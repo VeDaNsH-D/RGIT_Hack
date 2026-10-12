@@ -8,6 +8,7 @@ import { SlackClient } from '../modules/ingestion/providers/slack/slackClient.js
 import { SlackConnector } from '../modules/ingestion/providers/slack/slackConnector.js';
 import { NotionClient } from '../modules/ingestion/providers/notion/notionClient.js';
 import { NotionConnector } from '../modules/ingestion/providers/notion/notionConnector.js';
+import { RepositoryError, listAccessibleRepositories, publicRepository } from '../services/githubRepositoryService.js';
 import { ConnectError, completeInstall, consumeState, createInstallUrl, getStatus } from '../services/githubConnectionService.js';
 
 /**
@@ -29,6 +30,28 @@ router.get('/github', requireAuth, needUser, async (req, res, next) => {
   try {
     res.set('Cache-Control', 'no-store').json(await getStatus(req.user.id));
   } catch (err) { next(err); }
+});
+
+router.get('/github/repositories', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const one = (v) => (typeof v === 'string' ? v : undefined);
+    const q = (one(req.query.q) || '').trim().toLowerCase().slice(0, 100);
+    const perPage = Math.min(Math.max(parseInt(one(req.query.perPage), 10) || 20, 1), 50);
+    const page = Math.min(Math.max(parseInt(one(req.query.page), 10) || 1, 1), 100);
+    const { connected, repositories, truncated } = await listAccessibleRepositories(req.user.id);
+    const matches = repositories
+      .filter((r) => !q || r.fullName.toLowerCase().includes(q))
+      .sort((a, b) => a.fullName.localeCompare(b.fullName));
+    const start = (page - 1) * perPage;
+    res.set('Cache-Control', 'no-store').json({
+      connected,
+      repositories: matches.slice(start, start + perPage).map(publicRepository),
+      page, perPage, total: matches.length, hasMore: start + perPage < matches.length, truncated,
+    });
+  } catch (err) {
+    if (err instanceof RepositoryError) return res.status(err.status).json({ error: err.code, message: err.message });
+    next(err);
+  }
 });
 
 router.post('/github/install', requireAuth, needUser, async (req, res, next) => {

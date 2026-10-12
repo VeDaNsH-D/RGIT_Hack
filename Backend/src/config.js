@@ -70,7 +70,26 @@ export const config = {
     clientId: process.env.GITHUB_APP_CLIENT_ID || '',
     clientSecret: process.env.GITHUB_APP_CLIENT_SECRET || '',
     enabled: Boolean(process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY),
+    // Webhook signing secret (GitHub App settings). Webhook processing stays disabled without it.
+    webhookSecret: process.env.GITHUB_WEBHOOK_SECRET || '',
+    // Per-repository limits for one sync run (hard-capped by the ingestion service).
+    // Repository content analysis budget (per analysis run).
+    analysis: {
+      maxFiles: Number(process.env.GITHUB_ANALYSIS_MAX_FILES) || 150,
+      maxFileBytes: Number(process.env.GITHUB_ANALYSIS_MAX_FILE_BYTES) || 100_000,
+      maxTotalBytes: Number(process.env.GITHUB_ANALYSIS_MAX_TOTAL_BYTES) || 3_000_000,
+      maxFileChars: Number(process.env.GITHUB_ANALYSIS_MAX_FILE_CHARS) || 40_000,
+      concurrency: Number(process.env.GITHUB_ANALYSIS_CONCURRENCY) || 5,
+    },
+    sync: {
+      issues: Number(process.env.GITHUB_SYNC_ISSUE_LIMIT) || 200,
+      pullRequests: Number(process.env.GITHUB_SYNC_PR_LIMIT) || 200,
+      commits: Number(process.env.GITHUB_SYNC_COMMIT_LIMIT) || 50,
+    },
   },
+  // Developer-handoff prompt budget in characters (~3 chars/token). The default fits Groq's free-tier
+  // 8,000 tokens-per-minute limit; raise it when the configured model/tier allows larger requests.
+  ai: { handoffContextChars: Number(process.env.AI_HANDOFF_CONTEXT_CHARS) || 14000 },
   // Document uploads (src/modules/ingestion/documents). The local storage
   // directory is NOT durable on Vercel or multi-instance deployments.
   documents: {

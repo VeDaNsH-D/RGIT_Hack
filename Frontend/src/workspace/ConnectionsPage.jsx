@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   getGitHubStatus,
   startGitHubInstall,
@@ -20,9 +20,10 @@ import {
   syncNotion,
 } from '../api/connections'
 import { formatDate } from './utils'
+import { loadProjectDraft } from './projectDraft'
 import { Icon, PageHeading } from './ui'
 
-const CATEGORIES = [
+const DEFAULT_CATEGORIES = [
   {
     id: 'development',
     title: 'Development',
@@ -34,8 +35,7 @@ const CATEGORIES = [
     id: 'communication',
     title: 'Communication',
     items: [
-      { id: 'whatsapp', name: 'WhatsApp', description: 'Receive automatic notifications when warnings, critical conflicts, or SLA breaches occur.', available: true },
-      { id: 'slack', name: 'Slack', description: 'Bring team discussions and decisions into Relay.', available: true },
+      { id: 'slack', name: 'Slack', description: 'Bring team discussions and decisions into Relay.' },
       { id: 'mail', name: 'Email', description: 'Keep important conversations and decisions connected to your projects.' },
     ],
   },
@@ -43,17 +43,53 @@ const CATEGORIES = [
     id: 'knowledge',
     title: 'Knowledge & documentation',
     items: [
-      { id: 'notion', name: 'Notion', description: 'Connect documentation and shared project knowledge.', available: true },
+      { id: 'notion', name: 'Notion', description: 'Connect documentation and shared project knowledge.' },
     ],
   },
   {
     id: 'management',
     title: 'Project management',
     items: [
-      { id: 'jira', name: 'Jira', description: 'Bring issues, epics, and sprint tracking into Relay.', available: true },
+      { id: 'jira', name: 'Jira', description: 'Bring issues, epics, and sprint tracking into Relay.' },
     ],
   },
 ]
+
+function getCategories({ whatsapp, jira, slack, notion } = {}) {
+  if (!whatsapp && !jira && !slack && !notion) return DEFAULT_CATEGORIES
+  return [
+    {
+      id: 'development',
+      title: 'Development',
+      items: [
+        { id: 'github', name: 'GitHub', description: 'Bring repositories, issues, pull requests, and commits into Relay.', available: true },
+      ],
+    },
+    {
+      id: 'communication',
+      title: 'Communication',
+      items: [
+        ...(whatsapp ? [{ id: 'whatsapp', name: 'WhatsApp', description: 'Receive automatic notifications when warnings, critical conflicts, or SLA breaches occur.', available: true }] : []),
+        { id: 'slack', name: 'Slack', description: 'Bring team discussions and decisions into Relay.', available: Boolean(slack) },
+        { id: 'mail', name: 'Email', description: 'Keep important conversations and decisions connected to your projects.' },
+      ],
+    },
+    {
+      id: 'knowledge',
+      title: 'Knowledge & documentation',
+      items: [
+        { id: 'notion', name: 'Notion', description: 'Connect documentation and shared project knowledge.', available: Boolean(notion) },
+      ],
+    },
+    {
+      id: 'management',
+      title: 'Project management',
+      items: [
+        { id: 'jira', name: 'Jira', description: 'Bring issues, epics, and sprint tracking into Relay.', available: Boolean(jira) },
+      ],
+    },
+  ]
+}
 
 const RETURN_MESSAGES = {
   cancelled: 'GitHub installation was cancelled. Nothing was connected.',
@@ -61,10 +97,10 @@ const RETURN_MESSAGES = {
   error: 'We couldn’t verify the GitHub installation. Nothing was connected. Please try again.',
 }
 
-function ConnectionCard({ integration, github, whatsapp, jira, slack, notion }) {
+function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notion }) {
   const { id, name, description, available } = integration
 
-  if (id === 'whatsapp') {
+  if (id === 'whatsapp' && whatsapp) {
     const connected = Boolean(whatsapp.status?.connected)
     const badge = connected ? 'Connected' : 'Available'
     return (
@@ -145,7 +181,7 @@ function ConnectionCard({ integration, github, whatsapp, jira, slack, notion }) 
     )
   }
 
-  if (id === 'jira') {
+  if (id === 'jira' && jira) {
     const connected = Boolean(jira.status?.connected)
     const badge = connected ? 'Connected' : 'Available'
     return (
@@ -299,7 +335,7 @@ function ConnectionCard({ integration, github, whatsapp, jira, slack, notion }) 
     )
   }
 
-  if (id === 'slack') {
+  if (id === 'slack' && slack) {
     const connected = Boolean(slack.status?.connected)
     const badge = connected ? 'Connected' : 'Available'
     return (
@@ -407,7 +443,7 @@ function ConnectionCard({ integration, github, whatsapp, jira, slack, notion }) 
     )
   }
 
-  if (id === 'notion') {
+  if (id === 'notion' && notion) {
     const connected = Boolean(notion.status?.connected)
     const badge = connected ? 'Connected' : 'Available'
     return (
@@ -554,13 +590,15 @@ function ConnectionCard({ integration, github, whatsapp, jira, slack, notion }) 
   )
 }
 
-export function ConnectionsView({ github, whatsapp, jira, slack, notion }) {
-  const loading =
-    (github.loading || !github.status) &&
-    (whatsapp.loading || !whatsapp.status) &&
-    (jira.loading || !jira.status) &&
-    (slack.loading || !slack.status) &&
-    (notion.loading || !notion.status)
+export function ConnectionsView({ github = {}, whatsapp, jira, slack, notion }) {
+  const loading = Boolean(
+    github.loading ||
+    (whatsapp && whatsapp.loading) ||
+    (jira && jira.loading) ||
+    (slack && slack.loading) ||
+    (notion && notion.loading)
+  )
+  const categories = getCategories({ whatsapp, jira, slack, notion })
   return (
     <>
       <PageHeading eyebrow="WORKSPACE" title="Connections" description="Connect your tools to bring your team’s work and context together."/>
@@ -569,7 +607,7 @@ export function ConnectionsView({ github, whatsapp, jira, slack, notion }) {
           <span className="ws-spinner"/>Checking your connections…
         </div>
       )}
-      {!loading && CATEGORIES.map(category => (
+      {!loading && categories.map(category => (
         <section className="ws-connection-group" key={category.title} aria-labelledby={`group-${category.id}`}>
           <div className="ws-section-heading">
             <h2 id={`group-${category.id}`}>{category.title}</h2>
@@ -595,6 +633,7 @@ export function ConnectionsView({ github, whatsapp, jira, slack, notion }) {
 
 export default function ConnectionsPage() {
   const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
   const returned = params.get('github')
   const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -658,7 +697,12 @@ export default function ConnectionsPage() {
   useEffect(() => {
     const controller = new AbortController()
     getGitHubStatus(controller.signal)
-      .then(data => { setStatus(data); setLoading(false) })
+      .then(data => {
+        setStatus(data)
+        setLoading(false)
+        // Only a backend-confirmed connection resumes an in-progress project.
+        if (returned === 'connected' && data.connected && loadProjectDraft()) navigate('/projects?newProject=1', { replace: true })
+      })
       .catch(failure => { if (failure.name !== 'AbortError') { setError(failure.message); setLoading(false) } })
 
     getWhatsAppStatus(controller.signal)
@@ -711,6 +755,7 @@ export default function ConnectionsPage() {
       })
 
     return () => controller.abort()
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on arrival
   }, [])
 
   // Drop the non-sensitive return markers from the URL once read.

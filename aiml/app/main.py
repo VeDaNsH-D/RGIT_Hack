@@ -20,6 +20,7 @@ from app.service import (
 )
 from app.conflicts import extract_facts_from_context_pack, detect_conflicts
 from app.brief import build_project_brief
+from app.developer_handoff import DeveloperHandoffResponse, generate_developer_handoff
 
 app = FastAPI(
     title="AI Context Intelligence",
@@ -159,3 +160,33 @@ def generate_project_brief_endpoint(
     except Exception:
         intelligence = None
     return build_project_brief(payload, intelligence=intelligence)
+
+
+@app.post(
+    "/api/v1/developer-handoff/generate",
+    summary="Generate Repository-Aware Developer Handoff",
+    response_model=DeveloperHandoffResponse,
+    status_code=200,
+)
+def generate_developer_handoff_endpoint(
+    payload: ContextPackRequest,
+    service: GroqContextService = Depends(get_context_service),
+) -> DeveloperHandoffResponse:
+    """Synthesize a developer handoff from repository knowledge and project activity (same error contract as generate)."""
+    try:
+        return generate_developer_handoff(service, payload)
+    except MissingApiKeyError as err:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(err)) from err
+    except GroqTimeoutError as err:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(err)) from err
+    except InvalidEvidenceReferenceError as err:
+        raise HTTPException(status_code=422, detail=f"Invalid evidence citation in AI output: {err}") from err
+    except ModelOutputError as err:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Malformed model output: {err}") from err
+    except GroqProviderError as err:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"AI service provider error: {err}") from err
+    except Exception as err:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unexpected internal error generating developer handoff.",
+        ) from err

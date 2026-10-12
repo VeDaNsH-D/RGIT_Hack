@@ -18,3 +18,7 @@ export { WhatsAppConnection } from './WhatsAppConnection.js';
 export { JiraConnection } from './JiraConnection.js';
 export { SlackConnection } from './SlackConnection.js';
 export { NotionConnection } from './NotionConnection.js';
+export { GitHubWebhookDelivery } from './GitHubWebhookDelivery.js';
+export { RepositorySnapshot } from './RepositorySnapshot.js';
+export { RepositoryFile } from './RepositoryFile.js';
+export { HandoffReport } from './HandoffReport.js';

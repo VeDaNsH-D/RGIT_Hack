@@ -201,6 +201,41 @@ export class AiServiceClient {
    * @param {object} [callOptions]
    * @returns {Promise<object>} ProjectBriefResponse from AI service.
    */
+  /**
+   * Repository-aware developer handoff (aiml POST /api/v1/developer-handoff/generate). The payload is the
+   * same ContextPackRequest contract; the response is { case_id, summary, sections: [{ key, claims: [...] }] }.
+   */
+  async generateDeveloperHandoff(payload, callOptions = {}) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new AiServiceError('Context pack payload must be a non-null object.', { code: AI_CLIENT_ERROR_CODES.INVALID_PAYLOAD, status: 400 });
+    }
+    const endpoint = `${this.baseUrl}/api/v1/developer-handoff/generate`;
+    const timeout = callOptions.timeoutMs || Math.max(this.timeoutMs, 90000);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    let response;
+    try {
+      response = await this.fetchFn(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(payload), signal: controller.signal });
+    } catch (err) {
+      if (err.name === 'AbortError' || controller.signal.aborted) {
+        throw new AiServiceError(`AI service timed out after ${timeout}ms.`, { code: AI_CLIENT_ERROR_CODES.TIMEOUT, status: 504, endpoint, cause: err });
+      }
+      throw new AiServiceError(`Failed to connect to AI service: ${sanitizeMessage(err.message || 'Unknown network error')}`, { code: AI_CLIENT_ERROR_CODES.CONNECTION_ERROR, status: 502, endpoint, cause: err });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    let body;
+    try { body = await response.json(); } catch { body = null; }
+    if (!response.ok) {
+      const status = response.status;
+      throw new AiServiceError(`AI service rejected request (${status}): ${sanitizeMessage(body?.detail || response.statusText || `HTTP ${status}`)}`, { code: AI_CLIENT_ERROR_CODES.HTTP_ERROR, status: status >= 400 && status < 600 ? status : 502, endpoint });
+    }
+    if (!body || typeof body !== 'object' || typeof body.summary !== 'string' || !body.summary.trim() || !Array.isArray(body.sections)) {
+      throw new AiServiceError('AI service returned a malformed developer handoff.', { code: AI_CLIENT_ERROR_CODES.MALFORMED_RESPONSE, status: 502, endpoint });
+    }
+    return body;
+  }
+
   async generateProjectBrief(payload, callOptions = {}) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new AiServiceError('Context pack payload must be a non-null object.', {
@@ -358,6 +393,11 @@ export async function generateContextPack(payload, options = {}) {
  * @param {object} [options] - Client options (baseUrl, timeoutMs, fetchFn).
  * @returns {Promise<object>} ProjectBriefResponse from the AI service.
  */
+export async function generateDeveloperHandoff(payload, options = {}) {
+  const client = new AiServiceClient(options);
+  return client.generateDeveloperHandoff(payload, options);
+}
+
 export async function generateProjectBrief(payload, options = {}) {
   const client = new AiServiceClient(options);
   return client.generateProjectBrief(payload, options);

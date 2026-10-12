@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { createServer } from 'vite'
 
-let ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout
+let DeveloperHandoffView, analysisHelpers, ReportBody, AiProjectContextView, workflow, AiDraftPanel, RepositoryActivityView, ConnectedRepositoriesView, GitHubRepositoryPicker, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout
 const storage = new Map()
 const originalWindow = globalThis.window
 const originalStorage = globalThis.sessionStorage
@@ -32,6 +32,15 @@ before(async () => {
   pages = await server.ssrLoadModule('/src/workspace/WorkspacePages.jsx')
   ;({ default: HandoffDetailPage } = await server.ssrLoadModule('/src/workspace/HandoffDetailPage.jsx'))
   ;({ default: ConnectionsPage, ConnectionsView } = await server.ssrLoadModule('/src/workspace/ConnectionsPage.jsx'))
+  ;({ ConnectedRepositoriesView } = await server.ssrLoadModule('/src/workspace/ConnectedRepositories.jsx'))
+  ;({ RepositoryActivityView } = await server.ssrLoadModule('/src/workspace/RepositoryActivity.jsx'))
+  ;({ AiProjectContextView } = await server.ssrLoadModule('/src/workspace/AiProjectContext.jsx'))
+  workflow = await server.ssrLoadModule('/src/workspace/aiHandoffWorkflow.js')
+  ;({ DeveloperHandoffView } = await server.ssrLoadModule('/src/workspace/DeveloperHandoff.jsx'))
+  analysisHelpers = await server.ssrLoadModule('/src/workspace/analysisHelpers.js')
+  ;({ HandoffReportBody: ReportBody } = await server.ssrLoadModule('/src/workspace/HandoffReportPreview.jsx'))
+  ;({ AiDraftPanel } = await server.ssrLoadModule('/src/workspace/AiDraftPanel.jsx'))
+  ;({ GitHubRepositoryPicker } = await server.ssrLoadModule('/src/workspace/ProjectIntegrations.jsx'))
   ;({ default: WorkspaceLayout } = await server.ssrLoadModule('/src/workspace/WorkspaceLayout.jsx'))
 })
 after(async () => {
@@ -149,4 +158,215 @@ test('connections view shows failures, and connected only when the backend confi
   assert.match(connected, /Connected to acme/)
   assert.doesNotMatch(connected, /Connect GitHub/)
   assert.match(view({ status: { configured: false, connected: false, accounts: [] } }), /disabled=""[^>]*>Connect GitHub/)
+})
+const picker = props => renderToString(React.createElement(GitHubRepositoryPicker, { repos: [], query: '', selected: null, onQuery() {}, onSelect() {}, onRetry() {}, onConnect() {}, ...props }))
+const sample = [{ id: 1, fullName: 'acme/relay', isPrivate: false }, { id: 2, fullName: 'acme/secret-api', isPrivate: true }]
+test('repository picker: loading, error with retry, and not-connected states', () => {
+  assert.match(picker({ state: 'loading' }), /Loading repositories/)
+  const failed = picker({ state: 'error', error: 'GitHub could not be reached.' })
+  assert.match(failed, /role="alert"[^>]*>GitHub could not be reached/); assert.match(failed, /Try again/)
+  const none = picker({ state: 'not_connected' })
+  assert.match(none, /Connect GitHub/); assert.doesNotMatch(none, /Search repositories/)
+})
+test('repository picker: lists repositories with visibility, empty states, and selection', () => {
+  const ready = picker({ state: 'ready', repos: sample })
+  assert.match(ready, /acme\/relay/); assert.match(ready, /Public/); assert.match(ready, /Private/)
+  assert.match(picker({ state: 'ready' }), /No repositories are shared/)
+  assert.match(picker({ state: 'ready', query: 'zzz' }), /No repositories match that search/)
+  const chosen = picker({ state: 'ready', repos: sample, selected: sample[1] })
+  assert.match(chosen, /Clear/); assert.doesNotMatch(chosen, /Search repositories/)
+})
+test('project creation stays optional: the modal source only sends integrations when a repo is chosen', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../src/workspace/WorkspaceModal.jsx', import.meta.url), 'utf8')
+  assert.match(source, /integrations\.github \? \{ integrations/)
+})
+test('edit-project dialog offers a guarded delete', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../src/workspace/WorkspaceModal.jsx', import.meta.url), 'utf8')
+  assert.match(source, /method: 'DELETE'/)
+  assert.match(source, /confirmText\.trim\(\) !== project\?\.name/)
+})
+const repoView = props => renderToString(React.createElement(MemoryRouter, null, React.createElement(ConnectedRepositoriesView, { state: 'ready', connections: [], canManage: true, onAdd() {}, onRetry() {}, ...props })))
+const conn = (id, name, isPrivate, sync = null) => ({ id, sync, repository: { id: Number(id), owner: 'acme', name, fullName: `acme/${name}`, htmlUrl: `https://github.com/acme/${name}`, isPrivate } })
+test('connected repositories: loading, error with retry, and empty states', () => {
+  assert.match(repoView({ state: 'loading' }), /Loading repositories/)
+  const failed = repoView({ state: 'error', error: 'Project not found' })
+  assert.match(failed, /role="alert"[^>]*>Project not found/); assert.match(failed, /Try again/)
+  const empty = repoView({})
+  assert.match(empty, /No repositories connected yet/); assert.match(empty, /Add repository/)
+  assert.doesNotMatch(repoView({ canManage: false }), /Add repository/)
+})
+test('connected repositories: shows persisted repositories without inventing sync data', () => {
+  const html = repoView({ connections: [conn('1', 'relay', false), conn('2', 'secret-api', true)] })
+  assert.match(html, /acme\/relay/); assert.match(html, /acme\/secret-api/)
+  assert.match(html, /Public/); assert.match(html, /Private/)
+  assert.match(html, /Not synced yet/)
+  assert.doesNotMatch(html, /Last synced|Sync status/)
+  assert.match(html, /href="https:\/\/github.com\/acme\/relay"/)
+  assert.match(html, /\+ Add repository/)
+  assert.match(html, /Counts|counts appear after the first successful sync/)
+  assert.doesNotMatch(html, /open issues/)
+})
+test('connected repositories: disconnect asks for confirmation first', () => {
+  const html = repoView({ connections: [conn('1', 'relay', false)], removing: '1' })
+  assert.match(html, /Disconnect this repository\?/)
+  assert.doesNotMatch(repoView({ connections: [conn('1', 'relay', false)] }), /Disconnect this repository/)
+})
+
+const synced = (over = {}) => ({ ...conn('1', 'relay', false), sync: { status: 'completed', lastSuccessAt: '2026-01-02T10:00:00Z', errors: [], ...over.sync }, stats: { state: 'ready', openIssues: 3, openPullRequests: 0, latestCommitAt: '2026-01-02T00:00:00Z', ...over.stats } })
+test('repository cards: real counts (including a genuine zero), sync status, and a working Sync now control', () => {
+  const html = repoView({ connections: [synced()], canSync: true })
+  assert.match(html, />Synced</); assert.match(html, /<strong>3<\/strong> open issues/); assert.match(html, /<strong>0<\/strong> open pull requests/)
+  assert.match(html, /Last synced/); assert.match(html, />Sync now</)
+  assert.doesNotMatch(repoView({ connections: [synced()], canSync: false }), /Sync now/)
+  assert.match(repoView({ connections: [synced()], canSync: true, syncingIds: ['1'] }), /Syncing…/)
+})
+test('repository cards: failed, partial, truncated and stale states are shown honestly', () => {
+  const failed = repoView({ connections: [synced({ sync: { status: 'failed', errors: [{ message: 'GitHub rate limit reached. Try again later.' }] }, stats: { state: 'stale' } })] })
+  assert.match(failed, />Sync failed</); assert.match(failed, /rate limit reached/); assert.match(failed, /From the last successful sync/)
+  assert.match(repoView({ connections: [synced({ sync: { status: 'partial', errors: [{ message: 'Some GitHub data could not be synchronized.' }] } })] }), />Partially synced</)
+  assert.match(repoView({ connections: [synced({ stats: { truncated: true } })] }), /At least 3/)
+  const never = repoView({ connections: [{ ...conn('1', 'relay', false), sync: { status: 'failed', errors: [] }, stats: { state: 'failed', openIssues: null } }] })
+  assert.doesNotMatch(never, /open issues/)
+})
+const activity = (props = {}) => renderToString(React.createElement(RepositoryActivityView, { tab: 'issues', onTab() {}, state: 'ready', data: { items: [], total: 0, page: 1, hasMore: false }, onRetry() {}, onPage() {}, ...props }))
+test('repository activity: loading, error, empty, and paginated list with GitHub links', () => {
+  assert.match(activity({ state: 'loading' }), /Loading activity/)
+  assert.match(activity({ state: 'error', error: 'Project not found' }), /role="alert"[^>]*>Project not found/)
+  assert.match(activity({}), /Nothing here yet/)
+  const item = { id: 'a', kind: 'issue', number: 8, title: 'CORS failures', url: 'https://github.com/acme/relay/issues/8', repository: 'acme/relay', author: 'alice', updatedAt: '2026-01-02T00:00:00Z', labels: ['bug'], assignees: ['bob'] }
+  const html = activity({ data: { items: [item], total: 41, page: 1, hasMore: true } })
+  assert.match(html, /href="https:\/\/github.com\/acme\/relay\/issues\/8"/); assert.match(html, /CORS failures/); assert.match(html, /bob/)
+  assert.match(html, /41 total/); assert.match(html, /disabled=""[^>]*>Previous/)
+})
+test('AI draft panel: empty, drafting, grounded draft with limitations and sources', () => {
+  const panel = props => renderToString(React.createElement(AiDraftPanel, { draft: null, busy: false, disabled: false, onGenerate() {}, onApply() {}, ...props }))
+  assert.match(panel({}), /Draft with AI/)
+  assert.match(panel({ busy: true }), /Drafting…/)
+  const draft = { generatedAt: '2026-01-02T00:00:00Z', basedOn: { github: 4, notes: 0, tasks: 1 }, currentStatus: 'Retry work is in review.', limitations: ['acme/relay has not been synchronized successfully; its activity is missing.'],
+    items: [{ type: 'blocker', kind: 'sourced', text: 'CORS failures [Source: acme/relay issue #8]' }, { type: 'pending', kind: 'inference', text: 'Suggested: Fix CORS' }], sources: [{ id: 'a', label: 'acme/relay issue #8', url: 'https://github.com/acme/relay/issues/8' }] }
+  const html = panel({ draft })
+  assert.match(html, /Data limitations/); assert.match(html, /Supported by sources/); assert.match(html, /Inference/)
+  assert.match(html, /href="https:\/\/github.com\/acme\/relay\/issues\/8"/); assert.match(html, /Apply to this handoff/)
+  assert.match(html, /from 4 GitHub records, 0 notes and 1 tasks/)
+})
+
+const ctxView = props => renderToString(React.createElement(MemoryRouter, null, React.createElement(AiProjectContextView, { summary: { repositories: 1, sync: 'Up to date', openIssues: 3, openPullRequests: 0, lastActivity: '2026-01-02T00:00:00Z' }, mode: 'ready', existing: null, recipients: [{ userId: 'u2', name: 'Sam Lee', email: 'sam@example.test' }], recipientId: '', onRecipient() {}, busy: null, error: null, onGenerate() {}, ...props })))
+test('AI Project Context: real stats, recipient choice, and a Generate AI Handoff action', () => {
+  const html = ctxView({})
+  assert.match(html, /AI Project Context/); assert.match(html, /Turn repository activity and project knowledge into actionable handoffs\./)
+  assert.match(html, /Connected repositories/); assert.match(html, /<strong>3<\/strong>/); assert.match(html, /<strong>0<\/strong>/); assert.match(html, /Up to date/)
+  assert.match(html, /Sam Lee/); assert.match(html, /disabled=""[^>]*>Generate AI Handoff/) // needs a recipient first
+  assert.doesNotMatch(ctxView({ recipientId: 'u2' }), /disabled=""[^>]*>Generate AI Handoff/)
+})
+test('AI Project Context: unavailable data is never shown as zero', () => {
+  const html = ctxView({ summary: { repositories: 0, sync: 'No repository connected', openIssues: null, openPullRequests: null, lastActivity: null } })
+  assert.match(html, /Open issues<\/span><strong>Unavailable/); assert.match(html, /Open pull requests<\/span><strong>Unavailable/); assert.match(html, /Last activity<\/span><strong>Unavailable/)
+})
+test('AI Project Context: generating, error with retry, reuse of an open handoff, and role states', () => {
+  assert.match(ctxView({ busy: 'drafting', recipientId: 'u2' }), /Generating draft…/)
+  assert.match(ctxView({ busy: 'creating', recipientId: 'u2' }), /Creating handoff…/)
+  const failed = ctxView({ existing: { id: 'h1' }, error: { kind: 'unavailable', message: 'The AI service is unavailable right now.' } })
+  assert.match(failed, /role="alert"[^>]*>The AI service is unavailable/); assert.match(failed, /Retry draft/); assert.match(failed, /no duplicate is created/); assert.doesNotMatch(failed, /Hand over to/)
+  assert.match(ctxView({ mode: 'draft_ready', existing: { id: 'h1' } }), /href="\/handoffs\/h1"/)
+  assert.match(ctxView({ mode: 'in_progress', existing: { id: 'h1' } }), /already in progress/)
+  assert.doesNotMatch(ctxView({ mode: 'not_owner' }), /Generate AI Handoff/)
+  assert.match(ctxView({ mode: 'no_teammates' }), /Add a teammate/)
+})
+test('AI handoff workflow: creates once, drafts through the existing endpoint, and reuses on retry', async () => {
+  const calls = []
+  const createHandoff = async to => { calls.push(['create', to]); return { handoff: { id: 'h1' } } }
+  let fail = true
+  const draft = async id => { calls.push(['draft', id]); if (fail) throw Object.assign(new Error('x'), { status: 503, data: { error: 'AI_SERVICE_CONNECTION_ERROR' } }); return { handoff: { id, aiDraft: { currentStatus: 's', items: [] } } } }
+  let created
+  await assert.rejects(workflow.generateAiHandoff({ existing: null, recipientId: 'u2', createHandoff, draft, onHandoff: id => { created = id } }))
+  assert.equal(created, 'h1')
+  fail = false
+  const result = await workflow.generateAiHandoff({ existing: { id: created }, recipientId: 'u2', createHandoff, draft })
+  assert.deepEqual(calls, [['create', 'u2'], ['draft', 'h1'], ['draft', 'h1']]) // one creation, two draft attempts
+  assert.equal(result.handoff.aiDraft.currentStatus, 's')
+  calls.length = 0
+  await workflow.generateAiHandoff({ existing: { id: 'open-1' }, recipientId: '', createHandoff, draft })
+  assert.deepEqual(calls, [['draft', 'open-1']]) // an existing open handoff is never duplicated
+})
+test('AI handoff workflow: errors map to no-data, unsynced, unavailable, and generic states', () => {
+  const e = (status, error, message = 'm') => Object.assign(new Error(message), { status, data: { error } })
+  assert.equal(workflow.describeDraftError(e(422, 'insufficient_context')).kind, 'no_data')
+  assert.equal(workflow.describeDraftError(e(409, 'not_synced')).kind, 'unsynced')
+  assert.equal(workflow.describeDraftError(e(504, 'AI_SERVICE_TIMEOUT')).kind, 'unavailable')
+  assert.equal(workflow.describeDraftError(e(503, 'AI_SERVICE_HTTP_ERROR')).kind, 'unavailable')
+  assert.equal(workflow.describeDraftError(e(409, 'conflict')).kind, 'conflict')
+  assert.equal(workflow.describeDraftError(e(400, 'validation_error', 'Pick someone')).message, 'Pick someone')
+})
+test('AI context summary only totals counts when every repository has real data', () => {
+  const ok = (i, p, status = 'completed') => ({ sync: { status, lastSuccessAt: '2026-01-02T00:00:00Z' }, stats: { state: 'ready', openIssues: i, openPullRequests: p, latestCommitAt: '2026-01-03T00:00:00Z' } })
+  const both = workflow.summarizeContext([ok(2, 1), ok(3, 0)])
+  assert.deepEqual([both.repositories, both.openIssues, both.openPullRequests, both.sync, both.lastActivity], [2, 5, 1, 'Up to date', '2026-01-03T00:00:00Z'])
+  const mixed = workflow.summarizeContext([ok(2, 1), { sync: { status: 'pending' }, stats: { state: 'not_synced', openIssues: null } }])
+  assert.equal(mixed.openIssues, null); assert.equal(mixed.sync, 'Not synced yet')
+  assert.equal(workflow.summarizeContext([]).repositories, 0)
+  assert.match(workflow.summarizeContext([ok(1, 1, 'failed')]).sync, /failed/)
+})
+
+const snap = (over = {}) => ({ commitSha: 'abcdef1234567', branch: 'main', status: 'completed', mode: 'full', analyzedAt: '2026-01-02T10:00:00Z', coverage: { analyzed: 118, eligible: 120, percent: 98, tooLarge: 0, overBudget: 0, secretSkipped: 0, fetchFailed: 0, binarySkipped: 0, treeTruncated: false }, changes: null, ...over })
+const repoItem = (analysis = {}) => ({ connectionId: 'c1', repository: { fullName: 'acme/relay' }, analysis: { status: 'completed', snapshot: snap(), freshness: { state: 'current', reasons: [] }, error: null, ...analysis } })
+const devView = (props = {}) => renderToString(React.createElement(DeveloperHandoffView, { state: 'ready', repositories: [repoItem()], analyzingIds: [], canAct: true, lastReport: null, busy: null, error: '', notice: '', onAnalyze() {}, onGenerate() {}, onPreview() {}, onDownload() {}, onRetry() {}, ...props }))
+test('developer handoff: loading, error with retry, and no-repository states', () => {
+  assert.match(devView({ state: 'loading' }), /Loading repository analysis/)
+  const failed = devView({ state: 'error', error: 'Project not found' })
+  assert.match(failed, /role="alert"[^>]*>Project not found/); assert.match(failed, /Try again/)
+  const none = devView({ repositories: [] })
+  assert.match(none, /Connect a GitHub repository/); assert.doesNotMatch(none, /Generate Handoff/)
+})
+test('developer handoff: shows the analyzed commit, coverage, freshness and actions', () => {
+  const html = devView({})
+  assert.match(html, /Analysis complete/); assert.match(html, /Commit abcdef1 on main/); assert.match(html, /118 of 120 eligible files \(98%\)/)
+  assert.match(html, /Up to date/); assert.match(html, />Refresh analysis</); assert.match(html, />Generate Handoff</)
+  assert.doesNotMatch(html, /Preview Handoff|Download PDF/) // nothing generated yet
+})
+test('developer handoff: never reports Complete for partial or failed analysis, and explains why', () => {
+  const partial = devView({ repositories: [repoItem({ status: 'partial', snapshot: snap({ status: 'partial', coverage: { analyzed: 3, eligible: 9, percent: 33, tooLarge: 1, overBudget: 4, secretSkipped: 1, fetchFailed: 0, binarySkipped: 0, treeTruncated: true } }) })] })
+  assert.match(partial, /Partial analysis/); assert.doesNotMatch(partial, /Analysis complete/)
+  assert.match(partial, /1 file\(s\) were too large/); assert.match(partial, /4 file\(s\) were left out/); assert.match(partial, /credentials/); assert.match(partial, /truncated the file listing/); assert.match(partial, /knowledge base is incomplete/)
+  const failed = devView({ repositories: [repoItem({ status: 'failed', error: { message: 'Relay does not have permission to read this repository’s contents. Grant the GitHub App “Contents: read” access.' } })] })
+  assert.match(failed, /Analysis failed/); assert.match(failed, /Contents: read/); assert.match(failed, /previous analysis is still available/)
+  const none = devView({ repositories: [repoItem({ status: 'not_analyzed', snapshot: null, freshness: null })] })
+  assert.match(none, /Not analyzed/); assert.match(none, />Analyze repository</); assert.match(none, /disabled=""[^>]*>Generate Handoff/); assert.match(none, /Analyze a repository first/)
+})
+test('developer handoff: stale knowledge, analyzing and generating states', () => {
+  const stale = devView({ repositories: [repoItem({ freshness: { state: 'stale', reasons: ['A newer commit (fffffff) exists.'] } })] })
+  assert.match(stale, />Stale</); assert.match(stale, /newer commit \(fffffff\)/); assert.match(stale, /Refresh the analysis for the most accurate handoff/)
+  assert.match(devView({ analyzingIds: ['c1'] }), /Analyzing…/)
+  assert.match(devView({ analyzingIds: ['c1'] }), /disabled=""[^>]*>Generate Handoff/)
+  assert.match(devView({ busy: 'generating' }), /Generating handoff…/)
+  assert.match(devView({ error: 'The AI service is unavailable right now.' }), /role="alert"[^>]*>The AI service is unavailable/)
+})
+test('developer handoff: preview and PDF actions appear once a report exists; viewers cannot act', () => {
+  const html = devView({ lastReport: { id: 'r1', generatedAt: '2026-01-02T10:00:00Z' } })
+  assert.match(html, />Preview Handoff</); assert.match(html, />Download PDF</); assert.match(html, /Last handoff generated/)
+  const viewer = devView({ canAct: false, lastReport: { id: 'r1', generatedAt: '2026-01-02T10:00:00Z' } })
+  assert.doesNotMatch(viewer, /Generate Handoff|Refresh analysis|Analyze repository/); assert.match(viewer, /Download PDF/)
+})
+test('analysis helpers describe coverage and changes from real numbers only', () => {
+  assert.deepEqual(analysisHelpers.coverageNotes({ tooLarge: 0, overBudget: 0, secretSkipped: 0, fetchFailed: 0, binarySkipped: 0, treeTruncated: false }), [])
+  assert.equal(analysisHelpers.coverageNotes(null).length, 0)
+  assert.equal(analysisHelpers.changeSummary({ added: ['a'], modified: ['b', 'c'], deleted: [], renamed: [{}] }), '1 added, 2 modified, 1 renamed')
+  assert.equal(analysisHelpers.changeSummary({ added: [], modified: [], deleted: [], renamed: [] }), 'No file changes')
+})
+test('report preview shows sections, evidence links, kinds, repository identity and limitations', () => {
+  const report = { projectName: 'Relay', generatedAt: '2026-01-02T10:00:00Z', limitations: ['acme/relay: 1 file(s) exceeded the size limit.'], repositories: [{ fullName: 'acme/relay', commitSha: 'a'.repeat(40), branch: 'main', status: 'partial', freshness: 'stale', coverage: { percent: 91 } }],
+    sections: [{ key: 'architecture', title: 'Repository architecture', items: [{ text: 'Express server in src/server.js', kind: 'fact', evidence: [{ id: 'f', label: 'acme/relay/src/server.js@aaaaaaa', url: 'https://github.com/acme/relay/blob/aaa/src/server.js' }] }, { text: 'Deploy target unknown', kind: 'unknown', evidence: [] }] }, { key: 'links', title: 'Relevant source links', items: [{ text: 'acme/relay', kind: 'fact', evidence: [{ id: 'u', label: 'acme/relay', url: 'https://github.com/acme/relay' }] }] }] }
+  const html = renderToString(React.createElement(ReportBody, { report }))
+  assert.match(html, /Repository architecture/); assert.match(html, /commit aaaaaaa · main · analysis partial \(91% of eligible files\) · knowledge stale/)
+  assert.match(html, /Source-backed/); assert.match(html, />Unknown</); assert.match(html, /href="https:\/\/github.com\/acme\/relay\/blob\/aaa\/src\/server\.js"/); assert.match(html, /Limitations/)
+  assert.match(html, /Relevant source links/)
+})
+
+test('AI errors distinguish unreadable output, token limits, and missing keys from an unavailable service', () => {
+  const e = (status, error, message) => Object.assign(new Error(message), { status, data: { error } })
+  assert.equal(workflow.describeDraftError(e(502, 'AI_SERVICE_HTTP_ERROR', 'AI service rejected request (502): Malformed model output: x')).kind, 'failed')
+  assert.equal(workflow.describeDraftError(e(502, 'AI_SERVICE_HTTP_ERROR', 'AI service rejected request (502): Error code: 413 - Request too large ... tokens per minute')).kind, 'too_large')
+  assert.match(workflow.describeDraftError(e(503, 'AI_SERVICE_HTTP_ERROR', 'GROQ_API_KEY is not configured')).message, /GROQ_API_KEY/)
+  assert.equal(workflow.describeDraftError(e(502, 'AI_SERVICE_CONNECTION_ERROR', 'Failed to connect')).kind, 'unavailable')
 })

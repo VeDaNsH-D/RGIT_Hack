@@ -1,10 +1,14 @@
-import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { loadProjectDraft } from './projectDraft'
 import { useAuth } from '../auth/AuthContext'
 import { useWorkspace } from './WorkspaceContext'
 import { Badge, EmptyState, Icon, PageHeading, ProjectCard } from './ui'
 import { formatDate, memberName } from './utils'
 import WorkspaceModal from './WorkspaceModal'
+import ConnectedRepositories from './ConnectedRepositories'
+import RepositoryActivity from './RepositoryActivity'
+import AiProjectContext from './AiProjectContext'
 import TaskList from './TaskList'
 
 export function DashboardPage() {
@@ -29,9 +33,13 @@ export function DashboardPage() {
 export function ProjectsPage() {
   const { projects } = useWorkspace()
   const [search, setSearch] = useState('')
-  const [modal, setModal] = useState(false)
+  const [params, setParams] = useSearchParams()
+  // Returning from GitHub authorization reopens the dialog with the saved text.
+  const [resume] = useState(() => params.has('newProject') && Boolean(loadProjectDraft()))
+  const [modal, setModal] = useState(resume)
+  useEffect(() => { if (params.has('newProject')) setParams({}, { replace: true }) }, [params, setParams])
   const filtered = projects.filter(project => `${project.name} ${project.description}`.toLowerCase().includes(search.toLowerCase()))
-  return <><PageHeading eyebrow="ONE SHARED SOURCE OF TRUTH" title="Projects" description="Bring people, priorities, and context together." action="New project" onAction={() => setModal(true)}/><div className="ws-filters"><label className="ws-search"><Icon name="search" size={18}/><input aria-label="Search projects" placeholder="Search projects…" value={search} onChange={event => setSearch(event.target.value)}/></label><span className="ws-muted">{filtered.length} projects</span></div>{filtered.length ? <div className="ws-project-grid">{filtered.map(project => <ProjectCard project={project} key={project.id}/>)}</div> : <EmptyState title={search ? 'No projects match that search.' : 'Your next chapter starts here.'} description={search ? 'Try another project name.' : 'Create a project to organize your team’s work.'} action={search ? null : 'Create project'} onAction={() => setModal(true)}/ >}{modal && <WorkspaceModal kind="project" onClose={() => setModal(false)}/>}</>
+  return <><PageHeading eyebrow="ONE SHARED SOURCE OF TRUTH" title="Projects" description="Bring people, priorities, and context together." action="New project" onAction={() => setModal(true)}/><div className="ws-filters"><label className="ws-search"><Icon name="search" size={18}/><input aria-label="Search projects" placeholder="Search projects…" value={search} onChange={event => setSearch(event.target.value)}/></label><span className="ws-muted">{filtered.length} projects</span></div>{filtered.length ? <div className="ws-project-grid">{filtered.map(project => <ProjectCard project={project} key={project.id}/>)}</div> : <EmptyState title={search ? 'No projects match that search.' : 'Your next chapter starts here.'} description={search ? 'Try another project name.' : 'Create a project to organize your team’s work.'} action={search ? null : 'Create project'} onAction={() => setModal(true)}/ >}{modal && <WorkspaceModal kind="project" resumeDraft={resume} onClose={() => setModal(false)}/>}</>
 }
 
 export function TasksPage() {
@@ -67,10 +75,14 @@ export function ProjectDetailPage() {
   const { projects } = useWorkspace()
   const { session } = useAuth()
   const [modal, setModal] = useState(null)
+  const [repoKey, setRepoKey] = useState(0)
+  const [activityKey, setActivityKey] = useState(0)
+  const [linkedIds, setLinkedIds] = useState([])
+  const [connections, setConnections] = useState([])
   const project = projects.find(project => project.id === projectId)
   if (!project) return <EmptyState title="Project not found." description="This project may not be available to your account."/>
   if (project.loadError) return <p className="ws-error">{project.loadError}</p>
   const owner = project.ownerId === session.user.id
   const writable = project.myRole !== 'viewer'
-  return <><Link className="ws-back-link" to="/projects">← All projects</Link><PageHeading eyebrow="PROJECT CONTEXT" title={project.name} description={project.description || 'A shared place for your work and its context.'} action={owner ? 'Edit project' : null} onAction={() => setModal('editProject')}/><div className="ws-project-detail-grid"><section className="ws-panel"><div className="ws-section-heading"><h2>Tasks <span className="ws-count">{project.tasks.length}</span></h2>{writable && <button className="ws-text-button" onClick={() => setModal('task')}>+ New task</button>}</div>{project.tasks.length ? <TaskList tasks={project.tasks}/> : <p className="ws-panel-empty">Add the first task to start moving forward.</p>}</section><section className="ws-panel"><div className="ws-section-heading"><h2>Your team</h2>{owner && <button className="ws-text-button" onClick={() => setModal('member')}>+ Add teammate</button>}</div><div className="ws-members">{project.context.members.map(member => <div key={member.userId}><span className="ws-user-avatar">{member.name.charAt(0).toUpperCase()}</span><span><strong>{member.name}</strong><small>{member.email}</small></span><Badge value={member.role}/></div>)}</div></section></div><section className="ws-panel"><div className="ws-section-heading"><div><h2>Handoff history</h2><p>A clear record of who’s taking the work forward.</p></div>{owner && !project.handoffs.some(h => h.isOpen) && <button className="ws-text-button" onClick={() => setModal('handoff')}>+ New handoff</button>}</div>{project.handoffs.length ? <div className="ws-project-grid">{project.handoffs.map(handoff => <HandoffCard key={handoff.id} handoff={handoff}/>)}</div> : <p className="ws-panel-empty">No handoffs yet. Add a teammate when you’re ready to transfer ownership.</p>}</section>{modal && <WorkspaceModal kind={modal} projectId={project.id} onClose={() => setModal(null)}/>}</>
+  return <><Link className="ws-back-link" to="/projects">← All projects</Link><PageHeading eyebrow="PROJECT CONTEXT" title={project.name} description={project.description || 'A shared place for your work and its context.'} action={owner ? 'Edit project' : null} onAction={() => setModal('editProject')}/><ConnectedRepositories projectId={project.id} canManage={owner} canSync={writable} refreshKey={repoKey} onLoaded={setLinkedIds} onConnections={setConnections} onSynced={() => setActivityKey(key => key + 1)} onAdd={() => setModal('repository')}/>{linkedIds.length > 0 && <RepositoryActivity projectId={project.id} refreshKey={`${repoKey}:${activityKey}`}/>}<AiProjectContext project={project} userId={session.user.id} connections={connections}/><div className="ws-project-detail-grid"><section className="ws-panel"><div className="ws-section-heading"><h2>Tasks <span className="ws-count">{project.tasks.length}</span></h2>{writable && <button className="ws-text-button" onClick={() => setModal('task')}>+ New task</button>}</div>{project.tasks.length ? <TaskList tasks={project.tasks}/> : <p className="ws-panel-empty">Add the first task to start moving forward.</p>}</section><section className="ws-panel"><div className="ws-section-heading"><h2>Your team</h2>{owner && <button className="ws-text-button" onClick={() => setModal('member')}>+ Add teammate</button>}</div><div className="ws-members">{project.context.members.map(member => <div key={member.userId}><span className="ws-user-avatar">{member.name.charAt(0).toUpperCase()}</span><span><strong>{member.name}</strong><small>{member.email}</small></span><Badge value={member.role}/></div>)}</div></section></div><section className="ws-panel"><div className="ws-section-heading"><div><h2>Handoff history</h2><p>A clear record of who’s taking the work forward.</p></div>{owner && !project.handoffs.some(h => h.isOpen) && <button className="ws-text-button" onClick={() => setModal('handoff')}>+ New handoff</button>}</div>{project.handoffs.length ? <div className="ws-project-grid">{project.handoffs.map(handoff => <HandoffCard key={handoff.id} handoff={handoff}/>)}</div> : <p className="ws-panel-empty">No handoffs yet. Add a teammate when you’re ready to transfer ownership.</p>}</section>{modal && <WorkspaceModal kind={modal} projectId={project.id} excludeRepositoryIds={linkedIds} onClose={() => { setRepoKey(key => key + 1); setModal(null) }}/>}</>
 }

@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { useWorkspace } from './WorkspaceContext'
 import { request } from '../api/client'
+import { draftHandoffWithAi } from '../api/connections'
+import { AiDraftPanel } from './AiDraftPanel'
 import { Badge, EmptyState, PageHeading } from './ui'
 import { memberName } from './utils'
 
@@ -18,10 +20,33 @@ function HandoffEditor({ handoff, project }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [note, setNote] = useState('')
+  const [draft, setDraft] = useState(handoff.aiDraft || null)
   const outgoing = handoff.fromUserId === session.user.id
   const incoming = handoff.toUserId === session.user.id
   const editable = outgoing && ['DRAFT', 'EDITING'].includes(handoff.state)
   const dirty = status !== handoff.currentStatus || JSON.stringify(items) !== JSON.stringify(handoff.items) || links !== (handoff.supportingLinks || []).join('\n') || noPending !== handoff.noPendingActionsConfirmed
+
+  async function generate() {
+    if (busy) return
+    setBusy('draft')
+    setError('')
+    setNotice('')
+    try {
+      const result = await draftHandoffWithAi(handoff.id)
+      setDraft(result.handoff.aiDraft)
+      setNotice('Draft ready. Review it, then apply it to this handoff.')
+    } catch (err) { setError(err.message) } finally { setBusy('') }
+  }
+
+  function applyDraft() {
+    if (!draft) return
+    if ((status.trim() || items.length) && !window.confirm('Replace the current status and add the draft notes to this handoff? You can still edit everything before saving.')) return
+    setStatus(draft.currentStatus)
+    setItems([...items, ...draft.items.map(({ type, text, sourceRecordId }) => ({ type, text, sourceRecordId: sourceRecordId || null }))].slice(0, 200))
+    setLinks([...new Set([...links.split('\n').map(link => link.trim()).filter(Boolean), ...draft.supportingLinks])].slice(0, 50).join('\n'))
+    setValidation(null)
+    setNotice('Draft applied. Review and edit it, then save the context.')
+  }
 
   async function action(name) {
     if (busy) return
@@ -47,6 +72,7 @@ function HandoffEditor({ handoff, project }) {
 
   return <>
     <div className="ws-handoff-summary"><Badge value={handoff.state}/><span>{memberName(project, handoff.fromUserId)} <span className="ws-accent">→</span> {memberName(project, handoff.toUserId)}</span><Link to={`/projects/${project.id}`}>View project →</Link></div>
+    {editable && <AiDraftPanel draft={draft} busy={busy === 'draft'} disabled={Boolean(busy)} onGenerate={generate} onApply={applyDraft}/>}
     {error && <p className="ws-error" role="alert">{error}</p>}{notice && <p className="ws-notice" role="status">{notice}</p>}
     <div className="ws-handoff-detail-grid"><section className="ws-panel ws-editor">
       <h2>The context that matters</h2><p className="ws-muted">Capture where things stand and what should happen next.</p>

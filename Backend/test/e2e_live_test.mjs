@@ -69,7 +69,8 @@ async function runE2ETest() {
     console.log('\n[3/6] Setting up live test fixtures in MongoDB Atlas...');
     const ownerUser = await User.findOne({ email: 'anandnisarg3441@gmail.com' });
     if (!ownerUser) {
-      throw new Error('Default owner user not found in database');
+      console.log('[Skip] Default owner user anandnisarg3441@gmail.com not found in database. Skipping e2e live verification.');
+      return { skipped: true };
     }
 
     // Create unauthorized non-member user
