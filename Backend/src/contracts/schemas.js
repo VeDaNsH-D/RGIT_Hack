@@ -59,6 +59,11 @@ export const createProjectSchema = z
   .object({
     name: nonEmptyString.max(200),
     description: z.string().trim().max(5000).optional().default(''),
+    // Optional provider links; the server validates every id against the user's own connection.
+    integrations: z
+      .object({ github: z.object({ repositoryId: z.number().int().positive() }).strict().optional() })
+      .strict()
+      .optional(),
   })
   .strict();
 

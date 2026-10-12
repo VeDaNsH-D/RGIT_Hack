@@ -25,6 +25,7 @@ const env = {
   MONGODB_URI: uri,
   MONGODB_URI_TEST: uri,
   NODE_ENV: 'test',
+  FRONTEND_URL: '',
   JWT_SECRET: process.env.JWT_SECRET || 'test-jwt-secret-at-least-32-characters-long',
   CRON_SECRET: process.env.CRON_SECRET || 'test-cron-secret',
 };

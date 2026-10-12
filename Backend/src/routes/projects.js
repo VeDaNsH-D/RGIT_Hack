@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { createProjectSchema, updateProjectSchema, addMemberSchema, sourceRecordQuerySchema } from '../contracts/schemas.js';
 import { requireAuth } from '../middleware/auth.js';
 import { attachProject, requireRole } from '../middleware/access.js';
@@ -10,6 +11,19 @@ import { SourceRecord } from '../models/SourceRecord.js';
 import { Conflict } from '../models/Conflict.js';
 import { Handoff } from '../models/Handoff.js';
 import { User } from '../models/User.js';
+import { purgeRepositoryKnowledge } from '../services/repositoryAnalysisService.js';
+import { HandoffReport } from '../models/HandoffReport.js';
+import { RepositorySnapshot } from '../models/RepositorySnapshot.js';
+import { RepositoryFile } from '../models/RepositoryFile.js';
+import { SyncError, syncConnection } from '../services/githubSyncEngine.js';
+import { ACTIVITY_KINDS, listActivity, repositoryStats } from '../services/githubActivityService.js';
+import { RepositoryError, linkRepository, resolveAccessibleRepository, serializeConnection } from '../services/githubRepositoryService.js';
+import { SourceConnection } from '../models/SourceConnection.js';
+import { NotificationModel as Notification } from '../models/Notification.js';
+import { ConflictEvidence } from '../models/ConflictEvidence.js';
+import { EmailReview } from '../models/EmailReview.js';
+import { createLocalDocumentStorage } from '../modules/ingestion/documents/index.js';
+import { config } from '../config.js';
 import { logActivity } from '../audit/service.js';
 import { generateContextPack, generateProjectBrief, AiServiceError } from '../services/aiClient.js';
 import { buildProjectContextPack } from '../services/contextBuilder.js';
@@ -29,6 +43,10 @@ const router = Router();
 router.post('/', requireAuth, async (req, res, next) => {
   try {
     const body = createProjectSchema.parse(req.body);
+    // Validate the repository BEFORE creating anything, so a bad id never leaves a half-made project.
+    const requestedRepo = body.integrations?.github
+      ? await resolveAccessibleRepository(String(req.user._id), body.integrations.github.repositoryId)
+      : null;
     const project = await Project.create({
       name: body.name,
       description: body.description,
@@ -49,11 +67,87 @@ router.post('/', requireAuth, async (req, res, next) => {
       targetId: project._id,
       payload: { name: project.name },
     });
-    res.status(201).json({ project: serializeProject(project) });
+    // Association failure after creation is reported, never hidden: the project exists, and the
+    // client can retry via POST /:id/integrations/github.
+    let integrations;
+    if (requestedRepo) {
+      try {
+        integrations = { github: { status: 'connected', ...(await linkRepository({ projectId: project._id, userId: req.user._id, repository: requestedRepo })) } };
+      } catch {
+        integrations = { github: { status: 'failed', error: 'association_failed' } };
+      }
+    }
+    res.status(201).json({ project: serializeProject(project), ...(integrations ? { integrations } : {}) });
   } catch (err) {
     if (err.name === 'ZodError') {
       return res.status(400).json({ error: 'validation_error', message: err.message });
     }
+    if (err instanceof RepositoryError) return res.status(err.status).json({ error: err.code, message: err.message });
+    next(err);
+  }
+});
+
+router.get('/:id/integrations', requireAuth, attachProject(), requireRole('viewer'), async (req, res, next) => {
+  try {
+    const rows = await SourceConnection.find({ projectId: req.project._id, provider: 'github' }).sort({ createdAt: 1 }).lean();
+    const stats = await repositoryStats(req.project._id, rows.map((r) => r.config?.repositoryId).filter(Number.isSafeInteger));
+    res.json({ integrations: { github: rows.map((r) => serializeConnection(r, stats.get(r.config?.repositoryId))) } });
+  } catch (err) { next(err); }
+});
+
+/** Runs a real synchronization now. Members and owners may trigger it; viewers may not. */
+router.post('/:id/integrations/github/:connectionId/sync', requireAuth, attachProject(), requireRole('member'), async (req, res, next) => {
+  try {
+    if (!/^[a-f0-9]{24}$/i.test(req.params.connectionId)) return res.status(400).json({ error: 'validation_error', message: 'Invalid connection id' });
+    const owned = await SourceConnection.exists({ _id: req.params.connectionId, projectId: req.project._id, provider: 'github' });
+    if (!owned) return res.status(404).json({ error: 'not_found', message: 'Repository connection not found' });
+    const doc = await syncConnection(req.params.connectionId);
+    const stats = await repositoryStats(req.project._id, [doc.config?.repositoryId].filter(Number.isSafeInteger));
+    res.json({ integration: { github: serializeConnection(doc, stats.get(doc.config?.repositoryId)) } });
+  } catch (err) {
+    if (err instanceof SyncError) return res.status(err.status).json({ error: err.code, message: err.message });
+    next(err);
+  }
+});
+
+router.get('/:id/github/activity', requireAuth, attachProject(), requireRole('viewer'), async (req, res, next) => {
+  try {
+    const one = (v) => (typeof v === 'string' ? v : undefined);
+    const kind = one(req.query.kind) || 'issues';
+    if (!ACTIVITY_KINDS.includes(kind)) return res.status(400).json({ error: 'validation_error', message: `kind must be one of ${ACTIVITY_KINDS.join(', ')}` });
+    const state = one(req.query.state) || 'open';
+    if (!['open', 'closed', 'all'].includes(state)) return res.status(400).json({ error: 'validation_error', message: 'state must be open, closed or all' });
+    const page = Math.min(Math.max(parseInt(one(req.query.page), 10) || 1, 1), 500);
+    const limit = Math.min(Math.max(parseInt(one(req.query.limit), 10) || 20, 1), 50);
+    const repositoryId = one(req.query.repositoryId) ? Number(req.query.repositoryId) : undefined;
+    if (repositoryId !== undefined && !Number.isSafeInteger(repositoryId)) return res.status(400).json({ error: 'validation_error', message: 'Invalid repositoryId' });
+    res.json(await listActivity(req.project._id, { kind, state, page, limit, repositoryId }));
+  } catch (err) { next(err); }
+});
+
+/** Removes only the association row. The project and any SourceRecords already ingested are untouched. */
+router.delete('/:id/integrations/github/:connectionId', requireAuth, attachProject(), requireRole('owner'), async (req, res, next) => {
+  try {
+    if (!/^[a-f0-9]{24}$/i.test(req.params.connectionId)) return res.status(400).json({ error: 'validation_error', message: 'Invalid connection id' });
+    const removed = await SourceConnection.findOneAndDelete({ _id: req.params.connectionId, projectId: req.project._id, provider: 'github' }).lean();
+    if (!removed) return res.status(404).json({ error: 'not_found', message: 'Repository connection not found' });
+    // Stored repository content and snapshots go with the association; ingested activity records are kept.
+    await purgeRepositoryKnowledge({ projectId: req.project._id, repositoryId: removed.config?.repositoryId, connectionId: removed._id });
+    await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'PROJECT_UPDATED', targetType: 'Project', targetId: req.project._id, payload: { githubRepositoryRemoved: removed.config?.fullName } });
+    res.json({ removed: true });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/integrations/github', requireAuth, attachProject(), requireRole('owner'), async (req, res, next) => {
+  try {
+    const { repositoryId } = z.object({ repositoryId: z.number().int().positive() }).strict().parse(req.body);
+    const repository = await resolveAccessibleRepository(String(req.user._id), repositoryId);
+    const connection = await linkRepository({ projectId: req.project._id, userId: req.user._id, repository });
+    await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'PROJECT_UPDATED', targetType: 'Project', targetId: req.project._id, payload: { githubRepository: connection.repository.fullName } });
+    res.status(201).json({ integration: { github: connection } });
+  } catch (err) {
+    if (err.name === 'ZodError') return res.status(400).json({ error: 'validation_error', message: err.message });
+    if (err instanceof RepositoryError) return res.status(err.status).json({ error: err.code, message: err.message });
     next(err);
   }
 });
@@ -70,6 +164,31 @@ router.get('/', requireAuth, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+/**
+ * Owner-only permanent delete. MongoDB transactions aren't assumed, so children go first and the
+ * project last: a failure part-way leaves the project in place and the call can simply be retried.
+ * The append-only audit log (ActivityEvent) is intentionally kept.
+ */
+router.delete('/:id', requireAuth, attachProject(), requireRole('owner'), async (req, res, next) => {
+  try {
+    const projectId = req.project._id;
+    const documents = await Document.find({ projectId }).select('storageRef').lean();
+    await Promise.all([
+      Task.deleteMany({ projectId }), Handoff.deleteMany({ projectId }), Conflict.deleteMany({ projectId }),
+      ConflictEvidence.deleteMany({ projectId }), SourceRecord.deleteMany({ projectId }), SourceConnection.deleteMany({ projectId }),
+      Document.deleteMany({ projectId }), EmailReview.deleteMany({ projectId }), Notification.deleteMany({ projectId }),
+      RepositorySnapshot.deleteMany({ projectId }), RepositoryFile.deleteMany({ projectId }), HandoffReport.deleteMany({ projectId }),
+    ]);
+    await ProjectMembership.deleteMany({ projectId });
+    await Project.deleteOne({ _id: projectId });
+    // Best-effort cleanup of uploaded files; the records are already gone.
+    const storage = createLocalDocumentStorage(config.documents.storageDir ? { rootDir: config.documents.storageDir } : {});
+    await Promise.allSettled(documents.map((d) => (d.storageRef?.key ? storage.delete(d.storageRef.key) : null)));
+    await logActivity({ projectId, actorId: req.user._id, action: 'PROJECT_DELETED', targetType: 'Project', targetId: projectId, payload: { name: req.project.name } });
+    res.json({ deleted: true });
+  } catch (err) { next(err); }
 });
 
 router.get('/:id', requireAuth, attachProject(), requireRole('viewer'), (req, res) => {

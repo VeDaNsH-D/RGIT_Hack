@@ -89,10 +89,8 @@ class GroqContextService:
         self._client = Groq(api_key=self.api_key, timeout=self.timeout)
         return self._client
 
-    def generate(self, request: ContextPackRequest) -> ContextIntelligenceResponse:
-        """Call Groq to extract structured context intelligence and validate evidence traceability."""
-        user_prompt = build_user_prompt(request)
-
+    def _chat_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 8192) -> Dict[str, Any]:
+        """Run one JSON-mode chat completion (one retry on transient failures) and parse the object."""
         client = self.client
         completion = None
         for attempt in range(2):
@@ -100,12 +98,12 @@ class GroqContextService:
                 completion = client.chat.completions.create(
                     model=self.model,
                     messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
                     response_format={"type": "json_object"},
                     temperature=0.1,
-                    max_tokens=8192,
+                    max_tokens=max_tokens,
                 )
                 break
             except MissingApiKeyError:
@@ -157,6 +155,12 @@ class GroqContextService:
 
         if not isinstance(raw_data, dict):
             raise ModelOutputError("Model response JSON must be a key-value object.")
+
+        return raw_data
+
+    def generate(self, request: ContextPackRequest) -> ContextIntelligenceResponse:
+        """Call Groq to extract structured context intelligence and validate evidence traceability."""
+        raw_data = self._chat_json(SYSTEM_PROMPT, build_user_prompt(request))
 
         # Ensure case_id aligns with request if omitted by model
         if not raw_data.get("case_id"):

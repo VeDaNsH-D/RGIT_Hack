@@ -17,6 +17,8 @@ import tasksRouter from './routes/tasks.js';
 import handoffsRouter from './routes/handoffs.js';
 import conflictsRouter from './routes/conflicts.js';
 import connectionsRouter from './routes/connections.js';
+import repositoryKnowledgeRouter from './routes/repositoryKnowledge.js';
+import githubWebhookRouter from './routes/githubWebhook.js';
 import cronRouter from './routes/cron.js';
 import { notificationRouter } from './notifications/routes.js';
 import { agoraRouter } from './routes/agora.js';
@@ -27,7 +29,11 @@ if (Number.isInteger(proxyHops) && proxyHops > 0 && proxyHops <= 5) app.set('tru
 
 app.use(helmet());
 // OAuth discovery and token endpoints have SDK-managed CORS; website APIs retain their origin policy.
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({
+  limit: '1mb',
+  // Preserve the signed webhook bytes before any middleware consumes the body.
+  verify: (req, res, buf) => { if (req.originalUrl.startsWith('/api/webhooks/github')) req.rawBody = buf; },
+}));
 app.use(oauthRouter);
 
 app.use(
@@ -41,8 +47,6 @@ app.use(
     credentials: true,
   })
 );
-
-app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -61,6 +65,7 @@ app.use('/api/projects', documentsRouter);
 app.use('/api/projects', ingestionRouter);
 app.use('/api/projects', notionRouter);
 app.use('/api', invitationsRouter);
+app.use('/api/projects', repositoryKnowledgeRouter);
 // notesRouter and tasksRouter each define both a /projects/:id/... path and
 // a flat /notes/:id or /tasks/:id path, so they're mounted at /api rather
 // than /api/projects.
@@ -71,6 +76,7 @@ app.use('/api', conflictsRouter);
 app.use('/api', cronRouter);
 app.use('/api/notifications', notificationRouter);
 app.use('/api/connections', connectionsRouter);
+app.use('/api/webhooks', githubWebhookRouter);
 app.use('/api/agora', agoraRouter);
 
 // 404 for unmatched API routes.

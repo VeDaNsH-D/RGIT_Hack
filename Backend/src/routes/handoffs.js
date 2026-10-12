@@ -16,6 +16,8 @@ import { logActivity, listActivity } from '../audit/service.js';
 import { emitNotificationEvent } from '../notifications/emitEvent.js';
 import { applyEvent, ERROR_CODES } from '../handoffs/lifecycle.js';
 import { assertItemSourceRecordsBelongToProject, ItemReferenceError } from '../handoffs/itemRefs.js';
+import { DraftError, generateHandoffDraft } from '../services/handoffDraftService.js';
+import { AiServiceError } from '../services/aiClient.js';
 import { runValidation } from '../handoffs/service.js';
 import { HANDOFF_OPEN_STATES, NON_WAIVABLE_CHECKS } from '../constants.js';
 
@@ -37,6 +39,7 @@ function serializeHandoff(h) {
       sourceRecordId: i.sourceRecordId ? String(i.sourceRecordId) : null,
     })),
     noPendingActionsConfirmed: h.noPendingActionsConfirmed,
+    aiDraft: h.aiDraft ?? null,
     supportingLinks: h.supportingLinks,
     documentIds: (h.documentIds || []).map(String),
     exceptions: (h.exceptions || []).map((e) => ({
@@ -205,6 +208,34 @@ router.patch('/handoffs/:id', requireAuth, attachHandoffProjectContext(), async 
   } catch (err) {
     if (err.name === 'ZodError') return res.status(400).json({ error: 'validation_error', message: err.message });
     if (err instanceof ItemReferenceError) return res.status(400).json({ error: err.code, message: err.message });
+    next(err);
+  }
+});
+
+/**
+ * Generates a source-grounded draft for review. Only the outgoing owner of an editable handoff may do this.
+ * The draft is stored in handoff.aiDraft; items/currentStatus change only when the user applies and saves it.
+ */
+router.post('/handoffs/:id/ai-draft', requireAuth, attachHandoffProjectContext(), async (req, res, next) => {
+  try {
+    if (String(req.handoff.fromUserId) !== String(req.user._id)) {
+      return res.status(403).json({ error: 'forbidden', message: 'Only the outgoing owner can draft this handoff' });
+    }
+    if (!['DRAFT', 'EDITING'].includes(req.handoff.state)) {
+      return res.status(409).json({ error: 'illegal_transition', message: `Cannot draft a handoff in state ${req.handoff.state}` });
+    }
+    const draft = await generateHandoffDraft(req.project);
+    const updated = await Handoff.findOneAndUpdate(
+      { _id: req.handoff._id, state: { $in: ['DRAFT', 'EDITING'] } },
+      { $set: { aiDraft: { ...draft, generatedBy: String(req.user._id) } } },
+      { new: true }
+    );
+    if (!updated) return res.status(409).json({ error: 'conflict', message: 'Handoff state changed concurrently' });
+    await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'HANDOFF_AI_DRAFT_GENERATED', targetType: 'Handoff', targetId: updated._id, payload: { items: draft.items.length } });
+    res.json({ handoff: serializeHandoff(updated) });
+  } catch (err) {
+    if (err instanceof DraftError) return res.status(err.status).json({ error: err.code, message: err.message });
+    if (err instanceof AiServiceError) return res.status(err.status || 502).json({ error: err.code || 'ai_service_error', message: err.message });
     next(err);
   }
 });
