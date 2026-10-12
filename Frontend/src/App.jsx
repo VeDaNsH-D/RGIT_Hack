@@ -1,30 +1,31 @@
-import { useEffect } from 'react'
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import LandingPage from './pages/LandingPage'
-import AuthPage from './components/AuthPage'
-import './App.css'
+import { useEffect } from 'react';
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import LandingPage from './pages/LandingPage';
+import AuthPage from './components/AuthPage';
+import { AgoraRoom } from './components/AgoraRoom';
+import './App.css';
 
 function HomeRoute() {
-  const { hash } = useLocation()
+  const { hash } = useLocation();
   // Preserve links shared before path-based routing was introduced.
-  if (hash === '#signup') return <Navigate to="/signup" replace />
-  if (hash === '#signin') return <Navigate to="/signin" replace />
-  return <LandingPage />
+  if (hash === '#signup') return <Navigate to="/signup" replace />;
+  if (hash === '#signin') return <Navigate to="/signin" replace />;
+  return <LandingPage />;
 }
 
 function ScrollToDestination() {
-  const { pathname, hash } = useLocation()
+  const { pathname, hash } = useLocation();
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      const target = hash && document.getElementById(decodeURIComponent(hash.slice(1)))
-      if (target) target.scrollIntoView()
-      else window.scrollTo(0, 0)
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [pathname, hash])
+      const target = hash && document.getElementById(decodeURIComponent(hash.slice(1)));
+      if (target) target.scrollIntoView();
+      else window.scrollTo(0, 0);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pathname, hash]);
 
-  return null
+  return null;
 }
 
 function NotFoundPage() {
@@ -35,7 +36,7 @@ function NotFoundPage() {
       <p>Head back to the home page to find what you need.</p>
       <Link className="button button-blue button-orange" to="/">Back to home</Link>
     </main>
-  )
+  );
 }
 
 export default function App() {
@@ -49,8 +50,41 @@ export default function App() {
         <Route path="/login" element={<Navigate to="/signin" replace />} />
         <Route path="/register" element={<Navigate to="/signup" replace />} />
         <Route path="/auth" element={<Navigate to="/signup" replace />} />
+        {/* Agora Real-Time Audio, Video, and Chat Routes */}
+        <Route
+          path="/agora"
+          element={
+            <div style={{ minHeight: '100vh', background: '#0a0f1d', padding: '1.5rem 0' }}>
+              <AgoraRoom />
+            </div>
+          }
+        />
+        <Route
+          path="/meet"
+          element={
+            <div style={{ minHeight: '100vh', background: '#0a0f1d', padding: '1.5rem 0' }}>
+              <AgoraRoom />
+            </div>
+          }
+        />
+        <Route
+          path="/calls"
+          element={
+            <div style={{ minHeight: '100vh', background: '#0a0f1d', padding: '1.5rem 0' }}>
+              <AgoraRoom />
+            </div>
+          }
+        />
+        <Route
+          path="/chat"
+          element={
+            <div style={{ minHeight: '100vh', background: '#0a0f1d', padding: '1.5rem 0' }}>
+              <AgoraRoom />
+            </div>
+          }
+        />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </>
-  )
+  );
 }

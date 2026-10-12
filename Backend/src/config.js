@@ -77,4 +77,10 @@ export const config = {
     actionTimeoutMs: Number(process.env.WHATSAPP_WEB_ACTION_TIMEOUT_MS) || 15000,
     defaultPhone: process.env.WHATSAPP_WEB_DEFAULT_PHONE || '+919021875564',
   },
+  // Agora Real-Time Communication (Audio, Video, Chat)
+  agora: {
+    appId: process.env.AGORA_APP_ID || '',
+    appCertificate: process.env.AGORA_APP_CERTIFICATE || '',
+    enabled: Boolean(process.env.AGORA_APP_ID && process.env.AGORA_APP_CERTIFICATE),
+  },
 };
