@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { rateLimit } from 'express-rate-limit';
 import { registerSchema, loginSchema } from '../contracts/schemas.js';
 import { User } from '../models/User.js';
@@ -103,10 +104,28 @@ router.get('/me', requireAuth, (req, res) => {
 
 // --- OAuth (Google / GitHub) --------------------------------------------
 //
-// Stateless flow: the "state" param is itself a short-lived signed JWT
-// (not a server-side session), so it survives across serverless cold
-// starts. It's bound to the provider name so a state minted for one
-// provider can't be replayed against another.
+// Signed state is bound to a short-lived browser cookie and the provider.
+// No server-side OAuth session is needed across serverless cold starts.
+const oauthCookie = 'relay_oauth_nonce';
+function cookieOptions() {
+  return { httpOnly: true, sameSite: 'lax', secure: config.apiBaseUrl.startsWith('https://'), path: '/api/auth/oauth' };
+}
+function frontendCallback() {
+  return config.frontendUrl ? new URL('/auth/callback', config.frontendUrl) : null;
+}
+function oauthError(res, status, error, message) {
+  const redirect = frontendCallback();
+  res.set('Cache-Control', 'no-store');
+  if (redirect) {
+    redirect.searchParams.set('error', error);
+    return res.redirect(redirect.toString());
+  }
+  return res.status(status).json({ error, message });
+}
+
+router.get('/oauth/providers', (req, res) => {
+  res.json({ providers: { google: oauthProviders.google.enabled(), github: oauthProviders.github.enabled() } });
+});
 
 function getProvider(req, res) {
   const provider = oauthProviders[req.params.provider];
@@ -121,7 +140,10 @@ router.get('/oauth/:provider', (req, res) => {
   const provider = getProvider(req, res);
   if (!provider) return;
 
-  const state = jwt.sign({ provider: req.params.provider }, config.jwtSecret, { expiresIn: '5m' });
+  const nonce = randomBytes(32).toString('base64url');
+  const state = jwt.sign({ provider: req.params.provider, nonce }, config.jwtSecret, { expiresIn: '5m' });
+  res.cookie(oauthCookie, nonce, { ...cookieOptions(), maxAge: 5 * 60 * 1000 });
+  res.set('Cache-Control', 'no-store');
   res.redirect(provider.authorizeUrl(state));
 });
 
@@ -131,25 +153,26 @@ router.get('/oauth/:provider/callback', async (req, res, next) => {
     if (!provider) return;
 
     const { code, state } = req.query;
-    if (!code || !state) {
-      return res.status(400).json({ error: 'validation_error', message: 'Missing code or state' });
+    if (typeof state !== 'string' || (!req.query.error && typeof code !== 'string')) {
+      return oauthError(res, 400, 'validation_error', 'Missing code or state');
     }
 
     let statePayload;
     try {
       statePayload = jwt.verify(state, config.jwtSecret);
     } catch {
-      return res.status(401).json({ error: 'invalid_state', message: 'Invalid or expired OAuth state' });
+      return oauthError(res, 401, 'invalid_state', 'Invalid or expired OAuth state');
     }
-    if (statePayload.provider !== req.params.provider) {
-      return res.status(401).json({ error: 'invalid_state', message: 'OAuth state does not match provider' });
+    const nonce = (req.headers.cookie || '').split(';').map(value => value.trim()).find(value => value.startsWith(`${oauthCookie}=`))?.slice(oauthCookie.length + 1);
+    if (statePayload.provider !== req.params.provider || typeof statePayload.nonce !== 'string' || !nonce || Buffer.byteLength(nonce) !== Buffer.byteLength(statePayload.nonce) || !timingSafeEqual(Buffer.from(nonce), Buffer.from(statePayload.nonce))) {
+      return oauthError(res, 401, 'invalid_state', 'OAuth state does not match this browser');
     }
+    res.clearCookie(oauthCookie, cookieOptions());
+    if (req.query.error) return oauthError(res, 400, 'access_denied', 'Sign-in was cancelled');
 
     const profile = await provider.exchangeCode(code);
     if (!profile.email || !profile.emailVerified) {
-      return res
-        .status(401)
-        .json({ error: 'unverified_email', message: 'OAuth provider did not return a verified email' });
+      return oauthError(res, 401, 'unverified_email', 'OAuth provider did not return a verified email');
     }
 
     const providerIdField = req.params.provider === 'google' ? 'googleId' : 'githubId';
@@ -170,7 +193,7 @@ router.get('/oauth/:provider/callback', async (req, res, next) => {
     }
 
     if (user.disabled) {
-      return res.status(401).json({ error: 'account_disabled', message: 'This account is disabled' });
+      return oauthError(res, 401, 'account_disabled', 'This account is disabled');
     }
 
     await recordSuccessfulLogin(user, req.params.provider);
@@ -179,10 +202,13 @@ router.get('/oauth/:provider/callback', async (req, res, next) => {
     if (!config.frontendUrl) {
       return res.json({ token, user: serializeUser(user) });
     }
-    const redirectUrl = new URL(config.frontendUrl);
-    redirectUrl.searchParams.set('token', token);
+    const redirectUrl = frontendCallback();
+    redirectUrl.hash = new URLSearchParams({ token }).toString();
+    res.set('Cache-Control', 'no-store');
+    res.set('Referrer-Policy', 'no-referrer');
     res.redirect(redirectUrl.toString());
   } catch (err) {
+    if (config.frontendUrl) return oauthError(res, 502, 'oauth_failed', 'Could not complete sign-in');
     next(err);
   }
 });

@@ -16,7 +16,7 @@ documented here.
 cd Backend
 npm install
 cp .env.example .env   # fill in the values below
-npm run dev            # http://localhost:5000 (or PORT from .env)
+npm run dev            # http://localhost:8000 (or PORT from .env)
 ```
 
 `npm run seed` populates a demo project ("Project Atlas") — see
@@ -36,7 +36,7 @@ npm run dev            # http://localhost:5000 (or PORT from .env)
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | no | Google OAuth is disabled automatically if either is missing. |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | no | Same, for GitHub. |
 | `ACK_SLA_HOURS` | no (default `48`) | Hours a `SUBMITTED` handoff can wait before the cron job flags it overdue. |
-| `PORT` | no (default `5000`) | Local dev server port. |
+| `PORT` | no (default `8000`) | Local dev server port. |
 | `MONGODB_URI_TEST` | no | Not currently required — the one test that needs full DB isolation (`test/integration/atlas-e2e.test.js`) uses an in-memory MongoDB replica set via `mongodb-memory-server` instead. Kept as an escape hatch if that ever needs to point at a real DB (e.g. a locked-down CI with no internet egress to download the MongoDB binary). |
 
 `src/config.js` fails fast at boot if `MONGODB_URI`, `JWT_SECRET`, or
@@ -175,7 +175,7 @@ never leaked; a member with too low a role gets **403**.
 
 Example:
 ```bash
-curl -X POST http://localhost:5000/api/auth/login \
+curl -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"alex@atlas-demo.example","password":"AtlasDemo123!"}'
 # -> {"token":"eyJ...","user":{"id":"...","email":"...","name":"..."}}

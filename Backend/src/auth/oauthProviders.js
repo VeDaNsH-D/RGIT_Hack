@@ -29,6 +29,7 @@ export const oauthProviders = {
     },
     async exchangeCode(code) {
       const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        signal: AbortSignal.timeout(15000),
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -41,8 +42,10 @@ export const oauthProviders = {
       });
       if (!tokenRes.ok) throw new Error(`Google token exchange failed: ${tokenRes.status}`);
       const { access_token } = await tokenRes.json();
+      if (!access_token) throw new Error('Google token exchange did not return an access token');
 
       const profileRes = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+        signal: AbortSignal.timeout(15000),
         headers: { Authorization: `Bearer ${access_token}` },
       });
       if (!profileRes.ok) throw new Error(`Google profile fetch failed: ${profileRes.status}`);
@@ -51,7 +54,7 @@ export const oauthProviders = {
       return {
         providerId: profile.sub,
         email: profile.email,
-        emailVerified: Boolean(profile.email_verified),
+        emailVerified: profile.email_verified === true,
         name: profile.name || profile.email,
       };
     },

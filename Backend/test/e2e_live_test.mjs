@@ -15,7 +15,7 @@ import { Document } from '../src/models/Document.js';
 import { SourceRecord } from '../src/models/SourceRecord.js';
 import { signAuthToken } from '../src/middleware/auth.js';
 
-const EXPRESS_BASE = `http://localhost:${config.port || 5001}`;
+const EXPRESS_BASE = `http://localhost:${config.port || 8000}`;
 const FASTAPI_BASE = 'http://127.0.0.1:8001';
 
 async function runE2ETest() {
