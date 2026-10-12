@@ -66,5 +66,21 @@ export {
   NotificationDeliveryDispatcher,
 } from './reliability/dispatcher.js';
 
+export {
+  WhatsAppWebSeleniumAdapter,
+  WHATSAPP_ERROR_CODES,
+  WhatsAppAdapterError,
+  WhatsAppConfigError,
+  WhatsAppAdapterDisabledError,
+  BrowserStartupError,
+  WhatsAppLoginRequiredError,
+  InvalidRecipientError,
+  RecipientVerificationError,
+  WhatsAppUIElementNotFoundError,
+  WhatsAppSendFailedError,
+  BrowserCrashedError,
+  AmbiguousSendOutcomeError,
+} from './whatsapp/index.js';
+
 
 
