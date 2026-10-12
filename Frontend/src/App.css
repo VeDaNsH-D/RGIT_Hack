@@ -23,6 +23,10 @@ h1 span:first-child { padding-left: 7.6cqw; }
 .button-blue:hover { background: #1a36df; }
 .button-orange { background: #ff3c0a; }
 .button-orange:hover { background: #e53205; }
+.not-found-page { min-height: 100svh; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 32px; text-align: center; gap: 20px; }
+.not-found-page h1 { font-size: clamp(36px, 6vw, 72px); margin: 0; letter-spacing: -.04em; }
+.not-found-page p { margin: 0; line-height: 1.5; }
+.not-found-page .button { min-height: 48px; padding: 0 24px; font-size: 16px; }
 .path-art, .workflow-art { display: block; width: 100%; }
 .nav-item { position: relative; }
 .dropdown { position: absolute; top: 2.5cqw; left: -20px; width: 285px; padding: 24px; background: #f6f1ed; border: 1px solid #171713; box-shadow: 0 10px 30px #00000012; }

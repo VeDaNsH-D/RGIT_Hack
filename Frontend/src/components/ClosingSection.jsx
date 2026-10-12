@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import './ClosingSection.css'
 
 const footerColumns = [
@@ -20,7 +21,7 @@ const footerColumns = [
     { label: 'Changelog' },
     { label: 'Cookies Policy' },
     { label: 'Coming Soon' },
-    { label: 'Error 404' },
+    { label: 'Error 404', href: '/404' },
   ] },
   { title: 'Utilities', links: [
     { label: 'Privacy Policy' },
@@ -60,14 +61,14 @@ export default function ClosingSection() {
           <p className="closing-label"><span aria-hidden="true">✳</span>Our Feature</p>
           <h2 id="closing-title">One platform.<br /><em>Infinite possibilities.</em></h2>
           <div className="closing-actions">
-            <a className="closing-button closing-button-secondary" href="#features">See How It Works</a>
+            <Link className="closing-button closing-button-secondary" to="/#features">See How It Works</Link>
             <button className="closing-button closing-button-primary" onClick={() => openPanel('Book a Demo')}>Book a Demo <span aria-hidden="true">→</span></button>
           </div>
         </section>
         <footer className="site-footer">
           <div className="footer-main">
             <div className="footer-brand-column">
-              <a className="footer-brand" href="#hero-title"><span className="cygnus-symbol" aria-hidden="true" />Cygnus</a>
+              <Link className="footer-brand" to="/#hero-title"><span className="cygnus-symbol" aria-hidden="true" />Cygnus</Link>
               <p>Cygnus is the AI-native invoicing platform<br className="footer-desktop-break" /> built for global finance teams.</p>
               <div className="footer-contact">
                 <span>Connect With Us</span>
@@ -78,7 +79,10 @@ export default function ClosingSection() {
               <nav className="footer-link-column" key={title} aria-label={`${title} links`}>
                 <h3>{title}</h3>
                 <ul>{links.map(({ label, href }) => <li key={label}>
-                  {href ? <a href={href}>{label}</a> : <button onClick={() => openPanel(label)}>{label}</button>}
+                  {href ? href.startsWith('#') || href.startsWith('/')
+                    ? <Link to={href.startsWith('#') ? `/${href}` : href}>{label}</Link>
+                    : <a href={href}>{label}</a>
+                    : <button onClick={() => openPanel(label)}>{label}</button>}
                 </li>)}</ul>
               </nav>
             ))}
