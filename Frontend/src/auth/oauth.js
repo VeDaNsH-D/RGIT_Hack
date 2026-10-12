@@ -3,7 +3,7 @@ import { request } from '../api/client'
 let returned = null
 const returnKey = 'over2u-oauth-return'
 export function safeDestination(value) {
-  return /^\/(?:dashboard|projects|tasks|handoffs)(?:\/|\?|$)/.test(value || '') ? value : '/dashboard'
+  return /^\/(?:dashboard|projects|tasks|handoffs|emails)(?:\/|\?|$)/.test(value || '') ? value : '/dashboard'
 }
 export function beginGoogleSignIn(destination) {
   try { sessionStorage.setItem(returnKey, safeDestination(destination)) } catch { /* Dashboard is the fallback. */ }

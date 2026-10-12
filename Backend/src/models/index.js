@@ -1,4 +1,6 @@
 export { User } from './User.js';
+export { EmailConnection } from './EmailConnection.js';
+export { EmailReview } from './EmailReview.js';
 export { Project } from './Project.js';
 export { ProjectMembership } from './ProjectMembership.js';
 export { Task } from './Task.js';

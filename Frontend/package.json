@@ -10,6 +10,7 @@
     "test": "node --test tests/*.test.mjs",
     "test:signup": "node --test tests/signup.integration.mjs",
     "test:oauth": "node --test tests/google-oauth.integration.mjs",
+    "test:email": "node --test tests/email.integration.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

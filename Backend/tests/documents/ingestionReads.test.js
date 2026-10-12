@@ -397,7 +397,7 @@ describe('ingestion read APIs', () => {
     it('reports supported providers, none connected, zero counts on an empty project', async () => {
       const r = await get(`/${PROJECT_ID}/ingestion/status`);
       assert.equal(r.status, 200);
-      assert.deepEqual(r.body.providers.map((p) => p.provider).sort(), ['github', 'jira', 'notion', 'slack']);
+      assert.deepEqual(r.body.providers.map((p) => p.provider).sort(), ['github', 'gmail', 'jira', 'notion', 'outlook', 'slack']);
       assert.ok(r.body.providers.every((p) => p.supported && !p.connected && p.recordCount === 0));
       assert.equal(r.body.documents.available, true);
       assert.equal(r.body.totalRecords, 0);

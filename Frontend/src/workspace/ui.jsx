@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 
 export function Icon({ name, size = 20 }) {
   const paths = {
+    emails: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 6 9 7 9-7"/></>,
     dashboard: <><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></>,
     projects: <path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>,
     tasks: <><rect x="4" y="3" width="16" height="18" rx="2"/><path d="m8 9 2 2 5-5m-7 10h8"/></>,

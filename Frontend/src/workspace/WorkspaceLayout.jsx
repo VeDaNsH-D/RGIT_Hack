@@ -16,7 +16,7 @@ function Shell() {
       <Link className="ws-brand" to="/dashboard"><span>↗</span>Over2u<span className="ws-brand-dot">.</span></Link>
       <div className="ws-workspace-name"><span className="ws-workspace-avatar">{name.charAt(0).toUpperCase()}</span><div><strong>Your workspace</strong><span>Make work flow.</span></div></div>
       <span className="ws-nav-label">WORKSPACE</span>
-      <nav aria-label="Workspace navigation">{['dashboard', 'projects', 'tasks', 'handoffs'].map(route => <NavLink className={({ isActive }) => `ws-nav-link ${isActive ? 'active' : ''}`} to={`/${route}`} key={route}><Icon name={route}/><span>{route === 'dashboard' ? 'Overview' : route.charAt(0).toUpperCase() + route.slice(1)}</span>{route === 'projects' && projects.length > 0 && <small>{projects.length}</small>}</NavLink>)}</nav>
+      <nav aria-label="Workspace navigation">{['dashboard', 'projects', 'tasks', 'handoffs', 'emails'].map(route => <NavLink className={({ isActive }) => `ws-nav-link ${isActive ? 'active' : ''}`} to={`/${route}`} key={route}><Icon name={route}/><span>{route === 'dashboard' ? 'Overview' : route.charAt(0).toUpperCase() + route.slice(1)}</span>{route === 'projects' && projects.length > 0 && <small>{projects.length}</small>}</NavLink>)}</nav>
       <div className="ws-sidebar-note"><span>✳</span><h3>Good work carries on.</h3><p>Keep the next person in the loop, before you pass the baton.</p><Link to="/handoffs">Explore handoffs <Icon name="arrow" size={16}/></Link></div>
       <div className="ws-sidebar-bottom"><Link to="/">← Back to website</Link><button onClick={signOut}><Icon name="logout" size={17}/>Sign out</button></div>
     </aside>

@@ -6,6 +6,7 @@ import OAuthCallbackPage from './pages/OAuthCallbackPage'
 import WorkspaceLayout from './workspace/WorkspaceLayout'
 import { DashboardPage, ProjectsPage, ProjectDetailPage, TasksPage, HandoffsPage } from './workspace/WorkspacePages'
 import HandoffDetailPage from './workspace/HandoffDetailPage'
+import EmailsPage from './workspace/EmailsPage'
 import { AgoraRoom } from './components/AgoraRoom'
 import './App.css'
 
@@ -60,6 +61,7 @@ export default function App() {
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/emails" element={<EmailsPage />} />
           <Route path="/handoffs" element={<HandoffsPage />} />
           <Route path="/handoffs/:handoffId" element={<HandoffDetailPage />} />
           <Route path="/app" element={<Navigate to="/dashboard" replace />} />

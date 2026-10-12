@@ -43,6 +43,8 @@ export const SOURCE_PROVIDERS = Object.freeze({
   NOTION: 'notion',
   JIRA: 'jira',
   SLACK: 'slack',
+  GMAIL: 'gmail',
+  OUTLOOK: 'outlook',
 });
 
 /**

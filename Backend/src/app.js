@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { config } from './config.js';
 import authRouter from './routes/auth.js';
+import emailRouter from './routes/email.js';
 import projectsRouter from './routes/projects.js';
 import notesRouter from './routes/notes.js';
 import documentsRouter from './routes/documents.js';
@@ -37,6 +38,7 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/auth', authRouter);
+app.use('/api/email', emailRouter);
 app.use('/api/projects', projectsRouter);
 // POST /api/projects/:id/documents (multipart upload; see routes/documents.js)
 app.use('/api/projects', documentsRouter);

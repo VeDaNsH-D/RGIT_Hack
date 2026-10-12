@@ -12,7 +12,7 @@ export default function AuthPage({ mode }) {
   const navigate = useNavigate()
   const signup = mode === 'register'
   const requestedDestination = location.state?.from
-  const destination = /^\/(?:dashboard|projects|tasks|handoffs)(?:\/|\?|$)/.test(requestedDestination || '') ? requestedDestination : '/dashboard'
+  const destination = /^\/(?:dashboard|projects|tasks|handoffs|emails)(?:\/|\?|$)/.test(requestedDestination || '') ? requestedDestination : '/dashboard'
 
   if (checking) return <div className="ws-loading ws-full-screen" role="status"><span className="ws-spinner"/>Checking your session…</div>
   if (session && !error) return <Navigate to={destination} replace />
