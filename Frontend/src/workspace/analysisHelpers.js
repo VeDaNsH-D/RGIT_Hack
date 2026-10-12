@@ -18,4 +18,3 @@ export function changeSummary(changes) {
   const parts = [['added', changes.added?.length], ['modified', changes.modified?.length], ['deleted', changes.deleted?.length], ['renamed', changes.renamed?.length]].filter(([, count]) => count)
   return parts.length ? parts.map(([label, count]) => `${count} ${label}`).join(', ') : 'No file changes'
 }
-

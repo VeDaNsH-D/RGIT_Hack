@@ -1,4 +1,4 @@
-.email-connection-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 25px; }
+.email-connection-grid { display: grid; grid-template-columns: 1fr; gap: 18px; margin-bottom: 25px; }
 .email-connection { background: #fff; border: 1px solid #ede4dc; border-radius: 12px; padding: 23px; }
 .email-connection.active { border-color: #ffb58d; }
 .email-connection > div { display: flex; align-items: center; gap: 14px; }

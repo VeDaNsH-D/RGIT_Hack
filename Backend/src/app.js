@@ -8,6 +8,11 @@ import projectsRouter from './routes/projects.js';
 import notesRouter from './routes/notes.js';
 import documentsRouter from './routes/documents.js';
 import ingestionRouter from './routes/ingestion.js';
+import notionRouter from './routes/notion.js';
+import invitationsRouter from './routes/invitations.js';
+import mcpRouter from './mcp/router.js';
+import { keyRouter } from './mcp/keys.js';
+import { oauthRouter, consentRouter, publicMcpUrl } from './mcp/oauth.js';
 import tasksRouter from './routes/tasks.js';
 import handoffsRouter from './routes/handoffs.js';
 import conflictsRouter from './routes/conflicts.js';
@@ -19,8 +24,17 @@ import { notificationRouter } from './notifications/routes.js';
 import { agoraRouter } from './routes/agora.js';
 
 export const app = express();
+const proxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
+if (Number.isInteger(proxyHops) && proxyHops > 0 && proxyHops <= 5) app.set('trust proxy', proxyHops);
 
 app.use(helmet());
+// OAuth discovery and token endpoints have SDK-managed CORS; website APIs retain their origin policy.
+app.use(express.json({
+  limit: '1mb',
+  // Preserve the signed webhook bytes before any middleware consumes the body.
+  verify: (req, res, buf) => { if (req.originalUrl.startsWith('/api/webhooks/github')) req.rawBody = buf; },
+}));
+app.use(oauthRouter);
 
 app.use(
   cors({
@@ -28,29 +42,29 @@ app.use(
       if (!origin || config.corsOrigins.includes(origin)) {
         return callback(null, true);
       }
-      return callback(new Error('Not allowed by CORS'));
+      return callback(Object.assign(new Error('Not allowed by CORS'), { status: 403, code: 'origin_not_allowed' }));
     },
     credentials: true,
   })
 );
-
-app.use(express.json({
-  limit: '1mb',
-  // GitHub signs the exact bytes; keep them for the webhook route only.
-  verify: (req, res, buf) => { if (req.originalUrl.startsWith('/api/webhooks/github')) req.rawBody = buf; },
-}));
 
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 app.use('/api/auth', authRouter);
+app.use('/api/mcp/keys', keyRouter);
+app.use('/api/mcp/oauth/requests', consentRouter);
+app.get('/api/mcp/info', (req, res) => res.json({ url: publicMcpUrl(), oauth: true }));
+app.use('/mcp', mcpRouter);
 app.use('/api/email', emailRouter);
 app.use('/api/projects', projectsRouter);
 // POST /api/projects/:id/documents (multipart upload; see routes/documents.js)
 app.use('/api/projects', documentsRouter);
 // Read-only ingestion APIs: source records, document list/detail, ingestion status.
 app.use('/api/projects', ingestionRouter);
+app.use('/api/projects', notionRouter);
+app.use('/api', invitationsRouter);
 app.use('/api/projects', repositoryKnowledgeRouter);
 // notesRouter and tasksRouter each define both a /projects/:id/... path and
 // a flat /notes/:id or /tasks/:id path, so they're mounted at /api rather

@@ -22,7 +22,11 @@ import {
 import { formatDate } from './utils'
 import { loadProjectDraft } from './projectDraft'
 import { Icon, PageHeading } from './ui'
+import NotionConnection from './NotionConnection'
+import McpConnection from './McpConnection'
+import './email.css'
 
+const AI_CATEGORY = { id: 'ai', title: 'AI & MCP', items: [{ id: 'mcp', name: 'Over2u MCP' }] }
 const DEFAULT_CATEGORIES = [
   {
     id: 'development',
@@ -553,7 +557,7 @@ export function ConnectionsView({ github = {}, whatsapp, jira, slack, notion }) 
     (slack && slack.loading) ||
     (notion && notion.loading)
   )
-  const categories = getCategories({ whatsapp, jira, slack, notion })
+  const categories = [AI_CATEGORY, ...getCategories({ whatsapp, jira, slack, notion })]
   return (
     <>
       <PageHeading eyebrow="WORKSPACE" title="Connections" description="Connect your tools to bring your team’s work and context together."/>
@@ -568,7 +572,7 @@ export function ConnectionsView({ github = {}, whatsapp, jira, slack, notion }) 
             <h2 id={`group-${category.id}`}>{category.title}</h2>
           </div>
           <div className="ws-connection-grid">
-            {category.items.map(item => (
+            {category.items.map(item => item.id === 'mcp' ? <McpConnection key={item.id}/> : item.id === 'notion' && !notion ? <NotionConnection key={item.id}/> : (
               <ConnectionCard
                 key={item.id}
                 integration={item}
@@ -582,6 +586,7 @@ export function ConnectionsView({ github = {}, whatsapp, jira, slack, notion }) 
           </div>
         </section>
       ))}
+      {!loading && notion && <section className="ws-connection-group" aria-labelledby="group-notion-pages"><div className="ws-section-heading"><h2 id="group-notion-pages">Project Notion pages</h2></div><div className="ws-connection-grid"><NotionConnection/></div></section>}
     </>
   )
 }

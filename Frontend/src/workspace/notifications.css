@@ -1,0 +1,25 @@
+.ws-notifications { position: relative; }
+.ws-notification-trigger { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #eee2d8; border-radius: 12px; color: #81573d; background: #fffaf6; cursor: pointer; }
+.ws-notification-trigger:hover, .ws-notification-trigger[aria-expanded=true] { background: #fff0e6; border-color: #ffb894; }
+.ws-notification-trigger:focus-visible, .ws-notification-item:focus-visible { outline: 2px solid #ff480f; outline-offset: 3px; }
+.ws-notification-count { position: absolute; top: -5px; right: -7px; min-width: 19px; height: 19px; padding: 0 4px; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: #fff; background: #ff470f; border: 2px solid white; border-radius: 12px; }
+.ws-notification-offline { position: absolute; bottom: 2px; right: 2px; width: 7px; height: 7px; border-radius: 50%; background: #ad8c74; }
+.ws-notification-dropdown { position: absolute; top: 51px; right: -25px; width: min(430px, calc(100vw - 32px)); background: white; border: 1px solid #eedfd4; border-radius: 16px; box-shadow: 0 16px 55px #51321c22; overflow: hidden; z-index: 100; color: #79543a; }
+.ws-notification-heading { display: flex; align-items: center; justify-content: space-between; padding: 20px; gap: 10px; border-bottom: 1px solid #f1e7de; }
+.ws-notification-heading h2 { font-size: 15px; margin: 0; }
+.ws-notification-heading h2 span { display: block; font-size: 10px; font-weight: 400; color: #ad8c74; margin-top: 5px; }
+.ws-notification-list { max-height: 440px; overflow-y: auto; }
+.ws-notification-item { display: flex; text-align: left; width: 100%; gap: 12px; padding: 18px 20px; border: none; border-bottom: 1px solid #f5ece5; background: white; cursor: pointer; color: #79543a; }
+.ws-notification-item.unread { background: #fff7f0; }
+.ws-notification-item:hover { background: #fff0e5; }
+.ws-notification-dot { margin-top: 5px; width: 7px; height: 7px; border-radius: 50%; background: transparent; flex-shrink: 0; }
+.ws-notification-item.unread .ws-notification-dot { background: #ff470f; }
+.ws-notification-item > span:last-child { min-width: 0; }
+.ws-notification-item strong { font-size: 12px; font-weight: 600; }
+.ws-notification-item p { font-size: 12px; line-height: 1.6; margin: 6px 0 8px; overflow-wrap: anywhere; }
+.ws-notification-item time { font-size: 10px; color: #aa8d77; }
+.ws-notification-empty { padding: 35px 25px; text-align: center; font-size: 12px; color: #ad8c74; line-height: 1.7; }
+.ws-notification-empty strong { display: block; color: #79543a; margin-bottom: 8px; }
+.ws-notification-error { padding: 16px 20px; color: #b74c26; font-size: 12px; }
+.ws-notification-more { width: 100%; padding: 16px; border: 0; border-top: 1px solid #eedfd4; background: white; color: #d75021; cursor: pointer; font-size: 12px; }
+@media(max-width: 760px) { .ws-notification-dropdown { right: -55px; } }

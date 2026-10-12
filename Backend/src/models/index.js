@@ -1,4 +1,7 @@
 export { User } from './User.js';
+export { McpAccessKey } from './McpAccessKey.js';
+export { McpOAuthClient, McpOAuthRequest, McpOAuthToken } from './McpOAuth.js';
+export { ProjectInvitation } from './ProjectInvitation.js';
 export { EmailConnection } from './EmailConnection.js';
 export { EmailReview } from './EmailReview.js';
 export { Project } from './Project.js';

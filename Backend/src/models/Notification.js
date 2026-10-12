@@ -24,7 +24,7 @@ const notificationSchema = new mongoose.Schema(
     type: {
       type: String,
       required: true,
-      enum: Object.values(NOTIFICATION_EVENT_TYPES),
+      enum: [...Object.values(NOTIFICATION_EVENT_TYPES), 'PROJECT_ACTIVITY'],
       index: true,
     },
     title: {

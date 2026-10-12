@@ -3,6 +3,7 @@ import multer from 'multer';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
 import { attachProject, requireRole } from '../middleware/access.js';
+import { logActivity } from '../audit/service.js';
 import {
   processDocumentUpload,
   createLocalDocumentStorage,
@@ -145,6 +146,7 @@ export function createDocumentsRouter(deps = {}) {
 
       switch (result.status) {
         case 'succeeded':
+          await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'DOCUMENT_UPLOADED' });
           return res.status(201).json(body);
         case 'duplicate':
           return res.status(200).json(body);
@@ -188,6 +190,7 @@ export function createDocumentsRouter(deps = {}) {
         const status = RECOVERY_FAILURE_HTTP[result.errors[0]?.code] ?? 500;
         return res.status(status).json({ error: 'document_recovery_failed', code: result.errors[0]?.code, message: result.errors[0]?.message ?? 'Document recovery failed.', ...result });
       }
+      if (result.status === RECOVERY_STATUS.RECOVERED) await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'DOCUMENT_REINDEXED' });
       return res.status(RECOVERY_HTTP[result.status]).json(result);
     } catch (err) {
       next(err);

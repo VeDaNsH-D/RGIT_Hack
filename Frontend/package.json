@@ -11,7 +11,8 @@
     "test:signup": "node --test tests/signup.integration.mjs",
     "test:oauth": "node --test tests/google-oauth.integration.mjs",
     "test:email": "node --test tests/email.integration.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:invitations": "node --test ../Backend/tests/mongo-integration/invitations.itest.js"
   },
   "dependencies": {
     "agora-rtc-sdk-ng": "^4.24.8",
