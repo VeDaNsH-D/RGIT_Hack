@@ -12,6 +12,7 @@
  *   node scripts/whatsapp-login.js
  */
 
+import readline from 'node:readline';
 import {
   BrowserSessionManager,
   resolveWhatsAppConfig,
@@ -112,14 +113,20 @@ async function main() {
         console.log('\nYou can now send WhatsApp notifications using:');
         console.log('  npm run smoke:whatsapp');
         console.log('=====================================================\n');
+        console.log('Keeping browser window open so you can verify your loaded chats.');
+        console.log('Press Enter in this terminal to close the browser (or wait 30 seconds)...');
+
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        await Promise.race([
+          new Promise((resolve) => rl.question('', () => { rl.close(); resolve(); })),
+          new Promise((resolve) => setTimeout(resolve, 30000)),
+        ]);
       } else {
         console.log('\n[TIMEOUT] Login was not detected within 3 minutes.');
         console.log('If you scanned the code, the profile might already be saved.');
         console.log('You can test by running: npm run smoke:whatsapp\n');
+        await new Promise((r) => setTimeout(r, 5000));
       }
-
-      // Keep browser open for a brief confirmation
-      await new Promise((r) => setTimeout(r, 4000));
     });
   } catch (err) {
     console.error('\n[ERROR] Failed during WhatsApp login setup:', err.message);
