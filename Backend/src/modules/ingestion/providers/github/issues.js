@@ -25,7 +25,7 @@ const VALID_STATES = Object.freeze(['open', 'closed', 'all']);
  * @param {'asc'|'desc'} [options.direction='desc'] - Sort direction.
  * @param {number} [options.perPage=30] - Results per page (max 100).
  * @param {number} [options.maxPages=5] - Maximum pages to retrieve.
- * @returns {Promise<{ issues: any[], totalFetched: number, pagesFetched: number, rateLimit: Object, hasMore: boolean }>}
+ * @returns {Promise<{ issues: any[], totalFetched: number, rawFetched: number, excludedPullRequestCount: number, pagesFetched: number, rateLimit: Object, hasMore: boolean }>}
  */
 export async function fetchIssues(client, owner, repo, options = {}) {
   if (!client || typeof client.paginate !== 'function') {
@@ -57,16 +57,20 @@ export async function fetchIssues(client, owner, repo, options = {}) {
   const result = await client.paginate(`/repos/${safeOwner}/${safeRepo}/issues`, queryParams, {
     perPage: options.perPage || 30,
     maxPages: options.maxPages || 5,
+    requireArray: true,
   });
 
   // Filter out pull requests if requested (GitHub issues API includes PRs indicated by the `pull_request` key)
   const filteredIssues = excludePullRequests
-    ? result.items.filter((item) => !item.pull_request)
+    ? result.items.filter((item) => !(item && item.pull_request))
     : result.items;
 
   return {
     issues: filteredIssues,
     totalFetched: filteredIssues.length,
+    // Raw items GitHub returned, and how many were pull requests filtered out above.
+    rawFetched: result.items.length,
+    excludedPullRequestCount: result.items.length - filteredIssues.length,
     pagesFetched: result.pagesFetched,
     rateLimit: result.rateLimit,
     hasMore: result.hasMore,

@@ -17,6 +17,10 @@ const DEFAULT_BASE_URL = 'https://api.github.com';
 const DEFAULT_TIMEOUT_MS = 10000;
 const GITHUB_API_VERSION = '2022-11-28';
 const IDENTIFIER_REGEX = /^[a-zA-Z0-9_.-]+$/;
+// GitHub limits: logins are <= 39 chars, repository names <= 100 chars.
+const IDENTIFIER_MAX_LENGTH = 100;
+// Hard ceiling on pages per paginate() call, regardless of caller options.
+export const MAX_PAGES_LIMIT = 20;
 
 /**
  * Validates a GitHub owner (user/org) or repository name.
@@ -35,6 +39,11 @@ export function validateIdentifier(value, fieldName = 'identifier') {
   }
 
   const trimmed = value.trim();
+  if (trimmed.length > IDENTIFIER_MAX_LENGTH) {
+    throw new GitHubApiError(`Invalid ${fieldName}: exceeds ${IDENTIFIER_MAX_LENGTH} characters.`, {
+      code: GITHUB_ERROR_CODES.INVALID_INPUT,
+    });
+  }
   if (!IDENTIFIER_REGEX.test(trimmed) || trimmed === '.' || trimmed === '..') {
     throw new GitHubApiError(`Invalid ${fieldName} "${trimmed}": contains unsupported characters.`, {
       code: GITHUB_ERROR_CODES.INVALID_INPUT,
@@ -78,15 +87,22 @@ export function parseLinkHeader(linkHeader) {
  * Reusable HTTP client for communicating with GitHub REST API.
  */
 export class GitHubClient {
+  // Private so the credential never appears in console.log/util.inspect/JSON output.
+  #token;
+
   /**
    * @param {Object} [config]
-   * @param {string} [config.token] - GitHub Personal Access Token (defaults to process.env.GITHUB_TOKEN).
+   * @param {string} [config.token] - Explicit access token (e.g., installation access token or PAT).
    * @param {string} [config.baseUrl] - Base API URL (defaults to https://api.github.com).
    * @param {number} [config.timeoutMs] - Request timeout in milliseconds (defaults to 10000).
    * @param {typeof fetch} [config.fetchFn] - Custom fetch implementation (primarily for unit tests).
    */
   constructor(config = {}) {
-    this.token = config.token || process.env.GITHUB_TOKEN || null;
+    // When an explicit token is provided (such as an installation token), use it strictly.
+    // Fall back to process.env.GITHUB_TOKEN only if config.token is not explicitly defined.
+    // GitHub App flows must use createInstallationClient() (githubAppAuth.js), which always
+    // passes an explicit installation token and therefore never reaches this fallback.
+    this.#token = config.token !== undefined ? (config.token || null) : (process.env.GITHUB_TOKEN || null);
     this.baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.timeoutMs = typeof config.timeoutMs === 'number' ? config.timeoutMs : DEFAULT_TIMEOUT_MS;
     this.fetchFn = config.fetchFn || globalThis.fetch;
@@ -103,6 +119,14 @@ export class GitHubClient {
    * @private
    * @returns {Record<string, string>}
    */
+  /**
+   * Whether an Authorization credential is configured (never exposes the value).
+   * @returns {boolean}
+   */
+  get isAuthenticated() {
+    return typeof this.#token === 'string' && Boolean(this.#token.trim());
+  }
+
   #buildHeaders() {
     const headers = {
       Accept: 'application/vnd.github+json',
@@ -110,8 +134,8 @@ export class GitHubClient {
       'User-Agent': 'Relay-Ingestion-Client',
     };
 
-    if (this.token && typeof this.token === 'string' && this.token.trim()) {
-      headers.Authorization = `Bearer ${this.token.trim()}`;
+    if (this.isAuthenticated) {
+      headers.Authorization = `Bearer ${this.#token.trim()}`;
     }
 
     return headers;
@@ -129,12 +153,14 @@ export class GitHubClient {
     const remaining = headers.get('x-ratelimit-remaining');
     const reset = headers.get('x-ratelimit-reset');
     const used = headers.get('x-ratelimit-used');
+    const retryAfter = headers.get('retry-after');
 
     return {
       limit: limit !== null ? parseInt(limit, 10) : null,
       remaining: remaining !== null ? parseInt(remaining, 10) : null,
       reset: reset !== null ? new Date(parseInt(reset, 10) * 1000) : null,
       used: used !== null ? parseInt(used, 10) : null,
+      retryAfterSeconds: retryAfter !== null && /^\d+$/.test(retryAfter) ? parseInt(retryAfter, 10) : null,
     };
   }
 
@@ -252,7 +278,11 @@ export class GitHubClient {
       if (status === 401) {
         code = GITHUB_ERROR_CODES.AUTH_FAILED;
       } else if (status === 403) {
-        if (rateLimit.remaining === 0 || (typeof apiMessage === 'string' && apiMessage.toLowerCase().includes('rate limit'))) {
+        if (
+          rateLimit.remaining === 0
+          || rateLimit.retryAfterSeconds !== null
+          || (typeof apiMessage === 'string' && apiMessage.toLowerCase().includes('rate limit'))
+        ) {
           code = GITHUB_ERROR_CODES.RATE_LIMITED;
         } else {
           code = GITHUB_ERROR_CODES.FORBIDDEN;
@@ -289,12 +319,15 @@ export class GitHubClient {
    * @param {Record<string, unknown>} [params] - Initial query parameters.
    * @param {Object} [options]
    * @param {number} [options.perPage=30] - Number of items per page (max 100 per GitHub spec).
-   * @param {number} [options.maxPages=5] - Safeguard limit on maximum pages fetched in a single session.
+   * @param {number} [options.maxPages=5] - Safeguard limit on maximum pages fetched in a single session
+   *   (clamped to MAX_PAGES_LIMIT).
+   * @param {boolean} [options.requireArray=false] - Throw UNEXPECTED_RESPONSE when a page is not a JSON
+   *   array instead of treating it as a single entity. List endpoints should set this.
    * @returns {Promise<{ items: any[], pagesFetched: number, rateLimit: Object, hasMore: boolean }>}
    */
   async paginate(endpoint, params = {}, options = {}) {
     const perPage = Math.min(Math.max(Number(options.perPage) || 30, 1), 100);
-    const maxPages = Math.max(Number(options.maxPages) || 5, 1);
+    const maxPages = Math.min(Math.max(Number(options.maxPages) || 5, 1), MAX_PAGES_LIMIT);
 
     const initialParams = {
       ...params,
@@ -315,6 +348,12 @@ export class GitHubClient {
 
       if (Array.isArray(response.data)) {
         allItems.push(...response.data);
+      } else if (options.requireArray) {
+        throw new GitHubApiError('GitHub returned an unexpected response format (expected a JSON array).', {
+          code: GITHUB_ERROR_CODES.UNEXPECTED_RESPONSE,
+          endpoint: new URL(currentEndpoint, this.baseUrl).pathname,
+          rateLimit: response.rateLimit,
+        });
       } else {
         // If not an array, treat single response as single entity and terminate
         allItems.push(response.data);

@@ -49,4 +49,16 @@ export const config = {
       enabled: Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
     },
   },
+  // GitHub App repository integration. Values are validated lazily by
+  // src/modules/ingestion/providers/github/githubAppAuth.js so a missing or
+  // malformed key disables GitHub ingestion without blocking server startup.
+  // privateKey is a secret: never log it or expose it to clients.
+  githubApp: {
+    appId: process.env.GITHUB_APP_ID || '',
+    privateKey: process.env.GITHUB_APP_PRIVATE_KEY || '',
+    appSlug: process.env.GITHUB_APP_SLUG || '',
+    // Optional default installation (e.g. for the smoke test / demo); not a secret.
+    installationId: process.env.GITHUB_APP_INSTALLATION_ID || '',
+    enabled: Boolean(process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY),
+  },
 };
