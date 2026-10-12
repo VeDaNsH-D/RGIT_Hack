@@ -1,8 +1,15 @@
 """Grounded question answering over backend-authorized, retrieved project passages."""
 import json
 import re
+from functools import lru_cache
 from pydantic import BaseModel, Field, ConfigDict
-from app.service import ModelOutputError
+from app.service import ModelOutputError, GroqContextService, MissingApiKeyError
+from app.config import settings
+
+@lru_cache(maxsize=1)
+def get_project_chat_service() -> GroqContextService:
+    """A dedicated client for RAG; never fall back to the general AI key."""
+    return GroqContextService(api_key=settings.new_groq_api_key)
 
 class ChatSource(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -35,6 +42,8 @@ If evidence does not answer the question, explicitly say so. Never invent projec
 Return a JSON object with answer (plain text) and insufficientEvidence (boolean)."""
 
 def answer_project_chat(service, request: ProjectChatRequest) -> ProjectChatResponse:
+    if isinstance(service, GroqContextService) and not service.api_key:
+        raise MissingApiKeyError("NEW_GROQ_API_KEY is not configured for project chat.")
     data = service._chat_json(PROMPT, json.dumps(request.model_dump(), ensure_ascii=False), max_tokens=1600)
     try:
         result = ProjectChatResponse.model_validate(data)

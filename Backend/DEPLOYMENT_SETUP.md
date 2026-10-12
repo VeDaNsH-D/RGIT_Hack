@@ -77,7 +77,7 @@ Reference: https://developers.notion.com/guides/get-started/authorization
 
 ## Project RAG chatbot
 
-Every project detail page includes Ask your project. Deploy both Backend and aiml changes, then redeploy the frontend. Keep GROQ_API_KEY and GROQ_MODEL configured on the AI Render service and AI_SERVICE_URL configured on the Node backend. No embedding API key or vector database is needed: this implementation uses lexical retrieval over bounded chunks, then Groq generation with validated source citations.
+Every project detail page includes Ask your project. Deploy both Backend and aiml changes, then redeploy the frontend. Keep NEW_GROQ_API_KEY configured for project chat, GROQ_API_KEY for other AI features, and GROQ_MODEL configured on the AI Render service and AI_SERVICE_URL configured on the Node backend. No embedding API key or vector database is needed: this implementation uses lexical retrieval over bounded chunks, then Groq generation with validated source citations.
 
 The authenticated backend retrieves only the selected project's imported Gmail/Notion/Slack/Jira/GitHub records, current tasks, handoff status, current indexed document chunks, and files from published repository analysis snapshots. Source records scan the most recently updated 1,000 entries; document chunks scan up to 3,000; repository retrieval scans at most 20 connected snapshots and 200 files per repository. These bounds mean the chatbot may miss evidence outside the scan window. Sync integrations, index uploads, and analyze repositories before asking about their contents. Retrieval runs on each question, so imported changes become available without a separate chatbot index rebuild.
 

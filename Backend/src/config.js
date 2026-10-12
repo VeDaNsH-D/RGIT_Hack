@@ -130,5 +130,5 @@ export const config = {
     enabled: Boolean(process.env.AGORA_APP_ID && process.env.AGORA_APP_CERTIFICATE),
   },
   aiServiceUrl: process.env.AI_SERVICE_URL || 'https://rgit-hack-aiml.onrender.com',
+  groqApiKey: process.env.GROQ_API_KEY || '',
 };
-

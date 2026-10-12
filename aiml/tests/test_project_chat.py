@@ -24,3 +24,33 @@ def test_invalid_evidence_rejected(answer):
 def test_missing_evidence_is_explicit():
     result = answer_project_chat(FakeService(dict(answer='The sources do not state a deadline.', insufficientEvidence=True)), request())
     assert result.insufficientEvidence
+
+
+def test_rag_uses_dedicated_key_and_general_service_keeps_original(monkeypatch):
+    from app.project_chat import get_project_chat_service
+    from app.service import GroqContextService
+    monkeypatch.setenv('GROQ_API_KEY', 'general-test-key')
+    monkeypatch.setenv('NEW_GROQ_API_KEY', 'rag-test-key')
+    get_project_chat_service.cache_clear()
+    try:
+        rag = get_project_chat_service()
+        assert rag.api_key == 'rag-test-key'
+        assert GroqContextService().api_key == 'general-test-key'
+        assert get_project_chat_service() is rag
+    finally:
+        get_project_chat_service.cache_clear()
+
+
+def test_missing_rag_key_never_falls_back_to_general_key(monkeypatch):
+    from app.project_chat import get_project_chat_service
+    from app.service import MissingApiKeyError
+    monkeypatch.setenv('GROQ_API_KEY', 'general-test-key')
+    monkeypatch.delenv('NEW_GROQ_API_KEY', raising=False)
+    get_project_chat_service.cache_clear()
+    try:
+        rag = get_project_chat_service()
+        assert rag.api_key is None
+        with pytest.raises(MissingApiKeyError, match='NEW_GROQ_API_KEY'):
+            answer_project_chat(rag, request())
+    finally:
+        get_project_chat_service.cache_clear()
