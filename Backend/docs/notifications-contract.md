@@ -294,6 +294,7 @@ node --test tests/notifications/contracts.test.js
 node --test tests/notifications/service.test.js
 node --test tests/notifications/api.test.js
 node --test tests/notifications/reliability.test.js
+node --test tests/notifications/whatsapp-adapter.test.js
 ```
 
 ---
