@@ -11,7 +11,9 @@ import EmailsPage from './workspace/EmailsPage'
 import InvitationPage from './pages/InvitationPage'
 import McpAuthorizePage from './workspace/McpAuthorizePage'
 import { AgoraRoom } from './components/AgoraRoom'
+import CallsPage from './workspace/CallsPage'
 import './App.css'
+
 
 function HomeRoute() {
   const { hash } = useLocation();
@@ -69,9 +71,12 @@ export default function App() {
           <Route path="/handoffs" element={<HandoffsPage />} />
           <Route path="/handoffs/:handoffId" element={<HandoffDetailPage />} />
           <Route path="/connections" element={<ConnectionsPage />} />
+          <Route path="/calls" element={<CallsPage />} />
+          <Route path="/meet" element={<Navigate to="/calls" replace />} />
           <Route path="/mcp/authorize" element={<McpAuthorizePage />} />
           <Route path="/app" element={<Navigate to="/dashboard" replace />} />
         </Route>
+
         {/* Agora Real-Time Audio, Video, and Chat Routes */}
         <Route
           path="/agora"

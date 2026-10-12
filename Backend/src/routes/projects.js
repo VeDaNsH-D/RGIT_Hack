@@ -1,3 +1,4 @@
+import { ProjectChatTurn } from '../models/ProjectChatTurn.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { createProjectSchema, updateProjectSchema, addMemberSchema, sourceRecordQuerySchema } from '../contracts/schemas.js';
@@ -228,15 +229,32 @@ router.post('/:id/integrations/slack', requireAuth, attachProject(), requireRole
         await persistSourceRecordCandidates({
           projectId: String(req.project._id),
           records: result.records,
-          now: new Date(),
         });
         syncedCount = result.records.length;
       }
-      connection.config.sync = {
-        status: 'completed',
-        lastSuccessAt: new Date(),
-        syncedMessageCount: syncedCount,
-      };
+      const firstErr = result.errors?.[0]?.message || result.errors?.[0]?.error;
+      const notInChannel = firstErr && (firstErr.includes('not_in_channel') || firstErr.includes('access_denied'));
+
+      if (notInChannel) {
+        connection.config.sync = {
+          status: 'partial',
+          error: `Bot is not in #${channelName || connection.config.channelName}. Invite the bot by typing /invite @Over2u in the Slack channel.`,
+          syncedMessageCount: 0,
+        };
+      } else if (result.errors?.length && !syncedCount) {
+        connection.config.sync = {
+          status: 'failed',
+          error: firstErr || 'Failed to read channel messages.',
+          syncedMessageCount: 0,
+        };
+      } else {
+        connection.config.sync = {
+          status: result.errors?.length ? 'partial' : 'completed',
+          lastSuccessAt: new Date(),
+          syncedMessageCount: syncedCount,
+          ...(result.errors?.length ? { error: firstErr } : {}),
+        };
+      }
     } catch (syncErr) {
       connection.config.sync = {
         status: 'partial',
@@ -341,15 +359,32 @@ router.post('/:id/integrations/slack/:connectionId/sync', requireAuth, attachPro
         await persistSourceRecordCandidates({
           projectId: String(req.project._id),
           records: result.records,
-          now: new Date(),
         });
         syncedCount = result.records.length;
       }
-      connection.config.sync = {
-        status: 'completed',
-        lastSuccessAt: new Date(),
-        syncedMessageCount: syncedCount,
-      };
+      const firstErr = result.errors?.[0]?.message || result.errors?.[0]?.error;
+      const notInChannel = firstErr && (firstErr.includes('not_in_channel') || firstErr.includes('access_denied'));
+
+      if (notInChannel) {
+        connection.config.sync = {
+          status: 'partial',
+          error: `Bot is not in #${connection.config.channelName}. Invite the bot by typing /invite @Over2u in the Slack channel.`,
+          syncedMessageCount: connection.config.sync?.syncedMessageCount || 0,
+        };
+      } else if (result.errors?.length && !syncedCount) {
+        connection.config.sync = {
+          status: 'failed',
+          error: firstErr || 'Failed to read channel messages.',
+          syncedMessageCount: connection.config.sync?.syncedMessageCount || 0,
+        };
+      } else {
+        connection.config.sync = {
+          status: result.errors?.length ? 'partial' : 'completed',
+          lastSuccessAt: new Date(),
+          syncedMessageCount: syncedCount,
+          ...(result.errors?.length ? { error: firstErr } : {}),
+        };
+      }
     } catch (syncErr) {
       connection.config.sync = {
         status: 'partial',
@@ -411,7 +446,7 @@ router.delete('/:id', requireAuth, attachProject(), requireRole('owner'), async 
     const projectId = req.project._id;
     const documents = await Document.find({ projectId }).select('storageRef').lean();
     await Promise.all([
-      Task.deleteMany({ projectId }), Handoff.deleteMany({ projectId }), Conflict.deleteMany({ projectId }),
+      ProjectChatTurn.deleteMany({ projectId }), Task.deleteMany({ projectId }), Handoff.deleteMany({ projectId }), Conflict.deleteMany({ projectId }),
       ConflictEvidence.deleteMany({ projectId }), SourceRecord.deleteMany({ projectId }), SourceConnection.deleteMany({ projectId }),
       Document.deleteMany({ projectId }), DocumentChunk.deleteMany({ projectId }), EmailReview.deleteMany({ projectId }), Notification.deleteMany({ projectId }),
       RepositorySnapshot.deleteMany({ projectId }), RepositoryFile.deleteMany({ projectId }), HandoffReport.deleteMany({ projectId }),

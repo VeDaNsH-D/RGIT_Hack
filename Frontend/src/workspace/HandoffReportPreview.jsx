@@ -2,21 +2,36 @@ import { useEffect, useRef, useState } from 'react'
 import { Badge } from './ui'
 import { downloadProjectDocument } from '../api/documents'
 import { SOURCE_TYPE_LABELS } from './documentHelpers'
+import SourceDetailModal from './SourceDetailModal'
 
 const KINDS = { fact: 'Source-backed', inference: 'Inference', unknown: 'Unknown' }
 
-// One citation chip. Uploaded documents are private: they open through the authorized API (never a public link),
-// everything else links to its GitHub URL when it has one. The type tag keeps the source kinds distinguishable.
-function Source({ source, onOpenDocument }) {
-  const tag = SOURCE_TYPE_LABELS[source.type] && <span className={`ws-source-type ws-source-type-${source.type}`}>{SOURCE_TYPE_LABELS[source.type]}</span>
-  if (source.type === 'document' && source.document) {
-    return <span>{tag}{onOpenDocument ? <button type="button" className="ws-source-button" onClick={() => onOpenDocument(source)}>{source.label}</button> : <small className="ws-muted">{source.label}</small>}<span className="ws-source-ref">{` ref ${source.document.chunkId}`}</span></span>
+// One citation chip. Uploaded documents open through the authorized API,
+// and clicking any source opens the SourceDetailModal for excerpt review.
+function Source({ source, onOpenSource, onOpenDocument }) {
+  const handler = () => {
+    if (onOpenSource) onOpenSource(source)
+    else if (onOpenDocument) onOpenDocument(source)
   }
-  return <span>{tag}{source.url ? <a href={source.url} target="_blank" rel="noopener noreferrer">{source.label}</a> : <small className="ws-muted">{source.label}</small>}</span>
+  const tag = SOURCE_TYPE_LABELS[source.type] && <span className={`ws-source-type ws-source-type-${source.type}`}>{SOURCE_TYPE_LABELS[source.type]}</span>
+  return (
+    <span style={{ cursor: 'pointer' }} onClick={handler}>
+      {tag}
+      <button type="button" className="ws-source-button" style={{ textDecoration: 'underline' }}>
+        {source.label || 'Source'}
+      </button>
+      {source.url && (
+        <a href={source.url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: '4px' }} onClick={e => e.stopPropagation()}>
+          ↗
+        </a>
+      )}
+      {source.document?.chunkId && <span className="ws-source-ref">{` ref ${source.document.chunkId}`}</span>}
+    </span>
+  )
 }
 
-// Presentational: renders the stored report exactly as generated.
-function LegacyReportBody({ report, onOpenDocument }) {
+function LegacyReportBody({ report, onOpenSource, onOpenDocument }) {
+  const handler = onOpenSource || onOpenDocument
   return <div className="ws-report">
     <p className="ws-muted">{`Generated ${new Date(report.generatedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })}`}</p>
     <div className="ws-report-repos">{report.repositories.map(repo => <div key={repo.fullName}><strong>{repo.fullName}</strong><span className="ws-muted">{`commit ${repo.commitSha.slice(0, 7)} · ${repo.branch} · analysis ${repo.status} (${repo.coverage.percent}% of eligible files) · knowledge ${repo.freshness || 'unknown'}`}</span></div>)}</div>
@@ -25,7 +40,7 @@ function LegacyReportBody({ report, onOpenDocument }) {
       <h3 id={`report-${section.key}`}>{section.title}</h3>
       <ul className="ws-report-items">{section.items.map((item, index) => <li key={index}>
         <span>{item.text}</span>
-        {section.key !== 'links' && <span className="ws-report-tags">{item.kind && <span className={`ws-badge ${item.kind === 'fact' ? 'ws-badge-completed' : ''}`}>{KINDS[item.kind]}</span>}{item.evidence?.map(source => <Source key={source.id} source={source} onOpenDocument={onOpenDocument}/>)}</span>}
+        {section.key !== 'links' && <span className="ws-report-tags">{item.kind && <span className={`ws-badge ${item.kind === 'fact' ? 'ws-badge-completed' : ''}`}>{KINDS[item.kind]}</span>}{item.evidence?.map(source => <Source key={source.id} source={source} onOpenSource={handler}/>)}</span>}
         {section.key === 'links' && item.evidence?.[0]?.url && <a href={item.evidence[0].url} target="_blank" rel="noopener noreferrer">{item.evidence[0].url}</a>}
       </li>)}</ul>
     </section>)}
@@ -122,8 +137,9 @@ function VerificationStatus({ v }) {
   return <dl className="ws-verification" aria-label="Verification status">{rows.map(([k, text]) => <div key={k}><dt>{k}</dt><dd>{text}</dd></div>)}</dl>
 }
 
-function SourceIndex({ sources, onOpenDocument }) {
-  return <ol className="ws-source-index">{sources.map(source => <li key={source.id} id={`src-${source.n}`} value={source.n}><Source source={source} onOpenDocument={onOpenDocument}/></li>)}</ol>
+function SourceIndex({ sources, onOpenSource, onOpenDocument }) {
+  const handler = onOpenSource || onOpenDocument
+  return <ol className="ws-source-index">{sources.map(source => <li key={source.id} id={`src-${source.n}`} value={source.n}><Source source={source} onOpenSource={handler}/></li>)}</ol>
 }
 
 function ReportSection({ section }) {
@@ -141,8 +157,9 @@ function ReportSection({ section }) {
 }
 
 // Presentational: renders the stored report exactly as generated; the PDF is rendered from the same structure.
-export function HandoffReportBody({ report, onOpenDocument }) {
-  if (!report.brief) return <LegacyReportBody report={report} onOpenDocument={onOpenDocument}/>
+export function HandoffReportBody({ report, onOpenSource, onOpenDocument }) {
+  const handler = onOpenSource || onOpenDocument
+  if (!report.brief) return <LegacyReportBody report={report} onOpenSource={handler}/>
   const { brief, verification: v } = report
   return <div className="ws-report ws-brief-report">
     <p className="ws-muted">{`Generated ${when(report.generatedAt)}${report.complexity ? ` · ${report.complexity} codebase` : ''}`}</p>
@@ -160,7 +177,7 @@ export function HandoffReportBody({ report, onOpenDocument }) {
       <ReportSection section={section}/>
     </div>)}
     {v && !report.sections.some(s => s.key === 'verification') && v.tests && v.runtime && <section aria-labelledby="report-verification"><h3 id="report-verification">Verification status</h3><VerificationStatus v={v}/></section>}
-    {report.sourceIndex?.length > 0 && <section aria-labelledby="report-sources"><h3 id="report-sources">Sources</h3><SourceIndex sources={report.sourceIndex} onOpenDocument={onOpenDocument}/></section>}
+    {report.sourceIndex?.length > 0 && <section aria-labelledby="report-sources"><h3 id="report-sources">Sources</h3><SourceIndex sources={report.sourceIndex} onOpenSource={handler}/></section>}
     {report.limitations.length > 0 && <section aria-labelledby="report-limits"><h3 id="report-limits">Limitations and data quality</h3><ul className="ws-report-items ws-muted">{report.limitations.map(item => <li key={item}>{item}</li>)}</ul></section>}
   </div>
 }
@@ -168,22 +185,36 @@ export function HandoffReportBody({ report, onOpenDocument }) {
 export default function HandoffReportPreview({ report, onClose, onDownload, downloading, error }) {
   const dialog = useRef(null)
   const [documentError, setDocumentError] = useState('')
-  async function openDocument(source) {
-    setDocumentError('')
-    try { await downloadProjectDocument(report.projectId, source.document.documentId, source.document.filename) } catch (failure) { setDocumentError(failure.message) }
+  const [selectedSource, setSelectedSource] = useState(null)
+
+  function openSource(source) {
+    setSelectedSource(source)
   }
+
   useEffect(() => {
     const node = dialog.current
     node.showModal()
     return () => node.close()
   }, [])
-  return <dialog ref={dialog} className="ws-modal ws-modal-wide" aria-labelledby="report-title" onCancel={onClose} onClick={event => { if (event.target === event.currentTarget) onClose() }}>
-    <button className="ws-modal-close" aria-label="Close preview" onClick={onClose}>×</button>
-    <span className="ws-eyebrow">DEVELOPER HANDOFF</span>
-    <h2 id="report-title">{report.projectName}</h2>
-    <Badge value="preview"/>
-    {(error || documentError) && <p className="ws-error" role="alert">{error || documentError}</p>}
-    <HandoffReportBody report={report} onOpenDocument={openDocument}/>
-    <div className="ws-modal-actions"><button type="button" className="ws-button" onClick={onClose}>Close</button><button type="button" className="ws-button ws-button-primary" onClick={onDownload} disabled={downloading}>{downloading ? 'Preparing PDF…' : 'Download PDF'}</button></div>
-  </dialog>
+
+  return (
+    <>
+      <dialog ref={dialog} className="ws-modal ws-modal-wide" aria-labelledby="report-title" onCancel={onClose} onClick={event => { if (event.target === event.currentTarget) onClose() }}>
+        <button className="ws-modal-close" aria-label="Close preview" onClick={onClose}>×</button>
+        <span className="ws-eyebrow">DEVELOPER HANDOFF</span>
+        <h2 id="report-title">{report.projectName}</h2>
+        <Badge value="preview"/>
+        {(error || documentError) && <p className="ws-error" role="alert">{error || documentError}</p>}
+        <HandoffReportBody report={report} onOpenSource={openSource}/>
+        <div className="ws-modal-actions"><button type="button" className="ws-button" onClick={onClose}>Close</button><button type="button" className="ws-button ws-button-primary" onClick={onDownload} disabled={downloading}>{downloading ? 'Preparing PDF…' : 'Download PDF'}</button></div>
+      </dialog>
+      {selectedSource && (
+        <SourceDetailModal
+          source={selectedSource}
+          projectId={report.projectId}
+          onClose={() => setSelectedSource(null)}
+        />
+      )}
+    </>
+  )
 }

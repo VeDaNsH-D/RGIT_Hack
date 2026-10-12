@@ -24,7 +24,7 @@ before(async () => {
   globalThis.window = new EventTarget()
   window.location = { search: '' }
   globalThis.sessionStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) }
-  server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false, watch: null }, appType: 'custom' })
+  server = await createServer({ envDir: false, server: { middlewareMode: true, hmr: false, ws: false, watch: null }, appType: 'custom' })
   api = await server.ssrLoadModule('/src/api/client.js')
   sessions = await server.ssrLoadModule('/src/auth/session.js')
   ;({ AuthContext } = await server.ssrLoadModule('/src/auth/AuthContext.js'))
@@ -302,7 +302,7 @@ test('AI draft panel: empty, drafting, grounded draft with limitations and sourc
     items: [{ type: 'blocker', kind: 'sourced', text: 'CORS failures [Source: acme/relay issue #8]' }, { type: 'pending', kind: 'inference', text: 'Suggested: Fix CORS' }], sources: [{ id: 'a', label: 'acme/relay issue #8', url: 'https://github.com/acme/relay/issues/8' }] }
   const html = panel({ draft })
   assert.match(html, /Data limitations/); assert.match(html, /Supported by sources/); assert.match(html, /Inference/)
-  assert.match(html, /href="https:\/\/github.com\/acme\/relay\/issues\/8"/); assert.match(html, /Apply to this handoff/)
+  assert.match(html, /<button[^>]*class="ws-source-button"[^>]*>acme\/relay issue #8<\/button>/); assert.match(html, /Apply to this handoff/)
   assert.match(html, /from 4 GitHub records, 0 notes and 1 tasks/)
 })
 
@@ -413,7 +413,7 @@ test('report preview shows sections, evidence links, kinds, repository identity 
     sections: [{ key: 'architecture', title: 'Repository architecture', items: [{ text: 'Express server in src/server.js', kind: 'fact', evidence: [{ id: 'f', label: 'acme/relay/src/server.js@aaaaaaa', url: 'https://github.com/acme/relay/blob/aaa/src/server.js' }] }, { text: 'Deploy target unknown', kind: 'unknown', evidence: [] }] }, { key: 'links', title: 'Relevant source links', items: [{ text: 'acme/relay', kind: 'fact', evidence: [{ id: 'u', label: 'acme/relay', url: 'https://github.com/acme/relay' }] }] }] }
   const html = renderToString(React.createElement(ReportBody, { report }))
   assert.match(html, /Repository architecture/); assert.match(html, /commit aaaaaaa · main · analysis partial \(91% of eligible files\) · knowledge stale/)
-  assert.match(html, /Source-backed/); assert.match(html, />Unknown</); assert.match(html, /href="https:\/\/github.com\/acme\/relay\/blob\/aaa\/src\/server\.js"/); assert.match(html, /Limitations/)
+  assert.match(html, /Source-backed/); assert.match(html, />Unknown</); assert.match(html, /<button[^>]*class="ws-source-button"[^>]*>acme\/relay\/src\/server\.js@aaaaaaa<\/button>/); assert.match(html, /Limitations/)
   assert.match(html, /Relevant source links/)
 })
 
@@ -492,7 +492,7 @@ test('handoff report shows document sources next to GitHub sources, typed, with 
   const html = renderToString(React.createElement(ReportBody, { report, onOpenDocument() {} }))
   assert.match(html, /Uploaded document/); assert.match(html, /GitHub issue/); assert.match(html, /Repository file/)
   assert.match(html, /<button[^>]*>Document &quot;Spec&quot; &gt; CORS, p\. 2<\/button>/); assert.match(html, /ref d1:0/)
-  assert.match(html, /href="https:\/\/github.com\/acme\/relay\/issues\/8"/)
+  assert.match(html, /<button[^>]*class="ws-source-button"[^>]*>acme\/relay issue #8<\/button>/)
   assert.doesNotMatch(html, /href="[^"]*documents/)
 })
 
@@ -522,7 +522,27 @@ test('handoff report distinguishes Jira and Slack sources', () => {
   const report = { projectId: 'p1', projectName: 'Relay', generatedAt: '2026-01-02T10:00:00Z', limitations: [], repositories: [], sections: [{ key: 'tracked_work_and_discussion', title: 'Tracked work and team discussion (Jira, Slack)', items: [{ text: 'PAY-12 is in progress.', kind: 'fact', evidence: [
     { id: 'j', type: 'jira_issue', label: 'Jira PAY-12', url: 'https://acme.atlassian.net/browse/PAY-12' }, { id: 's', type: 'slack_message', label: 'Slack #payments 2026-10-01', url: null }] }] }] }
   const html = renderToString(React.createElement(ReportBody, { report }))
-  assert.match(html, /Jira issue/); assert.match(html, /Slack message/); assert.match(html, /href="https:\/\/acme.atlassian.net\/browse\/PAY-12"/)
+  assert.match(html, /Jira issue/); assert.match(html, /Slack message/); assert.match(html, /<button[^>]*class="ws-source-button"[^>]*>Jira PAY-12<\/button>/)
+})
+
+
+test('Notion offers browser authorization when OAuth is configured', () => {
+  const html = render(() => React.createElement(ConnectionsView, {
+    notion: { status: { connected: false, configured: true }, form: { apiKey: '', databaseId: '' }, setForm() {}, onInstall() {} },
+  }), '/connections')
+  assert.match(html, /Authorize with Notion/)
+  assert.match(html, /Use an integration token instead/)
+})
+
+
+test('project chat renders cited evidence as text and exposes accessible question controls', async () => {
+  const { ProjectChatView } = await server.ssrLoadModule('/src/workspace/ProjectChat.jsx')
+  const html = renderToString(React.createElement(ProjectChatView, { question: '', onQuestion() {}, turns: [{ id: 'c1', question: 'Retry policy?', answer: 'Retry three times [S1].', citations: [{ id: 'S1', title: 'Team decision', provider: 'slack', text: '<script>unsafe()</script>', url: 'https://example.test/source' }] }] }))
+  assert.match(html, /Retry three times/)
+  assert.match(html, /Team decision/)
+  assert.match(html, /&lt;script&gt;/)
+  assert.doesNotMatch(html, /<script>/)
+  assert.match(html, /Ask a question about this project/)
 })
 
 

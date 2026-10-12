@@ -1,6 +1,6 @@
 /**
  * Agora RTC Service Wrapper
- * 
+ *
  * Handles WebRTC audio/video call lifecycle: joining channels, local track creation,
  * remote user subscription, track mute/unmute, and safe teardown.
  */
@@ -22,7 +22,7 @@ export class AgoraRtcManager {
 
   /**
    * Initializes and joins an Agora RTC channel.
-   * 
+   *
    * @param {object} params
    * @param {string} params.appId Agora App ID
    * @param {string} params.channel Channel name
@@ -132,9 +132,61 @@ export class AgoraRtcManager {
   }
 
   /**
+   * Starts screen sharing by publishing a screen video track.
+   */
+  async startScreenShare() {
+    if (!this.client || !this.isJoined) return null;
+    try {
+      this.screenTrack = await AgoraRTC.createScreenVideoTrack({}, 'enable');
+      if (this.localVideoTrack) {
+        await this.client.unpublish([this.localVideoTrack]);
+      }
+      await this.client.publish([this.screenTrack]);
+      this.screenTrack.on('track-ended', () => {
+        this.stopScreenShare().catch(() => {});
+      });
+      return this.screenTrack;
+    } catch (err) {
+      console.warn('Screen share cancelled or failed:', err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Stops screen share and restores local camera if active.
+   */
+  async stopScreenShare() {
+    if (this.screenTrack && this.client) {
+      try {
+        await this.client.unpublish([this.screenTrack]);
+        this.screenTrack.stop();
+        this.screenTrack.close();
+      } catch (err) {
+        console.warn('Error stopping screen track:', err.message);
+      }
+      this.screenTrack = null;
+    }
+    if (this.localVideoTrack && this.client) {
+      try {
+        await this.client.publish([this.localVideoTrack]);
+      } catch (err) {
+        console.warn('Error restoring camera track:', err.message);
+      }
+    }
+  }
+
+  /**
    * Leaves the channel and cleans up all media tracks.
    */
   async leave() {
+    if (this.screenTrack) {
+      try {
+        this.screenTrack.stop();
+        this.screenTrack.close();
+      } catch {}
+      this.screenTrack = null;
+    }
+
     if (this.localAudioTrack) {
       this.localAudioTrack.stop();
       this.localAudioTrack.close();
