@@ -74,3 +74,34 @@ export interface ValidationResult {
   valid: boolean;
   errors: string[];
 }
+
+export interface NotificationTemplateResult {
+  title: string;
+  message: string;
+}
+
+export interface NotificationQueryOptions {
+  unreadOnly?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface NotificationRepository {
+  create(record: NotificationRecord): Promise<NotificationRecord>;
+  findById(id: string): Promise<NotificationRecord | null>;
+  findByRecipient(
+    recipientUserId: string,
+    options?: NotificationQueryOptions
+  ): Promise<NotificationRecord[]>;
+  findByEventId?(eventId: string): Promise<NotificationRecord | null>;
+}
+
+export interface NotificationServiceConfig {
+  repository: NotificationRepository;
+  idGenerator?: () => string;
+}
+
+export interface ProcessEventOptions {
+  throwOnDuplicate?: boolean;
+}
+

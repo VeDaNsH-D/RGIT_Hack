@@ -26,3 +26,20 @@ export {
   validateNotificationRecord,
   assertValidNotificationRecord,
 } from './validation.js';
+
+export {
+  renderNotificationTemplate,
+  UnsupportedTemplateEventError,
+} from './templates.js';
+
+export {
+  NotificationRepositoryError,
+  InMemoryNotificationRepository,
+} from './repository.js';
+
+export {
+  NotificationService,
+  NotificationServiceError,
+  DuplicateNotificationEventError,
+} from './service.js';
+

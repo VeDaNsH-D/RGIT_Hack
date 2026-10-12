@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --test tests/notifications/contracts.test.js"
+    "test": "node --test tests/notifications/contracts.test.js tests/notifications/service.test.js"
   },
   "keywords": [],
   "author": "",

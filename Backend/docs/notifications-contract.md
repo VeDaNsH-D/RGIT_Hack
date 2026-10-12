@@ -89,19 +89,71 @@ assertValidNotificationEvent(eventPayload);
 
 ---
 
-## Running Contract Tests
+## Notification Service & Template Engine (Task 2)
 
-Run the test suite using Node.js built-in test runner:
+### Centralized Template Engine (`templates.js`)
+Deterministic mapping that converts validated event payloads into user-facing titles and messages without fabricating missing metadata:
+
+- **`HANDOFF_SUBMITTED`**:
+  - Title: `"Project Handoff Submitted"`
+  - Message: `"Project handoff ['<handoffTitle>'] (ID: <entityId>) was submitted by <outgoingUserId> for project <projectId> and is awaiting review."`
+- **`HANDOFF_ACCEPTED`**:
+  - Title: `"Project Handoff Accepted"`
+  - Message: `"Handoff <entityId> for project <projectId> was accepted by <acceptedByUserId>. [Note: "<notes>".] Ownership transfer is complete."`
+- **`HANDOFF_NEEDS_CLARIFICATION`**:
+  - Title: `"Handoff Clarification Requested"`
+  - Message: `"Clarification requested by <requestedByUserId> on handoff <entityId> for project <projectId>: "<clarificationNote>"."`
+- **`CRITICAL_CONFLICT_DETECTED`**:
+  - Title: `"Critical Conflict Detected"`
+  - Message: `"[<severity>] Conflict (<conflictType>) detected in project <projectId> (ID: <entityId>): <description>"`
+
+### Repository Interface (`repository.js`)
+A database-agnostic interface decoupling service logic from Prisma, MongoDB, or PostgreSQL:
+- `create(record)`: Saves a notification record.
+- `findById(id)`: Fetches a single notification record by ID.
+- `findByRecipient(recipientUserId, options)`: Fetches notifications for a recipient, supporting `unreadOnly`, `limit`, and `offset`.
+- `findByEventId(eventId)`: Fetches record by originating event ID for idempotency checks.
+
+An `InMemoryNotificationRepository` is provided for tests and local development, using immutable deep-cloning (`structuredClone`) to prevent cross-test state leakage.
+
+### Core Service API (`service.js`)
+```javascript
+import {
+  NotificationService,
+  InMemoryNotificationRepository,
+} from './src/notifications/index.js';
+
+const repository = new InMemoryNotificationRepository();
+const service = new NotificationService({ repository });
+
+// Process an incoming domain event
+const notification = await service.processEvent(eventPayload);
+
+// Query notifications for a specific user
+const unread = await service.getNotificationsForRecipient('usr_123', { unreadOnly: true });
+```
+
+### Idempotency & Duplicate Event Handling
+- The service queries `repository.findByEventId(event.eventId)` before record creation.
+- By default (`throwOnDuplicate: false`), returning the existing notification record ensures safe, idempotent processing.
+- Setting `options.throwOnDuplicate: true` throws `DuplicateNotificationEventError` when explicit duplicate rejection is required.
+
+---
+
+## Running Tests
+
+Run all contract and service test suites using Node.js built-in test runner:
 
 ```bash
 cd Backend
 npm test
 ```
 
-Or directly via Node:
+Or run individual suites:
 
 ```bash
 node --test tests/notifications/contracts.test.js
+node --test tests/notifications/service.test.js
 ```
 
 ---
@@ -110,4 +162,5 @@ node --test tests/notifications/contracts.test.js
 
 1. **Identifier Format**: IDs are currently validated as non-empty strings (e.g., string IDs, CUIDs, UUIDs, or MongoDB ObjectIds), keeping integration flexible between team members.
 2. **Channel Delivery Decoupling**: External delivery (such as WhatsApp or push notifications) subscribes to these event contracts without altering the core envelope.
-3. **Database Independence**: Database schema migrations and persistence remain owned by Person 2; these contracts establish the shared in-memory and serialization contract.
+3. **Database Independence**: Database schema migrations and persistence remain owned by Person 2; Task 2's `NotificationRepository` interface allows Person 2 or Person 4 to plug in a Prisma or Mongoose repository seamlessly in Task 3.
+4. **Idempotency Dependencies**: In production (Task 3), exactly-once persistence guarantees will rely on a database unique constraint on `eventId` or a transaction provided by Person 2's persistence layer.
