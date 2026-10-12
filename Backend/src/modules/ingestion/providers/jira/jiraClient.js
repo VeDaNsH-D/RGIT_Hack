@@ -39,16 +39,26 @@ export class JiraClient {
   constructor({
     host,
     baseUrl,
+    cloudId,
     email,
     apiToken,
+    accessToken,
     apiVersion = DEFAULT_API_VERSION,
     fetchFn = globalThis.fetch,
     retryOptions = {},
   } = {}) {
-    const rawHost = host || baseUrl || process.env.JIRA_HOST || process.env.JIRA_BASE_URL || '';
+    let rawHost = host || baseUrl;
+    if (!rawHost && cloudId) {
+      rawHost = `https://api.atlassian.com/ex/jira/${cloudId}`;
+    }
+    rawHost = rawHost || process.env.JIRA_HOST || process.env.JIRA_BASE_URL || '';
     this.host = rawHost ? rawHost.replace(/\/+$/, '') : '';
-    this.email = email !== undefined ? email : (process.env.JIRA_EMAIL || '');
-    this.apiToken = apiToken !== undefined ? apiToken : (process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN || '');
+    this.cloudId = cloudId || '';
+    const resolvedToken = accessToken !== undefined
+      ? accessToken
+      : (apiToken !== undefined ? apiToken : (process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN || ''));
+    this.apiToken = resolvedToken;
+    this.email = accessToken ? '' : (email !== undefined ? email : (process.env.JIRA_EMAIL || ''));
     this.apiVersion = apiVersion;
     this.fetchFn = fetchFn;
     this.retryOptions = retryOptions;
@@ -311,5 +321,14 @@ export class JiraClient {
       throw new TypeError("Parameter 'issueIdOrKey' must be a non-empty string.");
     }
     return this._request(`/issue/${encodeURIComponent(issueIdOrKey.trim())}`, { query: options });
+  }
+
+  /**
+   * Retrieves profile details for the currently authenticated user.
+   * 
+   * @returns {Promise<object>} Jira user profile
+   */
+  async myself() {
+    return this._request('/myself');
   }
 }

@@ -25,24 +25,29 @@ export class JiraConnector extends BaseConnector {
    * @param {string} [config.apiToken] Atlassian API token or PAT
    * @param {typeof fetch} [config.fetchFn] Injected fetch implementation
    */
-  constructor({ client, host, baseUrl, email, apiToken, fetchFn, ...clientOptions } = {}) {
+  constructor({ client, host, baseUrl, cloudId, email, apiToken, accessToken, fetchFn, ...clientOptions } = {}) {
     super();
     if (!client) {
-      const resolvedHost = host || baseUrl || process.env.JIRA_HOST || process.env.JIRA_BASE_URL;
-      const resolvedToken = apiToken !== undefined
-        ? apiToken
-        : (process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN);
+      let resolvedHost = host || baseUrl;
+      if (!resolvedHost && cloudId) {
+        resolvedHost = `https://api.atlassian.com/ex/jira/${cloudId}`;
+      }
+      resolvedHost = resolvedHost || process.env.JIRA_HOST || process.env.JIRA_BASE_URL;
+
+      const resolvedToken = accessToken !== undefined
+        ? accessToken
+        : (apiToken !== undefined ? apiToken : (process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN));
 
       if (!resolvedToken || typeof resolvedToken !== 'string' || !resolvedToken.trim()) {
         throw new JiraAuthenticationError(
-          'JIRA_API_TOKEN is required. Please provide it in options or set JIRA_API_TOKEN in environment.',
+          'JIRA_API_TOKEN is required. Please provide apiToken, accessToken or set JIRA_API_TOKEN in environment.',
           { code: 'JIRA_API_TOKEN_MISSING' }
         );
       }
 
       if (!resolvedHost || typeof resolvedHost !== 'string' || !resolvedHost.trim()) {
         throw new JiraValidationError(
-          'JIRA_HOST is required. Please provide it in options or set JIRA_HOST in environment.',
+          'JIRA_HOST is required. Please provide host, cloudId or set JIRA_HOST in environment.',
           { code: 'JIRA_HOST_MISSING' }
         );
       }
@@ -51,8 +56,10 @@ export class JiraConnector extends BaseConnector {
     this.client = client || new JiraClient({
       host,
       baseUrl,
+      cloudId,
       email,
       apiToken,
+      accessToken,
       fetchFn,
       ...clientOptions,
     });

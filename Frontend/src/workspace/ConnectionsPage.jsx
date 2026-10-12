@@ -7,6 +7,7 @@ import {
   connectWhatsApp,
   disconnectWhatsApp,
   getJiraStatus,
+  startJiraInstall,
   connectJira,
   disconnectJira,
   syncJira,
@@ -200,13 +201,13 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
         {connected ? (
           <>
             <p className="ws-muted" style={{ marginTop: '8px' }}>
-              Connected to {jira.status.host} {jira.status.projectKey ? `(${jira.status.projectKey})` : ''} · {formatDate(jira.status.connectedAt)}
+              Connected to {jira.status.siteName || jira.status.host || 'Jira Cloud'} {jira.status.siteUrl ? `(${jira.status.siteUrl})` : ''} · {formatDate(jira.status.connectedAt)}
             </p>
             <div className="ws-connection-action" style={{ display: 'grid', gap: '10px' }}>
               <span className="ws-muted">
                 {jira.status.lastSyncAt
                   ? `Synced ${jira.status.syncedIssueCount || 0} issues · Last sync ${formatDate(jira.status.lastSyncAt)}`
-                  : 'Issues and project context are ready to sync.'}
+                  : 'Issues, epics, and sprint tracking are ready to sync.'}
               </span>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <button
@@ -228,111 +229,24 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
           </>
         ) : (
           <div className="ws-connection-action" style={{ display: 'grid', gap: '10px' }}>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="jira-host-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Your Jira Cloud Domain
-              </label>
-              <input
-                id="jira-host-input"
-                type="url"
-                placeholder="https://your-domain.atlassian.net"
-                value={jira.form.host}
-                onChange={e => jira.setForm(f => ({ ...f, host: e.target.value }))}
-                disabled={jira.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="jira-email-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Your Atlassian Email
-              </label>
-              <input
-                id="jira-email-input"
-                type="email"
-                placeholder="developer@example.com"
-                value={jira.form.email}
-                onChange={e => jira.setForm(f => ({ ...f, email: e.target.value }))}
-                disabled={jira.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="jira-token-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Your API Token
-              </label>
-              <input
-                id="jira-token-input"
-                type="password"
-                placeholder="Atlassian API token"
-                value={jira.form.apiToken}
-                onChange={e => jira.setForm(f => ({ ...f, apiToken: e.target.value }))}
-                disabled={jira.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="jira-proj-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Project Key (optional)
-              </label>
-              <input
-                id="jira-proj-input"
-                type="text"
-                placeholder="e.g. RELAY"
-                value={jira.form.projectKey}
-                onChange={e => jira.setForm(f => ({ ...f, projectKey: e.target.value }))}
-                disabled={jira.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
             <button
               className="ws-button ws-button-primary"
               onClick={jira.onConnect}
-              disabled={jira.connecting || !jira.form.host.trim() || !jira.form.apiToken.trim()}
+              disabled={jira.connecting || jira.status?.configured === false}
             >
-              {jira.connecting ? 'Connecting…' : 'Connect Jira'}
+              {jira.connecting ? 'Opening Atlassian…' : 'Connect Jira'}
             </button>
             <span className="ws-muted" style={{ fontSize: '11px' }}>
-              Connects to your personal/team Jira instance.
+              Instantly authorizes your Atlassian account and connects your Jira projects.
             </span>
           </div>
         )}
 
+        {jira.status?.configured === false && !connected && (
+          <p className="ws-notice" role="status" style={{ marginTop: '12px' }}>
+            Jira OAuth credentials not configured on this server.
+          </p>
+        )}
         {jira.syncNotice && <p className="ws-notice" role="status" style={{ marginTop: '12px' }}>{jira.syncNotice}</p>}
         {jira.error && <p className="ws-error" role="alert" style={{ marginTop: '12px' }}>{jira.error}</p>}
       </article>
@@ -596,6 +510,7 @@ export default function ConnectionsPage() {
   const navigate = useNavigate()
   const returned = params.get('github')
   const returnedSlack = params.get('slack')
+  const returnedJira = params.get('jira')
   const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
@@ -716,18 +631,26 @@ export default function ConnectionsPage() {
 
   // Drop the non-sensitive return markers from the URL once read.
   useEffect(() => {
-    if (returned || returnedSlack) {
+    if (returned || returnedSlack || returnedJira) {
       if (returnedSlack === 'connected') {
         setSlackSyncNotice('Slack workspace connected successfully.')
       }
+      if (returnedJira === 'connected') {
+        setJiraSyncNotice('Jira connected successfully.')
+        getJiraStatus().then(setJiraStatus).catch(() => {})
+      } else if (returnedJira === 'error') {
+        setJiraError(params.get('reason') || 'Could not complete Jira authorization.')
+      }
+
       setParams(current => {
         current.delete('github')
         current.delete('slack')
+        current.delete('jira')
         current.delete('reason')
         return current
       }, { replace: true })
     }
-  }, [returned, returnedSlack, setParams])
+  }, [returned, returnedSlack, returnedJira, setParams, params])
 
   async function onConnectGitHub() {
     setStarting(true)
@@ -775,9 +698,11 @@ export default function ConnectionsPage() {
     setJiraError('')
     setJiraSyncNotice('')
     try {
-      const data = await connectJira(jiraForm)
-      setJiraStatus(data)
-      setJiraConnecting(false)
+      const { url } = await startJiraInstall()
+      if (!url?.startsWith('https://auth.atlassian.com/')) {
+        throw new Error('Jira returned an unexpected authorization address.')
+      }
+      window.location.assign(url)
     } catch (failure) {
       setJiraError(failure.message)
       setJiraConnecting(false)

@@ -11,6 +11,14 @@ import { NotionConnector } from '../modules/ingestion/providers/notion/notionCon
 import { RepositoryError, listAccessibleRepositories, publicRepository } from '../services/githubRepositoryService.js';
 import { ConnectError, completeInstall, consumeState, createInstallUrl, getStatus } from '../services/githubConnectionService.js';
 import { SlackConnectError, completeSlackInstall, consumeSlackState, createSlackInstallUrl, isSlackAppConfigured } from '../services/slackAppService.js';
+import {
+  isJiraOAuthConfigured,
+  createJiraAuthUrl,
+  verifyJiraState,
+  exchangeJiraCode,
+  fetchAccessibleJiraResources,
+  getValidJiraAccessToken,
+} from '../services/jiraOAuthService.js';
 
 /**
  * Workspace = the authenticated Relay user's own workspace (there is no Workspace model).
@@ -171,18 +179,37 @@ router.delete('/whatsapp', requireAuth, needUser, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+function finishJira(res, status, reason) {
+  if (status === 'error') console.warn(`[jira-connect] callback failed: ${reason}`);
+  res.set('Cache-Control', 'no-store');
+  if (!config.frontendUrl) {
+    return res.status(status === 'connected' ? 200 : 400).json({ status, ...(reason ? { reason } : {}) });
+  }
+  const url = new URL('/connections', config.frontendUrl);
+  url.searchParams.set('jira', status);
+  if (reason) url.searchParams.set('reason', reason);
+  return res.redirect(url.toString());
+}
+
 router.get('/jira', requireAuth, needUser, async (req, res, next) => {
   try {
+    const configured = isJiraOAuthConfigured();
     const conn = await JiraConnection.findOne({ userId: req.user.id });
     if (!conn || !conn.active) {
       return res.set('Cache-Control', 'no-store').json({
         connected: false,
+        configured,
       });
     }
 
     return res.set('Cache-Control', 'no-store').json({
       connected: true,
-      host: conn.host,
+      configured,
+      authType: conn.authType || 'oauth',
+      host: conn.siteUrl || conn.host,
+      siteUrl: conn.siteUrl || conn.host,
+      siteName: conn.siteName || conn.host,
+      cloudId: conn.cloudId,
       email: conn.email,
       projectKey: conn.projectKey,
       connectedAt: conn.connectedAt,
@@ -190,6 +217,75 @@ router.get('/jira', requireAuth, needUser, async (req, res, next) => {
       syncedIssueCount: conn.syncedIssueCount,
     });
   } catch (err) { next(err); }
+});
+
+router.post('/jira/install', requireAuth, needUser, async (req, res, next) => {
+  try {
+    if (!isJiraOAuthConfigured()) {
+      return res.status(503).json({
+        error: 'not_configured',
+        message: 'Jira OAuth is not configured on this server. Please set JIRA_CLIENT_ID and JIRA_CLIENT_SECRET.',
+      });
+    }
+    const url = createJiraAuthUrl(req.user.id);
+    return res.set('Cache-Control', 'no-store').json({ url });
+  } catch (err) { next(err); }
+});
+
+router.get('/jira/callback', async (req, res, next) => {
+  try {
+    const { code, state, error, error_description } = req.query;
+
+    if (error) {
+      return finishJira(res, 'error', error_description || error);
+    }
+    if (!code || !state) {
+      return finishJira(res, 'error', 'Missing authorization code or state');
+    }
+
+    let userId;
+    try {
+      userId = verifyJiraState(state);
+    } catch (err) {
+      return finishJira(res, 'error', 'Invalid or expired state session');
+    }
+
+    const tokenData = await exchangeJiraCode(code);
+    const resources = await fetchAccessibleJiraResources(tokenData.accessToken);
+
+    if (!resources || resources.length === 0) {
+      return finishJira(res, 'error', 'No accessible Jira Cloud sites found for your Atlassian account');
+    }
+
+    const primarySite = resources[0];
+    const expiresAt = tokenData.expiresIn
+      ? new Date(Date.now() + tokenData.expiresIn * 1000)
+      : null;
+
+    await JiraConnection.findOneAndUpdate(
+      { userId },
+      {
+        userId,
+        authType: 'oauth',
+        cloudId: primarySite.id,
+        siteUrl: primarySite.url,
+        siteName: primarySite.name,
+        host: primarySite.url,
+        accessToken: tokenData.accessToken,
+        refreshToken: tokenData.refreshToken,
+        tokenExpiresAt: expiresAt,
+        scopes: tokenData.scope ? tokenData.scope.split(' ') : primarySite.scopes || [],
+        active: true,
+        connectedAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    return finishJira(res, 'connected');
+  } catch (err) {
+    console.error('[jira-oauth-callback] Error:', err);
+    return finishJira(res, 'error', err.message || 'OAuth exchange failed');
+  }
 });
 
 router.post('/jira', requireAuth, needUser, async (req, res, next) => {
@@ -237,7 +333,9 @@ router.post('/jira', requireAuth, needUser, async (req, res, next) => {
       { userId: req.user.id },
       {
         userId: req.user.id,
+        authType: 'api_token',
         host,
+        siteUrl: host,
         email,
         apiToken,
         projectKey,
@@ -249,7 +347,9 @@ router.post('/jira', requireAuth, needUser, async (req, res, next) => {
 
     return res.status(200).json({
       connected: true,
+      authType: 'api_token',
       host: conn.host,
+      siteUrl: conn.siteUrl,
       email: conn.email,
       projectKey: conn.projectKey,
       connectedAt: conn.connectedAt,
@@ -275,11 +375,20 @@ router.post('/jira/sync', requireAuth, needUser, async (req, res, next) => {
       return res.status(400).json({ error: 'not_connected', message: 'Jira is not connected.' });
     }
 
-    const connector = new JiraConnector({
-      host: conn.host,
-      email: conn.email,
-      apiToken: conn.apiToken,
-    });
+    let connector;
+    if (conn.authType === 'oauth' || conn.cloudId) {
+      const accessToken = await getValidJiraAccessToken(conn);
+      connector = new JiraConnector({
+        cloudId: conn.cloudId,
+        accessToken,
+      });
+    } else {
+      connector = new JiraConnector({
+        host: conn.host,
+        email: conn.email,
+        apiToken: conn.apiToken,
+      });
+    }
 
     const syncResult = await connector.sync({
       projectKey: conn.projectKey || undefined,
