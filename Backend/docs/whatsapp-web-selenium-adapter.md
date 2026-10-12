@@ -131,3 +131,32 @@ Run all notification regression tests:
 ```bash
 node --test tests/notifications/contracts.test.js tests/notifications/service.test.js tests/notifications/reliability.test.js tests/notifications/api.test.js tests/notifications/whatsapp-adapter.test.js test/integration/notifications-delivery.test.js
 ```
+
+---
+
+## 9. Manual Live Testing & Device Setup
+
+### Step 1: Link WhatsApp Device (One-Time Setup)
+To authenticate WhatsApp Web with your phone account:
+```bash
+cd Backend
+npm run login:whatsapp
+```
+1. Chrome will open to `https://web.whatsapp.com`.
+2. Open WhatsApp on your mobile phone:
+   - **Android**: Tap Menu (three dots) > **Linked Devices** > **Link a Device**.
+   - **iPhone**: Tap **Settings** > **Linked Devices** > **Link a Device**.
+3. Scan the QR code displayed in the Chrome window.
+4. The script will automatically detect successful login and save the session profile in `.whatsapp-sessions/`.
+
+### Step 2: Send a Test Notification
+Once logged in, run the interactive smoke test:
+```bash
+cd Backend
+npm run smoke:whatsapp
+```
+1. Type `YES` to authorize the test.
+2. Confirm the recipient phone number (defaults to `+919021875564`).
+3. Type `SEND` to dispatch.
+4. The adapter opens the conversation, verifies the recipient header, clicks Send, and confirms submission.
+

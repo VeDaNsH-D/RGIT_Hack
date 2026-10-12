@@ -10,6 +10,7 @@
     "test": "node scripts/test-runner.js",
     "seed": "node scripts/seed.js",
     "smoke:github-app": "node scripts/github-app-smoke.js",
+    "login:whatsapp": "node scripts/whatsapp-login.js",
     "smoke:whatsapp": "node scripts/whatsapp-web-smoke.js",
     "test:integration": "node --test --test-concurrency=1 \"tests/mongo-integration/*.itest.js\""
   },

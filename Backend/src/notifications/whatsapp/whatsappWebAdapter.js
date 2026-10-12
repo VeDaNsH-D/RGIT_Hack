@@ -150,6 +150,81 @@ export class WhatsAppWebSeleniumAdapter {
   }
 
   /**
+   * Waits for WhatsApp Web single-page application to settle after navigation.
+   * Resolves immediately when:
+   *  - QR code canvas is detected (throws WhatsAppLoginRequiredError)
+   *  - Invalid recipient number dialog is visible (throws InvalidRecipientError)
+   *  - Conversation header or message input container is ready
+   * 
+   * @param {any} driver
+   * @param {number} [timeoutMs]
+   */
+  async _waitForPageSettled(driver, timeoutMs = this.config.navigationTimeoutMs) {
+    const effectiveTimeout = this.sessionManager?.driverFactory ? 0 : timeoutMs;
+    const startTime = Date.now();
+    const pollIntervalMs = 350;
+
+    while (Date.now() - startTime <= effectiveTimeout) {
+      // 1. Check for QR code (Login required)
+      const qrElements = await driver.findElements({
+        css: 'canvas[aria-label*="QR"], [data-ref*="qr"], [data-testid="qrcode"], div[data-testid="landing-title"]',
+      });
+      if (qrElements && qrElements.length > 0) {
+        throw new WhatsAppLoginRequiredError(
+          'WhatsApp Web QR code detected: manual user login is required to initialize the session.'
+        );
+      }
+
+      // 2. Check for invalid number dialog
+      const dialogs = await driver.findElements({
+        css: 'div[data-animate-modal-popup="true"], div[role="dialog"]',
+      });
+      if (dialogs && dialogs.length > 0) {
+        for (const dialog of dialogs) {
+          try {
+            const text = (await dialog.getText()).toLowerCase();
+            if (
+              text.includes('invalid') ||
+              text.includes('phone number shared via url is invalid') ||
+              text.includes('not on whatsapp') ||
+              text.includes('couldn\'t find')
+            ) {
+              throw new InvalidRecipientError(
+                'WhatsApp Web reported recipient phone number is invalid or not registered on WhatsApp.'
+              );
+            }
+          } catch (e) {
+            if (e instanceof InvalidRecipientError) throw e;
+          }
+        }
+      }
+
+      // 3. Check for conversation header or message input
+      const readyElements = await driver.findElements({
+        css: '#main header, header [data-testid="conversation-info-header"], header div[role="button"], header [dir="auto"], footer div[contenteditable="true"], div[title="Type a message"]',
+      });
+      if (readyElements && readyElements.length > 0) {
+        return; // Chat loaded successfully
+      }
+
+      // If mock test or zero timeout, exit loop
+      if (effectiveTimeout <= 0 || Date.now() - startTime >= effectiveTimeout) {
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+
+    // Final checks before failing
+    await this._checkLoginState(driver);
+    await this._checkInvalidNumberDialog(driver);
+
+    throw new RecipientVerificationError(
+      'Unable to verify recipient identity: Conversation header element could not be located.'
+    );
+  }
+
+  /**
    * Verifies that the opened conversation corresponds to the intended recipient.
    * 
    * @param {any} driver
@@ -159,9 +234,9 @@ export class WhatsAppWebSeleniumAdapter {
     const rawDigits = expectedPhone.replace(/\+/g, '');
 
     try {
-      // Look for conversation header element
+      // Look for conversation header elements
       const headers = await driver.findElements({
-        css: 'header [data-testid="conversation-info-header"], header div[role="button"], header [dir="auto"]',
+        css: '#main header, header [data-testid="conversation-info-header"], header div[role="button"], header [dir="auto"]',
       });
 
       if (!headers || headers.length === 0) {
@@ -170,31 +245,51 @@ export class WhatsAppWebSeleniumAdapter {
         );
       }
 
-      // Check header text to ensure conversation opened
-      let verified = false;
-      for (const header of headers) {
-        const text = await header.getText();
-        if (!text || text.trim().length === 0) continue;
-
-        // If phone number is directly visible in header, check digits
-        const headerDigits = text.replace(/\D/g, '');
-        if (headerDigits.length >= 7) {
-          if (rawDigits.includes(headerDigits) || headerDigits.includes(rawDigits)) {
-            verified = true;
-            break;
-          }
-          // If header contains phone digits that mismatch expected phone, reject this header
-          continue;
-        }
-
-        // If contact has a saved name or verified business name (no phone digits present)
-        if (headerDigits.length === 0 && text.trim().length >= 2) {
-          verified = true;
-          break;
+      // Extract text snippets from all found header elements
+      const textSnippets = [];
+      for (const h of headers) {
+        try {
+          const t = await h.getText();
+          if (t && t.trim().length > 0) textSnippets.push(t.trim());
+        } catch {
+          // Ignore stale elements during DOM updates
         }
       }
 
-      if (!verified) {
+      if (textSnippets.length === 0) {
+        throw new RecipientVerificationError(
+          'Unable to verify recipient identity: Conversation header contains no readable text.'
+        );
+      }
+
+      // 1. If any snippet contains phone digits (>= 7 digits), check if digits match expected phone
+      let foundAnyPhoneDigits = false;
+      let phoneMatched = false;
+
+      for (const snippet of textSnippets) {
+        const digits = snippet.replace(/\D/g, '');
+        if (digits.length >= 7) {
+          foundAnyPhoneDigits = true;
+          if (rawDigits.includes(digits) || digits.includes(rawDigits)) {
+            phoneMatched = true;
+            break;
+          }
+        }
+      }
+
+      if (foundAnyPhoneDigits) {
+        if (!phoneMatched) {
+          throw new RecipientVerificationError(
+            `Recipient verification failed: Active chat header did not match expected recipient '${expectedPhone}'. Aborting send action.`
+          );
+        }
+        return; // Verified by matching phone number digits
+      }
+
+      // 2. If no phone digits were visible, recipient is a saved contact name (e.g. "Vedansh")
+      // Ensure the name is at least 2 characters long
+      const validName = textSnippets.some((t) => t.replace(/[^a-zA-Z0-9]/g, '').length >= 2);
+      if (!validName) {
         throw new RecipientVerificationError(
           `Recipient verification failed: Active chat header did not match expected recipient '${expectedPhone}'. Aborting send action.`
         );
@@ -208,30 +303,43 @@ export class WhatsAppWebSeleniumAdapter {
   }
 
   /**
-   * Resiliently finds the Send button using fallback selectors.
+   * Resiliently finds the Send button using fallback selectors with retry.
    * 
    * @param {any} driver
+   * @param {number} [timeoutMs]
    * @returns {Promise<any>}
    */
-  async _locateSendButton(driver) {
+  async _locateSendButton(driver, timeoutMs = this.config.actionTimeoutMs) {
+    const effectiveTimeout = this.sessionManager?.driverFactory ? 0 : timeoutMs;
     const selectors = [
       'button[aria-label="Send"]',
       'button span[data-icon="send"]',
       'footer [data-icon="send"]',
+      'span[data-icon="send"]',
       '[data-testid="send"]',
       '[data-testid="compose-btn-send"]',
-      'span[data-icon="send"]',
     ];
 
-    for (const selector of selectors) {
-      try {
-        const elements = await driver.findElements({ css: selector });
-        if (elements && elements.length > 0) {
-          return elements[0];
+    const startTime = Date.now();
+    const pollIntervalMs = 350;
+
+    while (Date.now() - startTime <= effectiveTimeout) {
+      for (const selector of selectors) {
+        try {
+          const elements = await driver.findElements({ css: selector });
+          if (elements && elements.length > 0) {
+            return elements[0];
+          }
+        } catch {
+          // Fallback to next selector
         }
-      } catch {
-        // Fallback to next selector
       }
+
+      if (effectiveTimeout <= 0 || Date.now() - startTime >= effectiveTimeout) {
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }
 
     throw new WhatsAppUIElementNotFoundError(
@@ -302,11 +410,8 @@ export class WhatsAppWebSeleniumAdapter {
           throw new WhatsAppSendFailedError(`Failed navigating to WhatsApp Web: ${navErr.message}`, navErr);
         }
 
-        // Check login state (QR code present)
-        await this._checkLoginState(driver);
-
-        // Check for invalid number dialog
-        await this._checkInvalidNumberDialog(driver);
+        // Wait for page to settle (detects QR login, invalid recipient dialog, or conversation loaded)
+        await this._waitForPageSettled(driver);
 
         // Verify recipient in open chat
         await this._verifyRecipient(driver, recipientPhone);

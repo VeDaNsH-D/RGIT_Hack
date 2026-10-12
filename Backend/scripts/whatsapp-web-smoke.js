@@ -109,10 +109,15 @@ async function main() {
     console.error(`- Error Code: ${err.code || 'UNKNOWN'}`);
     console.error(`- Error Message: ${err.message}`);
     if (err.code === 'LOGIN_REQUIRED') {
-      console.log('\nFirst-time login hint:');
-      console.log('1. Scan the displayed QR code on WhatsApp Web using your mobile device.');
-      console.log('2. Once logged in, your session profile will be preserved in .whatsapp-sessions.');
-      console.log('3. Run this smoke test again to send the message.');
+      console.log('\n=====================================================');
+      console.log('First-Time Login Required:');
+      console.log('1. Run the one-time authentication helper:');
+      console.log('   npm run login:whatsapp');
+      console.log('2. Scan the displayed QR code with WhatsApp on your phone:');
+      console.log('   (WhatsApp Settings -> Linked Devices -> Link a Device)');
+      console.log('3. Once linked, re-run this smoke test:');
+      console.log('   npm run smoke:whatsapp');
+      console.log('=====================================================');
     }
   } finally {
     console.log('\nCleaning up browser session...');
