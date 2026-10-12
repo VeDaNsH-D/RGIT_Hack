@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   getGitHubStatus,
@@ -95,6 +95,97 @@ const RETURN_MESSAGES = {
   cancelled: 'GitHub installation was cancelled. Nothing was connected.',
   pending: 'Your GitHub organization needs to approve the installation before it can be connected.',
   error: 'We couldn’t verify the GitHub installation. Nothing was connected. Please try again.',
+}
+
+function SlackInstructionsModal({ isOpen, onClose }) {
+  const dialogRef = useRef(null)
+
+  useEffect(() => {
+    const node = dialogRef.current
+    if (!node) return
+    if (isOpen) {
+      if (!node.open) node.showModal()
+    } else {
+      if (node.open) node.close()
+    }
+  }, [isOpen])
+
+  if (!isOpen) return null
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="ws-modal"
+      onCancel={onClose}
+      onClick={e => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+      style={{ maxWidth: '520px' }}
+    >
+      <button className="ws-modal-close" aria-label="Close dialog" onClick={onClose}>
+        ×
+      </button>
+      <span className="ws-eyebrow">SLACK SETUP GUIDE</span>
+      <h2>How to connect your Slack workspace</h2>
+      <p className="ws-muted" style={{ marginBottom: '16px', fontSize: '13px' }}>
+        Follow these steps to obtain a Bot User OAuth Token for your personal or team workspace:
+      </p>
+
+      <div style={{ display: 'grid', gap: '12px', fontSize: '13px', color: 'var(--ws-ink)', lineHeight: '1.5' }}>
+        <div style={{ background: '#fdf8f4', border: '1px solid #f2dfd0', borderRadius: '8px', padding: '12px' }}>
+          <strong>Step 1: Create a Slack App</strong>
+          <p style={{ margin: '4px 0 0', color: 'var(--ws-muted)', fontSize: '12px' }}>
+            Go to{' '}
+            <a
+              href="https://api.slack.com/apps"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#c14e16', textDecoration: 'underline', fontWeight: '500' }}
+            >
+              api.slack.com/apps ↗
+            </a>
+            , click <strong>Create New App</strong> → <strong>From scratch</strong>, name your app (e.g. <em>Relay</em>), and select your personal workspace.
+          </p>
+        </div>
+
+        <div style={{ background: '#fdf8f4', border: '1px solid #f2dfd0', borderRadius: '8px', padding: '12px' }}>
+          <strong>Step 2: Add Bot Token Scopes</strong>
+          <p style={{ margin: '4px 0 0', color: 'var(--ws-muted)', fontSize: '12px' }}>
+            In the left sidebar, click <strong>OAuth & Permissions</strong>. Scroll down to <strong>Bot Token Scopes</strong> and add:
+          </p>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+            <code style={{ background: '#f5e8dc', padding: '2px 6px', borderRadius: '4px', fontSize: '11.5px' }}>channels:history</code>
+            <code style={{ background: '#f5e8dc', padding: '2px 6px', borderRadius: '4px', fontSize: '11.5px' }}>channels:read</code>
+            <code style={{ background: '#f5e8dc', padding: '2px 6px', borderRadius: '4px', fontSize: '11.5px' }}>groups:history</code>
+            <code style={{ background: '#f5e8dc', padding: '2px 6px', borderRadius: '4px', fontSize: '11.5px' }}>groups:read</code>
+          </div>
+        </div>
+
+        <div style={{ background: '#fdf8f4', border: '1px solid #f2dfd0', borderRadius: '8px', padding: '12px' }}>
+          <strong>Step 3: Install & Copy Token</strong>
+          <p style={{ margin: '4px 0 0', color: 'var(--ws-muted)', fontSize: '12px' }}>
+            Scroll to the top of <strong>OAuth & Permissions</strong> and click <strong>Install to Workspace</strong> → <strong>Allow</strong>. Copy the <strong>Bot User OAuth Token</strong> (starts with <code>xoxb-</code>) and paste it into the Slack card.
+          </p>
+        </div>
+
+        <div style={{ background: '#fdf8f4', border: '1px solid #f2dfd0', borderRadius: '8px', padding: '12px' }}>
+          <strong>Step 4: Invite Bot to Your Channel</strong>
+          <p style={{ margin: '4px 0 0', color: 'var(--ws-muted)', fontSize: '12px' }}>
+            In your Slack client, go to the channel you want to sync and run:
+          </p>
+          <div style={{ marginTop: '4px' }}>
+            <code style={{ background: '#f5e8dc', padding: '2px 6px', borderRadius: '4px', fontSize: '11.5px' }}>/invite @YourBotName</code>
+          </div>
+        </div>
+      </div>
+
+      <div className="ws-modal-actions" style={{ marginTop: '20px' }}>
+        <button type="button" className="ws-button ws-button-primary" onClick={onClose}>
+          Got it
+        </button>
+      </div>
+    </dialog>
+  )
 }
 
 function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notion }) {
@@ -378,75 +469,31 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
           </>
         ) : (
           <div className="ws-connection-action" style={{ display: 'grid', gap: '10px' }}>
-            <details
-              style={{
-                background: '#fff9f5',
-                border: '1px solid #f3dfd1',
-                borderRadius: '8px',
-                padding: '9px 12px',
-                fontSize: '12px',
-                color: '#6f523c',
-              }}
-            >
-              <summary
-                style={{
-                  fontWeight: '600',
-                  color: '#c14e16',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  outline: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <span>💡 Setup Guide: How to get your personal Bot Token</span>
-              </summary>
-              <div style={{ marginTop: '10px', display: 'grid', gap: '8px', lineHeight: '1.45', fontSize: '11.5px' }}>
-                <div>
-                  <strong>1. Create Slack App:</strong>
-                  <div>
-                    Go to{' '}
-                    <a
-                      href="https://api.slack.com/apps"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: '#c14e16', textDecoration: 'underline' }}
-                    >
-                      api.slack.com/apps
-                    </a>{' '}
-                    → <em>Create New App</em> → <em>From scratch</em> → select your personal workspace.
-                  </div>
-                </div>
-                <div>
-                  <strong>2. Add Bot Token Scopes:</strong>
-                  <div>
-                    Under <em>OAuth & Permissions</em> → <em>Bot Token Scopes</em>, add:{' '}
-                    <code style={{ background: '#f5e8dc', padding: '1px 5px', borderRadius: '4px' }}>channels:history</code>{' '}
-                    and{' '}
-                    <code style={{ background: '#f5e8dc', padding: '1px 5px', borderRadius: '4px' }}>channels:read</code>.
-                  </div>
-                </div>
-                <div>
-                  <strong>3. Install to Workspace & Copy Token:</strong>
-                  <div>
-                    Click <em>Install to Workspace</em> → <em>Allow</em>, then copy the{' '}
-                    <strong>Bot User OAuth Token</strong> (starts with <code>xoxb-</code>) and paste it below.
-                  </div>
-                </div>
-                <div>
-                  <strong>4. Invite Bot to Channel:</strong>
-                  <div>
-                    In your Slack channel, run <code>/invite @YourBotName</code> so it can read messages.
-                  </div>
-                </div>
-              </div>
-            </details>
-
             <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="slack-token-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Your Bot User OAuth Token
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label htmlFor="slack-token-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
+                  Your Bot User OAuth Token
+                </label>
+                <button
+                  type="button"
+                  onClick={slack.onOpenGuide}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#c14e16',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    padding: 0,
+                    textDecoration: 'underline',
+                    fontWeight: '500',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                  }}
+                >
+                  💡 Instructions
+                </button>
+              </div>
               <input
                 id="slack-token-input"
                 type="password"
@@ -764,6 +811,7 @@ export default function ConnectionsPage() {
   const [slackSyncing, setSlackSyncing] = useState(false)
   const [slackError, setSlackError] = useState('')
   const [slackSyncNotice, setSlackSyncNotice] = useState('')
+  const [showSlackGuide, setShowSlackGuide] = useState(false)
 
   // Notion state
   const [notionStatus, setNotionStatus] = useState(null)
@@ -1034,7 +1082,8 @@ export default function ConnectionsPage() {
   }
 
   return (
-    <ConnectionsView
+    <>
+      <ConnectionsView
       github={{ status, loading, starting, error, message, onConnect: onConnectGitHub }}
       whatsapp={{
         status: waStatus,
@@ -1074,6 +1123,7 @@ export default function ConnectionsPage() {
         onConnect: onConnectSlack,
         onDisconnect: onDisconnectSlack,
         onSync: onSyncSlack,
+        onOpenGuide: () => setShowSlackGuide(true),
       }}
       notion={{
         status: notionStatus,
@@ -1090,5 +1140,10 @@ export default function ConnectionsPage() {
         onSync: onSyncNotion,
       }}
     />
+    <SlackInstructionsModal
+      isOpen={showSlackGuide}
+      onClose={() => setShowSlackGuide(false)}
+    />
+  </>
   )
 }
