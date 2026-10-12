@@ -153,9 +153,9 @@ describe('ingestion read APIs', () => {
         assert.notEqual(r.status, 403);
         assert.notEqual(r.status, 401);
       });
-      it(`400 for an invalid project id: ${p.replace(PROJECT_ID, ':id')}`, async () => {
+      it(`404 for an invalid project id (attachProject convention): ${p.replace(PROJECT_ID, ':id')}`, async () => {
         const r = await get(p.replace(PROJECT_ID, 'not-an-id'));
-        assert.equal(r.status, 400);
+        assert.equal(r.status, 404);
       });
     }
   });
@@ -261,6 +261,71 @@ describe('ingestion read APIs', () => {
     it('500 on database error', async () => {
       records.error = new Error('boom');
       assert.equal((await get(`/${PROJECT_ID}/source-records/${hex(1)}`)).status, 500);
+    });
+  });
+
+  describe('output redaction (defence in depth for rows written by other code paths)', () => {
+    // Built at runtime so the literals never appear in failure output as real-looking secrets.
+    const GH = ['ghs', '_', 'A'.repeat(36)].join('');
+    const SLACK = ['xoxb', '-', '1234567890', '-', 'abcdefghijkl'].join('');
+    const JWT = ['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiIxMjM0NTY3', 'abc123def456'].join('.');
+
+    const detail = async (providerMetadata, over = {}) => {
+      records.rows = [sr(1, { metadata: { providerMetadata }, ...over })];
+      const r = await get(`/${PROJECT_ID}/source-records/${hex(1)}`);
+      assert.equal(r.status, 200);
+      return r;
+    };
+    const assertNoLeak = (r, needles) => {
+      for (const n of needles) assert.ok(!r.text.includes(n), 'response leaked a secret-shaped value');
+    };
+
+    it('redacts token-shaped values under innocent key names, at any depth', async () => {
+      const r = await detail({ note: `see ${GH}`, nested: { deep: { label: SLACK } }, list: [{ ref: JWT }, 'plain'] });
+      assertNoLeak(r, [GH, SLACK, JWT]);
+      assert.equal(r.body.item.metadata.list[1], 'plain');
+      assert.ok(r.body.item.metadata.note.includes('[REDACTED]'));
+    });
+
+    it('drops credential keys inside arrays of objects', async () => {
+      const r = await detail({ items: [{ id: 1, apiKey: 'k1', ok: true }, { id: 2, password: 'p', ok: false }] });
+      assert.deepEqual(r.body.item.metadata.items, [{ id: 1, ok: true }, { id: 2, ok: false }]);
+    });
+
+    it('strips credentials embedded in URLs (metadata and the record url)', async () => {
+      const r = await detail({ remote: 'https://user:s3cretpass@github.com/acme/repo.git', safe: 'https://github.com/acme/repo' },
+        { url: 'https://bot:hunter2@example.com/issues/1' });
+      assertNoLeak(r, ['s3cretpass', 'hunter2']);
+      assert.equal(r.body.item.metadata.safe, 'https://github.com/acme/repo');
+      assert.equal(r.body.item.url, 'https://[REDACTED]@example.com/issues/1');
+    });
+
+    it('redacts error messages that carry bearer tokens', async () => {
+      const r = await detail({ lastError: `401 Unauthorized: Bearer ${'a'.repeat(40)}` });
+      assertNoLeak(r, ['a'.repeat(40)]);
+    });
+
+    it('hides filesystem/storage paths but keeps ordinary values', async () => {
+      const r = await detail({ stored: '/var/folders/xx/relay-documents/abc.pdf', winPath: 'C:\\Users\\bob\\a.txt', storageKey: 'abc.pdf', repo: 'acme/relay', branch: 'main' });
+      assertNoLeak(r, ['/var/folders', 'C:\\Users']);
+      assert.equal(r.body.item.metadata.repo, 'acme/relay');
+      assert.equal(r.body.item.metadata.branch, 'main');
+      assert.ok(!('storageKey' in r.body.item.metadata));
+    });
+
+    it('keeps useful safe metadata untouched', async () => {
+      const meta = { number: 7, labels: ['bug', 'p1'], state: 'open', merged: false, closedAt: null, sha: 'a'.repeat(40) };
+      const r = await detail(meta);
+      assert.deepEqual(r.body.item.metadata, meta);
+    });
+
+    it('document list/detail never return extractedText or raw bytes even if present on the row', async () => {
+      documents.rows = [doc(1, { fileBuffer: Buffer.from('RAW-BYTES'), storageRef: { provider: 'none', key: '/tmp/relay/secret.pdf', url: 'file:///tmp/relay/secret.pdf' } })];
+      const list = await get(`/${PROJECT_ID}/documents`);
+      const one = await get(`/${PROJECT_ID}/documents/${hex(1001)}`);
+      for (const r of [list, one]) {
+        assertNoLeak(r, ['FULL-EXTRACTED-TEXT', 'RAW-BYTES', '/tmp/relay', 'file://']);
+      }
     });
   });
 

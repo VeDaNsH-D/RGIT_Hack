@@ -1,16 +1,19 @@
-# React + Vite
+# Over2u frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 and Vite signup and sign-in UI. No additional runtime dependencies.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Run `npm ci`, then `npm run dev` in this directory. Start the existing backend on port 5000. Vite proxies `/api` to that backend. For a separately hosted backend, copy `.env.example` to `.env` and set `VITE_API_BASE_URL` to its API root (including `/api`). Production hosting must route `/api` to the backend or configure this variable at build time.
 
-## React Compiler
+## Authentication integration
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The initial view is signup; `#signin` opens sign-in. The API layer in `src/api/auth.js` uses the existing `POST /api/auth/register` and `POST /api/auth/login` endpoints. The signup username maps to the backend's `name` field; the backend does not enforce unique usernames. Password constraints match its 8–200 character registration schema.
 
-## Expanding the ESLint configuration
+Successful responses remain in React memory and emit a `relay:authenticated` CustomEvent with `{ token, user }`, allowing a future authentication provider to consume the session. Reloading clears the session. There is no dashboard in this starter, so successful authentication displays confirmation instead of redirecting to an invented route.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Terms and privacy controls display an explicit unpublished-policy notice until real legal pages are supplied.
+
+## Checks
+
+`npm run build` and `npm run lint`.

@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
+import AuthPage from './components/AuthPage'
 import { TeamIllustration, GoalIllustration, WorkflowIllustration } from './components/Illustrations'
 import Features from './components/Features'
 import Integrations from './components/Integrations'
@@ -108,11 +109,15 @@ function SignupForm() {
   )
 }
 
-function App() {
+function LandingPage() {
   const [panel, setPanel] = useState(null)
   const dialog = useRef(null)
 
   function openPanel(name) {
+    if (['Sign up', 'Get started', 'Try Selecto for free'].includes(name)) {
+      window.location.hash = 'signup'
+      return
+    }
     setPanel(name)
     if (!dialog.current.open) dialog.current.showModal()
   }
@@ -166,4 +171,17 @@ function App() {
   )
 }
 
-export default App
+function subscribeToLocation(onChange) {
+  window.addEventListener('hashchange', onChange)
+  window.addEventListener('popstate', onChange)
+  return () => {
+    window.removeEventListener('hashchange', onChange)
+    window.removeEventListener('popstate', onChange)
+  }
+}
+
+export default function App() {
+  const location = useSyncExternalStore(subscribeToLocation, () => window.location.pathname + window.location.hash)
+  const isAuthPage = /(?:^\/(?:signup|signin|login|register|auth)\/?$|#(?:signup|signin)$)/.test(location)
+  return isAuthPage ? <AuthPage /> : <LandingPage />
+}

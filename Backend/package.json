@@ -7,9 +7,11 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "test": "node --test",
+    "test": "node scripts/test-runner.js",
     "seed": "node scripts/seed.js",
-    "smoke:github-app": "node scripts/github-app-smoke.js"
+    "smoke:github-app": "node scripts/github-app-smoke.js",
+    "smoke:whatsapp": "node scripts/whatsapp-web-smoke.js",
+    "test:integration": "node --test --test-concurrency=1 \"tests/mongo-integration/*.itest.js\""
   },
   "keywords": [],
   "author": "",
@@ -26,6 +28,7 @@
     "mongoose": "^8.9.5",
     "multer": "2.4.0",
     "pdfjs-dist": "6.3.289",
+    "selenium-webdriver": "^4.51.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

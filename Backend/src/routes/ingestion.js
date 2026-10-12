@@ -6,20 +6,21 @@ import { attachProject, requireRole } from '../middleware/access.js';
 import { SourceRecord } from '../models/SourceRecord.js';
 import { SourceConnection } from '../models/SourceConnection.js';
 import { Document } from '../models/Document.js';
+import { sanitizeMetadata } from '../modules/ingestion/persistence/sourceRecordStore.js';
 import { SOURCE_PROVIDERS, SOURCE_RECORD_TYPES } from '../modules/ingestion/contracts/sourceRecord.js';
 
 /**
  * Read-only ingestion APIs (all require a bearer token and project membership;
  * viewer role or higher, like GET /api/projects/:id/context):
  *
- *   GET /api/projects/:id/source-records
+ *   GET /api/projects/:id/ingestion/source-records   (alias; /source-records is shadowed in app.js, see below)
  *   GET /api/projects/:id/source-records/:recordId
  *   GET /api/projects/:id/documents
  *   GET /api/projects/:id/documents/:documentId
  *   GET /api/projects/:id/ingestion/status
  *
- * Middleware order: requireAuth -> id validation -> attachProject() (404 for
- * non-members) -> requireRole('viewer'). Every query is scoped to
+ * Middleware order: requireAuth -> attachProject() (404 for malformed/unknown
+ * projects and non-members) -> requireRole('viewer') -> sub-resource id validation (400). Every query is scoped to
  * req.project._id; no client-supplied filter object ever reaches MongoDB.
  */
 
@@ -77,19 +78,38 @@ function pageMeta({ page, limit }, total) {
   return { page, limit, total, totalPages, hasNextPage: page < totalPages };
 }
 
-/** Recursively drops credential-looking keys; bounded depth. */
-function redact(value, depth = 0) {
-  if (depth > 6) return undefined;
-  if (Array.isArray(value)) return value.map((v) => redact(v, depth + 1));
-  if (value && typeof value === 'object' && !(value instanceof Date) && typeof value.toHexString !== 'function') {
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (!SENSITIVE_KEY.test(k)) out[k] = redact(v, depth + 1);
+const URL_USERINFO = /(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi;
+const FS_PATH = /^(?:\/(?!\/)[^\s/]+(?:\/[^\s/]*)+|[A-Za-z]:\\[^\s]*|\.{1,2}\/[^\s]+)$/;
+
+/**
+ * Last-line-of-defence cleaning for API output. Persisted metadata is already
+ * scrubbed on write; this also protects against rows written by other code paths.
+ * - drops credential-looking and path-looking keys, at any depth (objects in arrays too);
+ * - redacts token-shaped string values under ANY key (reuses the persistence scrubber);
+ * - strips user:password@ from URLs and replaces filesystem-path-looking values.
+ */
+function redact(value) {
+  const cleaned = sanitizeMetadata(value);
+  const walk = (node, depth = 0) => {
+    if (depth > 10) return undefined;
+    if (typeof node === 'string') {
+      const stripped = node.replace(URL_USERINFO, '$1[REDACTED]@');
+      return FS_PATH.test(stripped.trim()) ? '[REDACTED_PATH]' : stripped;
     }
-    return out;
-  }
-  return value;
+    if (Array.isArray(node)) return node.map((v) => walk(v, depth + 1));
+    if (node && typeof node === 'object' && !(node instanceof Date) && typeof node.toHexString !== 'function') {
+      const out = {};
+      for (const [k, v] of Object.entries(node)) {
+        if (!SENSITIVE_KEY.test(k)) out[k] = walk(v, depth + 1);
+      }
+      return out;
+    }
+    return node;
+  };
+  return walk(cleaned);
 }
+
+const cleanUrl = (u) => (typeof u === 'string' && u ? u.replace(URL_USERINFO, '$1[REDACTED]@') : null);
 
 function serializeSourceRecord(r, { includeContent = false } = {}) {
   const meta = r.metadata || {};
@@ -100,7 +120,7 @@ function serializeSourceRecord(r, { includeContent = false } = {}) {
     type: r.type,
     externalId: r.externalId,
     title: r.title,
-    url: r.url || null,
+    url: cleanUrl(r.url),
     author: meta.author ?? null,
     sourceCreatedAt: meta.sourceCreatedAt ?? null,
     sourceUpdatedAt: meta.sourceUpdatedAt ?? null,
@@ -169,7 +189,9 @@ export function createIngestionRouter(deps = {}) {
     }
     next();
   };
-  const guard = (...idNames) => [requireAuth, validateIds('id', ...idNames), attachProject(), requireRole('viewer')];
+  // Project id validity is decided by attachProject() (malformed -> 404, like every other project
+  // route); sub-resource ids are validated only after membership is established.
+  const guard = (...idNames) => [requireAuth, attachProject(), requireRole('viewer'), validateIds(...idNames)];
   const handle = (fn) => async (req, res, next) => {
     try {
       await fn(req, res);
@@ -179,7 +201,10 @@ export function createIngestionRouter(deps = {}) {
   };
   const bad = (res, err) => res.status(400).json({ error: err.code, message: err.message });
 
-  router.get('/:id/source-records', ...guard(), handle(async (req, res) => {
+  // NOTE: routes/projects.js (Person 2) also defines GET /:id/source-records and is mounted
+  // first, so in the assembled app that path is served by it (member role, full content, raw
+  // metadata). The alias below is always reachable and is the supported way to call this handler.
+  router.get(['/:id/source-records', '/:id/ingestion/source-records'], ...guard(), handle(async (req, res) => {
     let page, provider, type;
     try {
       page = parsePagination(req.query);
