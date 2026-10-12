@@ -378,6 +378,71 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
           </>
         ) : (
           <div className="ws-connection-action" style={{ display: 'grid', gap: '10px' }}>
+            <details
+              style={{
+                background: '#fff9f5',
+                border: '1px solid #f3dfd1',
+                borderRadius: '8px',
+                padding: '9px 12px',
+                fontSize: '12px',
+                color: '#6f523c',
+              }}
+            >
+              <summary
+                style={{
+                  fontWeight: '600',
+                  color: '#c14e16',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  outline: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <span>💡 Setup Guide: How to get your personal Bot Token</span>
+              </summary>
+              <div style={{ marginTop: '10px', display: 'grid', gap: '8px', lineHeight: '1.45', fontSize: '11.5px' }}>
+                <div>
+                  <strong>1. Create Slack App:</strong>
+                  <div>
+                    Go to{' '}
+                    <a
+                      href="https://api.slack.com/apps"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#c14e16', textDecoration: 'underline' }}
+                    >
+                      api.slack.com/apps
+                    </a>{' '}
+                    → <em>Create New App</em> → <em>From scratch</em> → select your personal workspace.
+                  </div>
+                </div>
+                <div>
+                  <strong>2. Add Bot Token Scopes:</strong>
+                  <div>
+                    Under <em>OAuth & Permissions</em> → <em>Bot Token Scopes</em>, add:{' '}
+                    <code style={{ background: '#f5e8dc', padding: '1px 5px', borderRadius: '4px' }}>channels:history</code>{' '}
+                    and{' '}
+                    <code style={{ background: '#f5e8dc', padding: '1px 5px', borderRadius: '4px' }}>channels:read</code>.
+                  </div>
+                </div>
+                <div>
+                  <strong>3. Install to Workspace & Copy Token:</strong>
+                  <div>
+                    Click <em>Install to Workspace</em> → <em>Allow</em>, then copy the{' '}
+                    <strong>Bot User OAuth Token</strong> (starts with <code>xoxb-</code>) and paste it below.
+                  </div>
+                </div>
+                <div>
+                  <strong>4. Invite Bot to Channel:</strong>
+                  <div>
+                    In your Slack channel, run <code>/invite @YourBotName</code> so it can read messages.
+                  </div>
+                </div>
+              </div>
+            </details>
+
             <div style={{ display: 'grid', gap: '4px' }}>
               <label htmlFor="slack-token-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
                 Your Bot User OAuth Token
