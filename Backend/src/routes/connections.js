@@ -2,6 +2,7 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
+import { WhatsAppConnection } from '../models/index.js';
 import { ConnectError, completeInstall, consumeState, createInstallUrl, getStatus } from '../services/githubConnectionService.js';
 
 /**
@@ -68,6 +69,76 @@ router.get('/github/callback', async (req, res, next) => {
       return finish(res, 'error', 'server_error');
     }
     return finish(res, 'connected');
+  } catch (err) { next(err); }
+});
+
+router.get('/whatsapp', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const conn = await WhatsAppConnection.findOne({ userId: req.user.id });
+    if (!conn || !conn.active) {
+      return res.set('Cache-Control', 'no-store').json({
+        connected: false,
+        sandboxCode: 'join fear-company',
+        sandboxNumber: '+14155238886',
+        whatsappUrl: 'https://wa.me/14155238886?text=join%20fear-company',
+      });
+    }
+    return res.set('Cache-Control', 'no-store').json({
+      connected: true,
+      phone: conn.phone,
+      sandboxCode: conn.sandboxCode,
+      sandboxNumber: conn.sandboxNumber,
+      connectedAt: conn.connectedAt,
+      whatsappUrl: `https://wa.me/${conn.sandboxNumber.replace(/\+/g, '')}?text=${encodeURIComponent(conn.sandboxCode)}`,
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/whatsapp', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const rawPhone = String(req.body?.phone || '').trim();
+    const cleaned = rawPhone.replace(/[\s\-()]/g, '');
+    if (!cleaned || !/^\+?[1-9]\d{7,14}$/.test(cleaned)) {
+      return res.status(400).json({
+        error: 'invalid_phone',
+        message: 'Please provide a valid phone number with country code (e.g. +919021875564).',
+      });
+    }
+    const phone = cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+
+    const conn = await WhatsAppConnection.findOneAndUpdate(
+      { userId: req.user.id },
+      {
+        userId: req.user.id,
+        phone,
+        sandboxCode: 'join fear-company',
+        sandboxNumber: '+14155238886',
+        active: true,
+        connectedAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    return res.status(200).json({
+      connected: true,
+      phone: conn.phone,
+      sandboxCode: conn.sandboxCode,
+      sandboxNumber: conn.sandboxNumber,
+      connectedAt: conn.connectedAt,
+      whatsappUrl: 'https://wa.me/14155238886?text=join%20fear-company',
+    });
+  } catch (err) { next(err); }
+});
+
+router.delete('/whatsapp', requireAuth, needUser, async (req, res, next) => {
+  try {
+    await WhatsAppConnection.deleteOne({ userId: req.user.id });
+    return res.status(200).json({
+      connected: false,
+      sandboxCode: 'join fear-company',
+      sandboxNumber: '+14155238886',
+      whatsappUrl: 'https://wa.me/14155238886?text=join%20fear-company',
+    });
   } catch (err) { next(err); }
 });
 

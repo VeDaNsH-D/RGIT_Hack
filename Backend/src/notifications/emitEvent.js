@@ -3,6 +3,7 @@ import { notificationEventSchema } from '../contracts/schemas.js';
 import { NotificationService } from './service.js';
 import { MongooseNotificationRepository } from './mongooseRepository.js';
 import { WhatsAppCloudApiAdapter } from './whatsapp/whatsappCloudAdapter.js';
+import { WhatsAppConnection } from '../models/WhatsAppConnection.js';
 
 /**
  * emitNotificationEvent() is the single entrypoint the rest of this
@@ -141,12 +142,26 @@ async function deliverToWhatsApp(event) {
 
   // Target destination phone:
   // 1. Specified in event payload
-  // 2. Or configured WHATSAPP_ALERT_RECIPIENT / default recipient (+919021875564)
-  const recipientPhone =
-    payload.recipientPhone ||
-    process.env.WHATSAPP_ALERT_RECIPIENT ||
-    process.env.WHATSAPP_DEFAULT_RECIPIENT ||
-    '+919021875564';
+  // 2. Or from recipient's stored WhatsAppConnection
+  // 3. Or configured WHATSAPP_ALERT_RECIPIENT / default recipient (+919021875564)
+  let recipientPhone = payload.recipientPhone;
+  if (!recipientPhone && event.recipientUserId) {
+    try {
+      const conn = await WhatsAppConnection.findOne({ userId: event.recipientUserId, active: true }).lean();
+      if (conn?.phone) {
+        recipientPhone = conn.phone;
+      }
+    } catch (err) {
+      // ignore lookup error
+    }
+  }
+
+  if (!recipientPhone) {
+    recipientPhone =
+      process.env.WHATSAPP_ALERT_RECIPIENT ||
+      process.env.WHATSAPP_DEFAULT_RECIPIENT ||
+      '+919021875564';
+  }
 
   const notification = {
     id: `notif_${event.dedupeKey || crypto.randomUUID()}`,
