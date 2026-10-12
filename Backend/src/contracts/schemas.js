@@ -190,6 +190,61 @@ export const resolveConflictSchema = z
   })
   .strict();
 
+export const conflictCandidateSchema = z
+  .object({
+    title: nonEmptyString.max(300),
+    category: z.enum(['deadline_mismatch', 'status_mismatch', 'specification_mismatch', 'other']).default('other'),
+    description: z.string().trim().max(5000).optional().default(''),
+    severity: z.enum(CONFLICT_SEVERITIES).default('medium'),
+    fingerprint: z.string().trim().min(1).max(500),
+    evidence: z.array(
+      z.object({
+        sourceType: nonEmptyString.max(100),
+        sourceRecordId: z.string().optional().nullable(),
+        documentId: z.string().optional().nullable(),
+        excerpt: nonEmptyString.max(5000),
+        url: httpUrl.optional().nullable(),
+        timestamp: z.string().datetime().optional().nullable(),
+      })
+    ).min(2, 'At least 2 competing evidence items are required'),
+    detectedAt: z.string().datetime().optional(),
+  })
+  .strict();
+
+export const conflictDetectionResultSchema = z
+  .object({
+    projectId: z.string().min(1),
+    conflictCount: z.number().int().min(0),
+    conflicts: z.array(conflictCandidateSchema),
+    evaluatedFactCount: z.number().int().min(0),
+    evaluatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const projectBriefSchema = z
+  .object({
+    projectId: z.string().min(1),
+    projectName: z.string().min(1),
+    projectOverview: z.string().min(1),
+    technologyStack: z.array(z.string()),
+    currentStatus: z.string().min(1),
+    completedWork: z.array(z.string()),
+    pendingActions: z.array(z.string()),
+    blockers: z.array(z.string()),
+    recommendedNextSteps: z.array(z.string()),
+    missingInformation: z.array(
+      z.object({
+        topic: z.string().min(1),
+        explanation: z.string().min(1),
+        impact: z.string().nullable().optional(),
+        sourceIds: z.array(z.string()).optional(),
+      })
+    ),
+    evidenceReferences: z.array(z.string()),
+    generatedAt: z.string().datetime().optional(),
+  })
+  .strict();
+
 // --- Manual decisions / notes (stored as SourceRecord, provider: 'manual') --
 
 export const CreateNoteBody = z

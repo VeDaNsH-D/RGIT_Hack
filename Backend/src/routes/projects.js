@@ -11,6 +11,10 @@ import { Conflict } from '../models/Conflict.js';
 import { Handoff } from '../models/Handoff.js';
 import { User } from '../models/User.js';
 import { logActivity } from '../audit/service.js';
+import { generateContextPack, generateProjectBrief, AiServiceError } from '../services/aiClient.js';
+import { buildProjectContextPack } from '../services/contextBuilder.js';
+import { detectProjectConflicts } from '../services/conflictDetector.js';
+import { projectBriefSchema, conflictDetectionResultSchema } from '../contracts/schemas.js';
 
 const router = Router();
 
@@ -200,5 +204,181 @@ function serializeProject(project) {
     isDemo: Boolean(project.isDemo),
   };
 }
+
+/**
+ * Route handler for POST /api/projects/:id/ai/generate-context.
+ * Extracts complete project context including document and source text,
+ * maps it to ContextPackRequest, and invokes the AI Context Intelligence service.
+ */
+export async function handleGenerateContext(req, res, next) {
+  try {
+    const contextPack = await buildProjectContextPack(req.project._id, {
+      project: req.project,
+      tasks: req.tasks,
+      documents: req.documents,
+      sourceRecords: req.sourceRecords,
+    });
+
+    const aiResponse = await generateContextPack(contextPack);
+
+    res.status(200).json(aiResponse);
+  } catch (err) {
+    if (err instanceof AiServiceError) {
+      return res.status(err.status || 502).json({
+        error: err.code || 'ai_service_error',
+        message: err.message,
+      });
+    }
+    next(err);
+  }
+}
+
+router.post(
+  '/:id/ai/generate-context',
+  requireAuth,
+  attachProject(),
+  requireRole('viewer'),
+  handleGenerateContext
+);
+
+/**
+ * Route handler for generating a structured Project Brief ("Understand This Project").
+ */
+export async function handleGenerateProjectBrief(req, res, next) {
+  try {
+    const contextPack = await buildProjectContextPack(req.project._id, {
+      project: req.project,
+      tasks: req.tasks,
+      documents: req.documents,
+      sourceRecords: req.sourceRecords,
+    });
+
+    const aiBrief = await generateProjectBrief(contextPack);
+
+    // Normalize snake_case keys to camelCase matching projectBriefSchema
+    const normalized = {
+      projectId: String(aiBrief.project_id || aiBrief.projectId || req.project._id),
+      projectName: String(aiBrief.project_name || aiBrief.projectName || req.project.name),
+      projectOverview: String(aiBrief.project_overview || aiBrief.projectOverview || ''),
+      technologyStack: Array.isArray(aiBrief.technology_stack || aiBrief.technologyStack)
+        ? (aiBrief.technology_stack || aiBrief.technologyStack)
+        : [],
+      currentStatus: String(aiBrief.current_status || aiBrief.currentStatus || 'Active'),
+      completedWork: Array.isArray(aiBrief.completed_work || aiBrief.completedWork)
+        ? (aiBrief.completed_work || aiBrief.completedWork)
+        : [],
+      pendingActions: Array.isArray(aiBrief.pending_actions || aiBrief.pendingActions)
+        ? (aiBrief.pending_actions || aiBrief.pendingActions)
+        : [],
+      blockers: Array.isArray(aiBrief.blockers) ? aiBrief.blockers : [],
+      recommendedNextSteps: Array.isArray(aiBrief.recommended_next_steps || aiBrief.recommendedNextSteps)
+        ? (aiBrief.recommended_next_steps || aiBrief.recommendedNextSteps)
+        : [],
+      missingInformation: Array.isArray(aiBrief.missing_information || aiBrief.missingInformation)
+        ? (aiBrief.missing_information || aiBrief.missingInformation).map((m) => ({
+            topic: m.topic || 'Unspecified',
+            explanation: m.explanation || '',
+            impact: m.impact || null,
+            ...(Array.isArray(m.source_ids || m.sourceIds) ? { sourceIds: m.source_ids || m.sourceIds } : {}),
+          }))
+        : [],
+      evidenceReferences: Array.isArray(aiBrief.evidence_references || aiBrief.evidenceReferences)
+        ? (aiBrief.evidence_references || aiBrief.evidenceReferences)
+        : [],
+      generatedAt: (() => {
+        const rawDate = aiBrief.generated_at || aiBrief.generatedAt;
+        if (!rawDate) return new Date().toISOString();
+        try {
+          return new Date(rawDate).toISOString();
+        } catch {
+          return new Date().toISOString();
+        }
+      })(),
+    };
+
+    const validated = projectBriefSchema.parse(normalized);
+    res.status(200).json(validated);
+  } catch (err) {
+    if (err instanceof AiServiceError) {
+      return res.status(err.status || 502).json({
+        error: err.code || 'ai_service_error',
+        message: err.message,
+      });
+    }
+    if (err.name === 'ZodError') {
+      return res.status(502).json({
+        error: 'invalid_brief_schema',
+        message: `Project brief failed contract validation: ${err.message}`,
+      });
+    }
+    next(err);
+  }
+}
+
+router.post(
+  '/:id/ai/brief',
+  requireAuth,
+  attachProject(),
+  requireRole('viewer'),
+  handleGenerateProjectBrief
+);
+
+router.get(
+  '/:id/ai/brief',
+  requireAuth,
+  attachProject(),
+  requireRole('viewer'),
+  handleGenerateProjectBrief
+);
+
+/**
+ * Route handler for deterministic conflict detection on project records.
+ */
+export async function handleDetectConflicts(req, res, next) {
+  try {
+    let tasks = req.tasks;
+    let documents = req.documents;
+    let sourceRecords = req.sourceRecords;
+
+    if (!tasks || !documents || !sourceRecords) {
+      const [fetchedTasks, fetchedDocuments, fetchedSourceRecords] = await Promise.all([
+        tasks ? tasks : Task.find({ projectId: req.project._id }).lean(),
+        documents ? documents : Document.find({ projectId: req.project._id }).select('+extractedText').lean(),
+        sourceRecords ? sourceRecords : SourceRecord.find({ projectId: req.project._id }).lean(),
+      ]);
+      tasks = fetchedTasks;
+      documents = fetchedDocuments;
+      sourceRecords = fetchedSourceRecords;
+    }
+
+    const result = detectProjectConflicts({
+      projectId: req.project._id,
+      tasks,
+      documents,
+      sourceRecords,
+    });
+
+    const validated = conflictDetectionResultSchema.parse(result);
+    res.status(200).json(validated);
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.post(
+  '/:id/conflicts/detect',
+  requireAuth,
+  attachProject(),
+  requireRole('viewer'),
+  handleDetectConflicts
+);
+
+router.get(
+  '/:id/conflicts/candidates',
+  requireAuth,
+  attachProject(),
+  requireRole('viewer'),
+  handleDetectConflicts
+);
 
 export default router;
