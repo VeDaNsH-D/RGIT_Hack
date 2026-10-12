@@ -54,6 +54,20 @@ export const config = {
       clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
       enabled: Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
     },
+    jira: {
+      clientId: process.env.JIRA_CLIENT_ID || '',
+      clientSecret: process.env.JIRA_CLIENT_SECRET || '',
+      redirectUri: process.env.JIRA_REDIRECT_URI || `${process.env.API_BASE_URL || 'http://localhost:8000'}/api/connections/jira/callback`,
+      scopes: process.env.JIRA_SCOPES || 'read:jira-work read:jira-user offline_access',
+      enabled: Boolean(process.env.JIRA_CLIENT_ID && process.env.JIRA_CLIENT_SECRET),
+    },
+  },
+  slackApp: {
+    clientId: process.env.SLACK_CLIENT_ID || '',
+    clientSecret: process.env.SLACK_CLIENT_SECRET || '',
+    redirectUri: process.env.SLACK_REDIRECT_URI || `${process.env.API_BASE_URL || 'http://localhost:8000'}/api/connections/slack/callback`,
+    scopes: process.env.SLACK_SCOPES || 'channels:read,channels:history,groups:read,groups:history',
+    enabled: Boolean(process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET),
   },
   // GitHub App repository integration. Values are validated lazily by
   // src/modules/ingestion/providers/github/githubAppAuth.js so a missing or
@@ -95,6 +109,9 @@ export const config = {
   documents: {
     maxBytes: Number(process.env.DOCUMENT_MAX_BYTES) || 10 * 1024 * 1024,
     storageDir: process.env.DOCUMENT_STORAGE_DIR || '',
+    // Extraction limits (the text cap cannot usefully exceed the 1,000,000-character SourceRecord content limit).
+    maxTextLength: Number(process.env.DOCUMENT_MAX_TEXT_CHARS) || 1_000_000,
+    maxPdfPages: Number(process.env.DOCUMENT_MAX_PDF_PAGES) || 1000,
   },
   // WhatsApp Web Selenium delivery adapter (optional, disabled by default)
   whatsappWeb: {

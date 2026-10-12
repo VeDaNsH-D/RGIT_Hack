@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { createServer } from 'vite'
 
-let treeLayout, WorkTreeCanvas, McpAuthorizePage, NotificationBell, notificationLinks, InvitationPage, oauth, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout, DeveloperHandoffView, analysisHelpers, ReportBody, AiProjectContextView, workflow, AiDraftPanel, RepositoryActivityView, ConnectedRepositoriesView, GitHubRepositoryPicker
+let treeLayout, WorkTreeCanvas, McpAuthorizePage, NotificationBell, notificationLinks, InvitationPage, oauth, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout, DeveloperHandoffView, analysisHelpers, ReportBody, AiProjectContextView, workflow, AiDraftPanel, RepositoryActivityView, ConnectedRepositoriesView, GitHubRepositoryPicker, ProjectDocumentsView, documentHelpers, documentsApi, ConnectedJiraProjectsView, isJiraKey
 const storage = new Map()
 const originalWindow = globalThis.window
 const originalStorage = globalThis.sessionStorage
@@ -46,6 +46,11 @@ before(async () => {
   ;({ DeveloperHandoffView } = await server.ssrLoadModule('/src/workspace/DeveloperHandoff.jsx'))
   analysisHelpers = await server.ssrLoadModule('/src/workspace/analysisHelpers.js')
   ;({ HandoffReportBody: ReportBody } = await server.ssrLoadModule('/src/workspace/HandoffReportPreview.jsx'))
+  ;({ ProjectDocumentsView } = await server.ssrLoadModule('/src/workspace/ProjectDocuments.jsx'))
+  ;({ ConnectedJiraProjectsView } = await server.ssrLoadModule('/src/workspace/ConnectedJiraProjects.jsx'))
+  ;({ isJiraKey } = await server.ssrLoadModule('/src/workspace/jiraHelpers.js'))
+  documentHelpers = await server.ssrLoadModule('/src/workspace/documentHelpers.js')
+  documentsApi = await server.ssrLoadModule('/src/api/documents.js')
   ;({ AiDraftPanel } = await server.ssrLoadModule('/src/workspace/AiDraftPanel.jsx'))
   ;({ GitHubRepositoryPicker } = await server.ssrLoadModule('/src/workspace/ProjectIntegrations.jsx'))
   ;({ default: WorkspaceLayout } = await server.ssrLoadModule('/src/workspace/WorkspaceLayout.jsx'))
@@ -434,4 +439,88 @@ test('working tree lays out real events by branch and renders read-only activity
   const html = renderToString(React.createElement(WorkTreeCanvas, { graph, selected: 'two', onSelect() {} }))
   assert.match(html, /Teammate joined/); assert.match(html, /Code pushed/); assert.match(html, /aria-pressed="true"/)
   assert.doesNotMatch(html, /draggable=|Add node|Execute workflow/)
+})
+
+const doc = (over = {}) => ({ id: 'd1', title: 'Requirements', filename: 'requirements.pdf', mimeType: 'application/pdf', size: 52_000, uploadedBy: 'user-owner', createdAt: '2026-01-02T10:00:00Z', status: 'indexed', error: null, chunkCount: 7, pageCount: 4, canRetry: false, noExtractableText: false, ...over })
+const docsView = props => renderToString(React.createElement(ProjectDocumentsView, { state: 'ready', documents: [], canUpload: true, canManageDocument: () => true, onPick() {}, onDrop() {}, onDragState() {}, onRetryLoad() {}, ...props }))
+
+test('project documents: empty state, upload button, drag-and-drop zone and loading state', () => {
+  const html = docsView()
+  assert.match(html, /Project documents/); assert.match(html, /Upload document/); assert.match(html, /Drag a PDF, DOCX or TXT/); assert.match(html, /No documents yet/)
+  assert.match(html, /accept="\.pdf,\.docx,\.txt"/)
+  assert.match(docsView({ state: 'loading' }), /Loading documents/)
+  const viewer = docsView({ canUpload: false })
+  assert.doesNotMatch(viewer, /Upload document/); assert.doesNotMatch(viewer, /Drag a PDF/)
+})
+
+test('project documents: rows show name, format, size, pages, upload date, status and section count', () => {
+  const html = docsView({ documents: [doc()] })
+  assert.match(html, /Requirements/); assert.match(html, /PDF/); assert.match(html, /51 KB/); assert.match(html, /4 pages/); assert.match(html, /Uploaded 2 Jan/)
+  assert.match(html, /Indexed/); assert.match(html, /7 sections available to handoffs/)
+  assert.match(html, />Preview</); assert.match(html, />Download</); assert.match(html, />Replace</); assert.match(html, />Delete</)
+})
+
+test('project documents: failed and processing documents show the error, retry and no false success', () => {
+  const failed = docsView({ documents: [doc({ status: 'failed', canRetry: true, chunkCount: 0, error: { code: 'CHUNK_INDEXING_FAILED', message: 'The document could not be indexed.' } })] })
+  assert.match(failed, /Failed/); assert.match(failed, /The document could not be indexed\./); assert.match(failed, /Retry processing/); assert.doesNotMatch(failed, /available to handoffs/)
+  assert.match(docsView({ documents: [doc({ status: 'processing', chunkCount: 0 })] }), /Processing…/)
+  assert.match(docsView({ documents: [doc({ chunkCount: 0, noExtractableText: true })] }), /No extractable text was found/)
+  assert.doesNotMatch(docsView({ documents: [doc({ status: 'failed', canRetry: true })], canManageDocument: () => false }), /Retry processing|>Delete</)
+})
+
+test('project documents: delete asks for confirmation and explains what is kept', () => {
+  const html = docsView({ documents: [doc()], confirmingId: 'd1' })
+  assert.match(html, /Confirm delete/); assert.match(html, /Reports already generated are kept/); assert.match(html, /Delete document/)
+})
+
+test('document validation mirrors the server rules with clear messages', () => {
+  const { validateDocumentFile, formatBytes } = documentHelpers
+  assert.match(validateDocumentFile({ name: 'a.exe', size: 10 }), /Unsupported format/)
+  assert.match(validateDocumentFile({ name: 'a.txt', size: 0 }), /empty/)
+  assert.match(validateDocumentFile({ name: 'a.pdf', size: 11 * 1024 * 1024 }), /larger than 10\.0 MB/)
+  assert.equal(validateDocumentFile({ name: 'Notes.DOCX', size: 5 }), '')
+  assert.equal(formatBytes(1536), '1.5 KB')
+  assert.equal(documentsApi.DOCUMENT_ACCEPT, '.pdf,.docx,.txt')
+})
+
+test('handoff report shows document sources next to GitHub sources, typed, with a private (non-link) document reference', () => {
+  const report = { projectId: 'p1', projectName: 'Relay', generatedAt: '2026-01-02T10:00:00Z', limitations: [], repositories: [],
+    sections: [{ key: 'blockers_risks', title: 'Blockers and risks', items: [{ text: 'Conflict: preflight support is required but issue 8 is open.', kind: 'inference', evidence: [
+      { id: 'doc:1:0', type: 'document', label: 'Document "Spec" > CORS, p. 2', url: null, document: { documentId: 'd1', chunkId: 'd1:0', filename: 'spec.pdf', heading: 'CORS', pageStart: 2 } },
+      { id: 'i8', type: 'issue', label: 'acme/relay issue #8', url: 'https://github.com/acme/relay/issues/8' },
+      { id: 'f', type: 'repository_file', label: 'acme/relay/src/server.js@aaaaaaa', url: 'https://github.com/acme/relay/blob/aaa/src/server.js' }] }] }] }
+  const html = renderToString(React.createElement(ReportBody, { report, onOpenDocument() {} }))
+  assert.match(html, /Uploaded document/); assert.match(html, /GitHub issue/); assert.match(html, /Repository file/)
+  assert.match(html, /<button[^>]*>Document &quot;Spec&quot; &gt; CORS, p\. 2<\/button>/); assert.match(html, /ref d1:0/)
+  assert.match(html, /href="https:\/\/github.com\/acme\/relay\/issues\/8"/)
+  assert.doesNotMatch(html, /href="[^"]*documents/)
+})
+
+
+const jiraView = props => renderToString(React.createElement(MemoryRouter, null, React.createElement(ConnectedJiraProjectsView, { state: 'ready', links: [], canManage: true, canSync: true, jiraConnected: true, keyInput: '', onKeyInput() {}, onLink() {}, onSync() {}, onAskRemove() {}, onCancel() {}, onRemove() {}, ...props })))
+
+test('jira projects: empty state with a key form, or a connect prompt when the account is not connected', () => {
+  assert.match(jiraView(), /No Jira project linked yet/); assert.match(jiraView(), /Link Jira project/)
+  const disconnected = jiraView({ jiraConnected: false })
+  assert.match(disconnected, /Connect Jira/); assert.doesNotMatch(disconnected, /Link Jira project/)
+  assert.doesNotMatch(jiraView({ canManage: false }), /Link Jira project/)
+  assert.equal(isJiraKey('PAY'), true); assert.equal(isJiraKey('pay'), false); assert.equal(isJiraKey('P'), false)
+  assert.match(jiraView({ keyInput: 'x-1' }), /such as PROJ/)
+})
+
+test('jira projects: linked rows show status, counts, errors and the unlink confirmation', () => {
+  const ok = { id: 'j1', projectKey: 'PAY', siteName: 'Acme', sync: { status: 'completed', lastSuccessAt: '2026-10-10T10:00:00Z', syncedIssueCount: 12 } }
+  const html = jiraView({ links: [ok] })
+  assert.match(html, /Jira project PAY/); assert.match(html, />Synced</); assert.match(html, /12 issues available to handoffs/); assert.match(html, /Sync now/); assert.match(html, />Unlink</)
+  const failed = jiraView({ links: [{ ...ok, sync: { status: 'failed', error: 'Jira rejected the credentials.' } }] })
+  assert.match(failed, /Sync failed/); assert.match(failed, /Jira rejected the credentials/); assert.doesNotMatch(failed, /issues available/)
+  assert.match(jiraView({ links: [ok], confirmingId: 'j1' }), /removed from this project and future handoffs/)
+  assert.doesNotMatch(jiraView({ links: [ok], canManage: false, canSync: false }), /Unlink|Sync now/)
+})
+
+test('handoff report distinguishes Jira and Slack sources', () => {
+  const report = { projectId: 'p1', projectName: 'Relay', generatedAt: '2026-01-02T10:00:00Z', limitations: [], repositories: [], sections: [{ key: 'tracked_work_and_discussion', title: 'Tracked work and team discussion (Jira, Slack)', items: [{ text: 'PAY-12 is in progress.', kind: 'fact', evidence: [
+    { id: 'j', type: 'jira_issue', label: 'Jira PAY-12', url: 'https://acme.atlassian.net/browse/PAY-12' }, { id: 's', type: 'slack_message', label: 'Slack #payments 2026-10-01', url: null }] }] }] }
+  const html = renderToString(React.createElement(ReportBody, { report }))
+  assert.match(html, /Jira issue/); assert.match(html, /Slack message/); assert.match(html, /href="https:\/\/acme.atlassian.net\/browse\/PAY-12"/)
 })

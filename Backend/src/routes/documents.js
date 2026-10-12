@@ -4,7 +4,13 @@ import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
 import { attachProject, requireRole } from '../middleware/access.js';
 import { logActivity } from '../audit/service.js';
+import mongoose from 'mongoose';
+import { Document } from '../models/Document.js';
+import { SourceRecord } from '../models/SourceRecord.js';
+import { DocumentChunk } from '../models/DocumentChunk.js';
 import {
+  replaceDocumentFile,
+  deleteDocumentChunks,
   processDocumentUpload,
   createLocalDocumentStorage,
   recoverDocumentSourceRecord,
@@ -43,6 +49,9 @@ const VALIDATION_STATUS = {
   [C.LIMIT_EXCEEDED]: 422,
   [C.EXTRACTION_FAILED]: 422,
 };
+const PREVIEW_CHARS = 20_000;
+const OBJECT_ID = /^[a-f0-9]{24}$/i;
+const safeFilename = (name) => String(name || 'document').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 120) || 'document';
 
 // Multer/busboy limit errors -> HTTP status and stable error code.
 const MULTER_ERRORS = {
@@ -95,12 +104,17 @@ function failureStatus(result) {
  */
 export function createDocumentsRouter(deps = {}) {
   const maxBytes = deps.maxBytes ?? config.documents.maxBytes;
+  const limits = { maxBytes, maxTextLength: config.documents.maxTextLength, maxPages: config.documents.maxPdfPages };
   const processUpload = deps.processUpload ?? processDocumentUpload;
   const storage = deps.storage ?? createLocalDocumentStorage(config.documents.storageDir ? { rootDir: config.documents.storageDir } : {});
   const models = {
     ...(deps.documentModel ? { documentModel: deps.documentModel } : {}),
     ...(deps.sourceRecordModel ? { sourceRecordModel: deps.sourceRecordModel } : {}),
+    ...(deps.chunkModel ? { chunkModel: deps.chunkModel } : {}),
   };
+  const Doc = deps.documentModel ?? Document;
+  const SR = deps.sourceRecordModel ?? SourceRecord;
+  const Chunks = deps.chunkModel ?? DocumentChunk;
 
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -139,7 +153,7 @@ export function createDocumentsRouter(deps = {}) {
         file: { buffer: req.file.buffer, filename: req.file.originalname, mimeType: req.file.mimetype },
         title,
         storage,
-        limits: { maxBytes },
+        limits,
         ...models,
       });
       const body = serializeResult(result);
@@ -170,7 +184,88 @@ export function createDocumentsRouter(deps = {}) {
   });
 
   const RECOVERY_HTTP = { [RECOVERY_STATUS.RECOVERED]: 200, [RECOVERY_STATUS.ALREADY_INDEXED]: 200, [RECOVERY_STATUS.NOT_FOUND]: 404 };
-  const RECOVERY_FAILURE_HTTP = { [C.ORIGINAL_UNAVAILABLE]: 409, [C.EXTRACTION_FAILED]: 422, [C.MALFORMED_DOCUMENT]: 422 };
+  const RECOVERY_FAILURE_HTTP = { [C.ORIGINAL_UNAVAILABLE]: 409, [C.DOCUMENT_BUSY]: 409, [C.EXTRACTION_FAILED]: 422, [C.MALFORMED_DOCUMENT]: 422 };
+
+  // Loads a document of the authorized project only (a foreign / malformed id is a plain 404).
+  const loadDocument = async (req, res, select = '') => {
+    if (!OBJECT_ID.test(req.params.documentId)) { res.status(404).json({ error: 'not_found', message: 'Document not found' }); return null; }
+    const doc = await Doc.findOne({ _id: new mongoose.Types.ObjectId(req.params.documentId), projectId: req.project._id }).select(select).lean();
+    if (!doc) { res.status(404).json({ error: 'not_found', message: 'Document not found' }); return null; }
+    return doc;
+  };
+  // Members manage their own uploads; owners manage any document in the project.
+  const canManage = (req, doc) => req.membership.role === 'owner' || String(doc.uploadedBy) === String(req.user._id);
+  const forbidden = (res) => res.status(403).json({ error: 'forbidden', message: 'Only the uploader or a project owner can change this document.' });
+
+  /** Authorized download of the original file. Never served from a public URL. */
+  router.get('/:id/documents/:documentId/file', requireAuth, attachProject(), requireRole('viewer'), async (req, res, next) => {
+    try {
+      const doc = await loadDocument(req, res, 'filename mimeType storageRef.key');
+      if (!doc) return;
+      let bytes;
+      try { bytes = await storage.read(doc.storageRef?.key); } catch {
+        return res.status(410).json({ error: 'file_unavailable', message: 'The original file is no longer available in storage.' });
+      }
+      res.set({
+        'Content-Type': doc.mimeType || 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${safeFilename(doc.filename)}"`,
+        'Content-Length': String(bytes.length),
+        'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': 'private, no-store',
+      });
+      return res.send(bytes);
+    } catch (err) { next(err); }
+  });
+
+  /** Bounded plain-text preview of the extracted text (all three formats), not the raw file. */
+  router.get('/:id/documents/:documentId/preview', requireAuth, attachProject(), requireRole('viewer'), async (req, res, next) => {
+    try {
+      const doc = await loadDocument(req, res, 'title filename extractedText pageCount');
+      if (!doc) return;
+      const text = doc.extractedText || '';
+      res.set('Cache-Control', 'private, no-store');
+      return res.json({ id: String(doc._id), title: doc.title, filename: doc.filename, pageCount: doc.pageCount ?? null, text: text.slice(0, PREVIEW_CHARS), truncated: text.length > PREVIEW_CHARS, characterCount: text.length });
+    } catch (err) { next(err); }
+  });
+
+  /** Removes the document, its chunks, its SourceRecord and the stored file. Reports already generated are kept. */
+  router.delete('/:id/documents/:documentId', requireAuth, attachProject(), requireRole('member'), async (req, res, next) => {
+    try {
+      const doc = await loadDocument(req, res, 'uploadedBy storageRef.key');
+      if (!doc) return;
+      if (!canManage(req, doc)) return forbidden(res);
+      // Retrieval data first, so deleted content stops reaching handoff context even if a later step fails.
+      await deleteDocumentChunks(Chunks, req.project._id, doc._id);
+      await SR.deleteMany({ projectId: req.project._id, provider: 'document', externalId: String(doc._id) });
+      await Doc.deleteOne({ _id: doc._id, projectId: req.project._id });
+      if (doc.storageRef?.key) await storage.delete(doc.storageRef.key).catch(() => {});
+      await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'DOCUMENT_DELETED' });
+      return res.json({ deleted: true });
+    } catch (err) { next(err); }
+  });
+
+  /** Replaces the file behind an existing document; stale chunks are overwritten/removed. */
+  router.put('/:id/documents/:documentId/file', requireAuth, attachProject(), requireRole('member'), parseMultipart, async (req, res, next) => {
+    try {
+      const doc = await loadDocument(req, res, 'uploadedBy');
+      if (!doc) return;
+      if (!canManage(req, doc)) return forbidden(res);
+      if (!req.file) return res.status(400).json({ error: 'validation_error', code: C.FILE_REQUIRED, message: 'A file is required in the "file" field.' });
+      const result = await replaceDocumentFile({
+        projectId: req.project._id, documentId: doc._id, storage, limits,
+        file: { buffer: req.file.buffer, filename: req.file.originalname, mimeType: req.file.mimetype }, ...models,
+      });
+      if (result.status === 'not_found') return res.status(404).json({ error: 'not_found', message: 'Document not found' });
+      if (result.status === 'busy') return res.status(409).json({ error: 'document_busy', code: C.DOCUMENT_BUSY, message: result.errors[0].message });
+      if (result.status === 'failed') {
+        const first = result.errors[0];
+        const status = (result.stage === 'validation' || result.stage === 'extraction') && VALIDATION_STATUS[first?.code] ? VALIDATION_STATUS[first.code] : 500;
+        return res.status(status).json({ error: status >= 500 ? 'document_processing_failed' : 'validation_error', code: first?.code, message: first?.message, ...result });
+      }
+      if (result.status === 'replaced') await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'DOCUMENT_REPLACED' });
+      return res.status(200).json(result);
+    } catch (err) { next(err); }
+  });
 
   router.post('/:id/documents/:documentId/reindex', requireAuth, attachProject(), requireRole('member'), async (req, res, next) => {
     try {
@@ -181,6 +276,8 @@ export function createDocumentsRouter(deps = {}) {
         projectId: req.project._id,
         documentId: req.params.documentId,
         storage,
+        limits,
+        force: req.body?.force === true,
         ...models,
       });
       if (result.status === RECOVERY_STATUS.NOT_FOUND) {

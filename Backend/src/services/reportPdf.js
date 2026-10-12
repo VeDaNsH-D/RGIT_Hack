@@ -8,6 +8,13 @@ import PDFDocument from 'pdfkit';
 
 const COLORS = { ink: '#221e1b', muted: '#7a6f66', orange: '#d33b14', rule: '#ede8e2' };
 const KIND = { fact: 'Source-backed', inference: 'Inference', unknown: 'Unknown' };
+export const SOURCE_TYPE_LABELS = {
+  repository_file: 'Repository file', repository: 'Repository', issue: 'GitHub issue', pull_request: 'Pull request', commit: 'Commit',
+  document: 'Uploaded document', note: 'Relay note', handoff: 'Previous handoff', task: 'Relay task',
+};
+const typeTag = (e) => (SOURCE_TYPE_LABELS[e.type] ? `[${SOURCE_TYPE_LABELS[e.type]}] ` : '');
+// Document sources are private: they carry a stable reference (not a link) and are opened inside Relay by authorized members.
+const docRef = (e) => (e.document?.chunkId ? ` (ref ${e.document.chunkId})` : '');
 
 const clean = (value) => String(value ?? '')
   .replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/…/g, '...').replace(/[–—]/g, '-').replace(/→/g, '->')
@@ -49,9 +56,9 @@ export function renderReportPdf(report) {
         const tags = [item.kind && KIND[item.kind]].filter(Boolean).join(' ');
         if (section.key !== 'links' && tags) doc.fontSize(8).fillColor(COLORS.muted).text(`    ${tags}`, { width });
         for (const e of item.evidence || []) {
-          if (section.key === 'links') { if (e.url) doc.fontSize(9).fillColor(COLORS.orange).text(`    ${clean(e.url)}`, { link: e.url, underline: true, width }); continue; }
-          if (e.url) doc.fontSize(8).fillColor(COLORS.orange).text(`    Source: ${clean(e.label)}`, { link: e.url, underline: true, width });
-          else doc.fontSize(8).fillColor(COLORS.muted).text(`    Source: ${clean(e.label)}`, { width });
+          if (section.key === 'links') { if (/^https?:\/\//.test(e.url || '')) doc.fontSize(9).fillColor(COLORS.orange).text(`    ${clean(e.url)}`, { link: e.url, underline: true, width }); continue; }
+          if (/^https?:\/\//.test(e.url || '')) doc.fontSize(8).fillColor(COLORS.orange).text(`    Source: ${typeTag(e)}${clean(e.label)}`, { link: e.url, underline: true, width });
+          else doc.fontSize(8).fillColor(COLORS.muted).text(`    Source: ${typeTag(e)}${clean(e.label)}${clean(docRef(e))}`, { width });
         }
         doc.moveDown(0.35);
       }

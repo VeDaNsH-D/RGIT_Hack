@@ -28,6 +28,7 @@ const { Project } = await import('../../src/models/Project.js');
 const { ProjectMembership } = await import('../../src/models/ProjectMembership.js');
 const { createLocalDocumentStorage } = await import('../../src/modules/ingestion/documents/index.js');
 const { InMemoryDocumentModel } = await import('../../src/modules/ingestion/documents/inMemoryDocumentModel.js');
+const { InMemoryChunkModel } = await import('../../src/modules/ingestion/documents/inMemoryChunkModel.js');
 const { InMemorySourceRecordModel } = await import('../../src/modules/ingestion/persistence/inMemorySourceRecordModel.js');
 const { buildPdf, MIME } = await import('../../src/modules/ingestion/documents/documentFixtures.js');
 
@@ -48,6 +49,7 @@ describe('POST /api/projects/:id/documents', () => {
   let rootDir;
   let documents;
   let sourceRecords;
+  let chunks;
   let processCalls;
 
   before(async () => {
@@ -66,7 +68,8 @@ describe('POST /api/projects/:id/documents', () => {
     app.use('/api/projects', createDocumentsRouter({
       storage: createLocalDocumentStorage({ rootDir }),
       maxBytes: MAX_BYTES,
-      documentModel: { create: (data) => documents.create(data) },
+      documentModel: { create: (data) => documents.create(data), updateOne: (f, u) => documents.updateOne(f, u) },
+      chunkModel: { bulkWrite: (...a) => chunks.bulkWrite(...a), deleteMany: (...a) => chunks.deleteMany(...a) },
       sourceRecordModel: {
         bulkWrite: (...a) => sourceRecords.bulkWrite(...a),
         findOne: (...a) => sourceRecords.findOne(...a),
@@ -94,6 +97,7 @@ describe('POST /api/projects/:id/documents', () => {
   beforeEach(() => {
     documents = new InMemoryDocumentModel();
     sourceRecords = new InMemorySourceRecordModel();
+    chunks = new InMemoryChunkModel();
     processCalls = 0;
   });
 

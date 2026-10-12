@@ -24,12 +24,18 @@ import path from 'node:path';
 import mongoose from 'mongoose';
 import { Document } from '../../../models/Document.js';
 import { SourceRecord } from '../../../models/SourceRecord.js';
-import { persistSourceRecordCandidates } from '../persistence/sourceRecordStore.js';
 import { SOURCE_PROVIDERS } from '../contracts/sourceRecord.js';
 import { DOCUMENT_ERROR_CODES, DocumentProcessingError, toSafeDocumentError } from './documentErrors.js';
 import { validateDocumentUpload, DEFAULT_MAX_FILE_BYTES } from './documentValidation.js';
 import { extractDocumentText } from './documentExtraction.js';
-import { normalizeDocumentCandidate } from './documentNormalizer.js';
+import { DocumentChunk } from '../../../models/DocumentChunk.js';
+import {
+  persistDocumentSourceRecord,
+  replaceDocumentChunks,
+  markDocumentIndexed,
+  markDocumentFailed,
+  claimDocumentForProcessing,
+} from './documentIndexing.js';
 
 export const MAX_TITLE_LENGTH = 300;
 
@@ -62,27 +68,7 @@ function resolveTitle(title, originalFilename) {
   return (explicit || fallback).slice(0, MAX_TITLE_LENGTH);
 }
 
-/**
- * Normalizes a persisted Document and upserts its SourceRecord. Used by the
- * pipeline and for reconciliation after a 'partial' result.
- *
- * @param {Object} params
- * @param {Object} params.document - Persisted Document.
- * @param {Object} params.extraction - extractDocumentText result.
- * @param {string} params.contentHash
- * @param {{ bulkWrite: Function }} [params.sourceRecordModel=SourceRecord]
- * @param {() => Date} [params.now]
- * @returns {Promise<Object>} persistSourceRecordCandidates result.
- */
-export async function persistDocumentSourceRecord({ document, extraction, contentHash, sourceRecordModel = SourceRecord, now = () => new Date() }) {
-  const candidate = normalizeDocumentCandidate({ document, extraction, contentHash, fetchedAt: now() });
-  return persistSourceRecordCandidates({
-    projectId: candidate.projectId,
-    records: [candidate],
-    model: sourceRecordModel,
-    now,
-  });
-}
+export { persistDocumentSourceRecord };
 
 /**
  * Looks for a SourceRecord of an earlier upload with identical bytes in the same project.
@@ -111,6 +97,7 @@ async function findIdenticalUpload(sourceRecordModel, projectObjectId, contentHa
  * @param {{ maxBytes?: number, maxTextLength?: number, maxPages?: number }} [params.limits]
  * @param {Object} [params.documentModel=Document]
  * @param {Object} [params.sourceRecordModel=SourceRecord]
+ * @param {Object} [params.chunkModel=DocumentChunk]
  * @param {() => Date} [params.now]
  */
 export async function processDocumentUpload({
@@ -123,6 +110,7 @@ export async function processDocumentUpload({
   limits = {},
   documentModel = Document,
   sourceRecordModel = SourceRecord,
+  chunkModel = DocumentChunk,
   now = () => new Date(),
 } = {}) {
   const projectObjectId = toObjectId(projectId, 'projectId');
@@ -236,6 +224,11 @@ export async function processDocumentUpload({
       storageRef: stored.storageRef,
       extractedText: extraction.extractedText,
       uploadedBy: uploaderObjectId,
+      status: 'processing',
+      processingStartedAt: startedAt,
+      attempts: 1,
+      contentHash: result.contentHash,
+      pageCount: extraction.metadata?.pageCount,
     });
   } catch {
     addError('document', null, DOCUMENT_ERROR_CODES.DOCUMENT_PERSISTENCE_FAILED, 'The document record could not be saved.');
@@ -259,7 +252,8 @@ export async function processDocumentUpload({
     createdAt: document.createdAt instanceof Date ? document.createdAt.toISOString() : null,
   };
 
-  // 7. Normalize and persist the SourceRecord
+  // 7. Normalize + persist the SourceRecord, rebuild chunks, then mark the document indexed. The document
+  //    is only 'indexed' after every one of these succeeded; otherwise it is 'failed' and retryable.
   result.stage = 'source_record';
   let persistence = null;
   try {
@@ -272,12 +266,29 @@ export async function processDocumentUpload({
   result.sourceRecord = persistence;
 
   const sourceSaved = Boolean(persistence) && persistence.failedCount === 0 && persistence.createdCount + persistence.updatedCount === 1;
-  if (!sourceSaved) {
-    if (persistence) {
+  let indexed = false;
+  if (sourceSaved) {
+    result.stage = 'chunks';
+    try {
+      const chunks = await replaceDocumentChunks({ document, extraction, contentHash: result.contentHash, chunkModel, now });
+      result.chunks = chunks;
+      if (chunks.truncated) result.warnings.push({ stage: 'chunks', code: 'CHUNK_LIMIT_REACHED', message: 'The document is very long; only its first sections were indexed for handoffs.' });
+      await markDocumentIndexed(documentModel, { projectId: projectObjectId, documentId: document._id, chunkCount: chunks.count, digest: chunks.digest, contentHash: result.contentHash, pageCount: extraction.metadata?.pageCount, now });
+      result.document.status = 'indexed';
+      indexed = true;
+    } catch (err) {
+      addError('chunks', err, DOCUMENT_ERROR_CODES.CHUNK_INDEXING_FAILED, 'The document could not be indexed.');
+    }
+  }
+  if (!indexed) {
+    if (persistence && !sourceSaved) {
       for (const e of persistence.errors) {
         result.errors.push({ stage: 'source_record', code: DOCUMENT_ERROR_CODES.SOURCE_RECORD_PERSISTENCE_FAILED, message: `${e.code}: ${e.message}` });
       }
     }
+    const failure = result.errors.at(-1);
+    await markDocumentFailed(documentModel, { projectId: projectObjectId, documentId: document._id, code: failure?.code, message: failure?.message, now }).catch(() => {});
+    result.document.status = 'failed';
     result.reconciliation = {
       required: true,
       action: 'retry_source_record',

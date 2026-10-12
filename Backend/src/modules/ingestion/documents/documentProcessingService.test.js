@@ -18,6 +18,7 @@ import { processDocumentUpload, persistDocumentSourceRecord, computeContentHash 
 import { createLocalDocumentStorage, isValidStorageKey } from './documentStorage.js';
 import { DOCUMENT_ERROR_CODES as C } from './documentErrors.js';
 import { InMemoryDocumentModel } from './inMemoryDocumentModel.js';
+import { InMemoryChunkModel } from './inMemoryChunkModel.js';
 import { InMemorySourceRecordModel } from '../persistence/inMemorySourceRecordModel.js';
 import { buildPdf, buildDocx, MIME } from './documentFixtures.js';
 
@@ -30,12 +31,14 @@ let rootDir;
 let storage;
 let documents;
 let sourceRecords;
+let chunks;
 
 beforeEach(async () => {
   rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'relay-doc-test-'));
   storage = createLocalDocumentStorage({ rootDir });
   documents = new InMemoryDocumentModel();
   sourceRecords = new InMemorySourceRecordModel();
+  chunks = new InMemoryChunkModel();
 });
 
 afterEach(async () => {
@@ -52,6 +55,7 @@ function upload(file, extra = {}) {
     storage,
     documentModel: documents,
     sourceRecordModel: sourceRecords,
+    chunkModel: chunks,
     now: () => NOW,
     ...extra,
   });

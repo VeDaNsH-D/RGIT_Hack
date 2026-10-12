@@ -6,6 +6,7 @@ import path from 'node:path';
 import mongoose from 'mongoose';
 import { processDocumentUpload, recoverDocumentSourceRecord, createLocalDocumentStorage, RECOVERY_STATUS as S, DOCUMENT_ERROR_CODES as C } from './index.js';
 import { InMemoryDocumentModel } from './inMemoryDocumentModel.js';
+import { InMemoryChunkModel } from './inMemoryChunkModel.js';
 import { InMemorySourceRecordModel } from '../persistence/inMemorySourceRecordModel.js';
 
 const PROJECT = new mongoose.Types.ObjectId();
@@ -13,11 +14,12 @@ const OTHER_PROJECT = new mongoose.Types.ObjectId();
 const USER = new mongoose.Types.ObjectId();
 
 describe('recoverDocumentSourceRecord', () => {
-  let rootDir, storage, documents, sourceRecords, partial, documentModel;
+  let rootDir, storage, documents, sourceRecords, partial, documentModel, chunks;
 
   /** Document model double exposing create() and findOne().lean() over in-memory docs. */
   const wrap = (docs) => ({
     create: (d) => docs.create(d),
+    updateOne: (f, u) => docs.updateOne(f, u),
     findOne: (filter) => ({
       lean: async () => {
         if (docs.findError) throw docs.findError;
@@ -28,7 +30,7 @@ describe('recoverDocumentSourceRecord', () => {
   });
 
   const recover = (over = {}) => recoverDocumentSourceRecord({
-    projectId: PROJECT, documentId: partial.document.id, storage, documentModel, sourceRecordModel: sourceRecords, ...over,
+    projectId: PROJECT, documentId: partial.document.id, storage, documentModel, sourceRecordModel: sourceRecords, chunkModel: chunks, ...over,
   });
 
   beforeEach(async () => {
@@ -37,9 +39,10 @@ describe('recoverDocumentSourceRecord', () => {
     documents = new InMemoryDocumentModel();
     documentModel = wrap(documents);
     sourceRecords = new InMemorySourceRecordModel();
+    chunks = new InMemoryChunkModel();
     sourceRecords.failNextBulkWrite();
     partial = await processDocumentUpload({
-      projectId: PROJECT, uploadedBy: USER, storage, documentModel, sourceRecordModel: sourceRecords,
+      projectId: PROJECT, uploadedBy: USER, storage, documentModel, sourceRecordModel: sourceRecords, chunkModel: chunks,
       file: { buffer: Buffer.from('Handoff notes for recovery'), filename: 'notes.txt', mimeType: 'text/plain' },
     });
     assert.equal(partial.status, 'partial');

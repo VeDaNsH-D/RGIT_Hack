@@ -298,3 +298,31 @@
 .ws-report-items li { display: grid; gap: 6px; font-size: 12px; line-height: 1.65; color: #5b3f2a; overflow-wrap: anywhere; }
 .ws-report-tags { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 10px; }
 .ws-report a { color: #c04d26; text-decoration: underline; }
+
+/* Project documents */
+.ws-doc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ws-doc-row { border: 1px solid var(--ws-border); border-radius: 10px; padding: 14px 16px; background: #fff; display: grid; gap: 8px; min-width: 0; }
+.ws-doc-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ws-doc-icon { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 8px; background: #fff0e4; color: #c86332; }
+.ws-doc-text { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.ws-doc-text strong { font-size: 13px; overflow-wrap: anywhere; }
+.ws-doc-text small { font-size: 11px; }
+.ws-doc-note { margin: 0; font-size: 11px; }
+.ws-doc-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; }
+.ws-dropzone { display: grid; gap: 4px; justify-items: center; text-align: center; border: 1px dashed #e0cdbd; border-radius: 10px; padding: 18px; margin-bottom: 14px; font-size: 12px; color: #7a6a5b; background: #fdfaf6; transition: border-color .15s, background .15s; }
+.ws-dropzone-active { border-color: var(--ws-orange); background: #fff5ed; }
+.ws-doc-preview { margin-top: 16px; border: 1px solid var(--ws-border); border-radius: 10px; padding: 16px; background: #faf9f6; }
+.ws-doc-preview h3 { font-size: 13px; margin: 0; }
+.ws-doc-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; margin: 10px 0 0; font: 12px/1.6 ui-monospace, Menlo, monospace; color: #4b3a2d; }
+.ws-source-type { display: inline-flex; font-size: 9px; padding: 2px 6px; border-radius: 4px; background: #f5f2ed; color: #8b7f72; margin-right: 6px; white-space: nowrap; }
+.ws-source-type-document { background: #fff0e4; color: #c86332; }
+.ws-source-button { background: none; border: 0; padding: 0; font: inherit; color: #c04d26; text-decoration: underline; cursor: pointer; text-align: left; }
+.ws-source-ref { color: #a08c7b; font-size: 10px; }
+@media (max-width: 760px) { .ws-doc-main { flex-wrap: wrap; } .ws-doc-actions { gap: 8px 14px; } }
+
+/* Jira project link form */
+.ws-jira-link { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
+.ws-jira-link label { font-size: 12px; color: #7a6a5b; }
+.ws-jira-link input { height: 39px; width: 140px; border: 1px solid #e7ddd4; border-radius: 7px; padding: 0 12px; font-size: 13px; text-transform: uppercase; background: #fff; }
+.ws-jira-link input:focus-visible { outline: 2px solid #ff9b7099; outline-offset: 2px; }
+.ws-jira-link small { flex-basis: 100%; margin: 0; }

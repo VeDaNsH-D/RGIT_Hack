@@ -10,6 +10,16 @@ async function start() {
   app.listen(config.port, () => {
     console.log(`Relay backend listening on http://localhost:${config.port}`);
   });
+
+  try {
+    const redirectUrl = new URL(process.env.JIRA_REDIRECT_URI || '');
+    const redirectPort = Number(redirectUrl.port);
+    if (redirectPort && redirectPort !== config.port) {
+      app.listen(redirectPort, () => {
+        console.log(`[server] Also listening on http://localhost:${redirectPort} for Jira OAuth callback`);
+      });
+    }
+  } catch {}
 }
 
 start().catch((err) => {

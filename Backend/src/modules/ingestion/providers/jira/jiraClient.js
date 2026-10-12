@@ -39,16 +39,26 @@ export class JiraClient {
   constructor({
     host,
     baseUrl,
+    cloudId,
     email,
     apiToken,
+    accessToken,
     apiVersion = DEFAULT_API_VERSION,
     fetchFn = globalThis.fetch,
     retryOptions = {},
   } = {}) {
-    const rawHost = host || baseUrl || process.env.JIRA_HOST || process.env.JIRA_BASE_URL || '';
+    let rawHost = host || baseUrl;
+    if (!rawHost && cloudId) {
+      rawHost = `https://api.atlassian.com/ex/jira/${cloudId}`;
+    }
+    rawHost = rawHost || process.env.JIRA_HOST || process.env.JIRA_BASE_URL || '';
     this.host = rawHost ? rawHost.replace(/\/+$/, '') : '';
-    this.email = email !== undefined ? email : (process.env.JIRA_EMAIL || '');
-    this.apiToken = apiToken !== undefined ? apiToken : (process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN || '');
+    this.cloudId = cloudId || '';
+    const resolvedToken = accessToken !== undefined
+      ? accessToken
+      : (apiToken !== undefined ? apiToken : (process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN || ''));
+    this.apiToken = resolvedToken;
+    this.email = accessToken ? '' : (email !== undefined ? email : (process.env.JIRA_EMAIL || ''));
     this.apiVersion = apiVersion;
     this.fetchFn = fetchFn;
     this.retryOptions = retryOptions;
@@ -95,7 +105,7 @@ export class JiraClient {
 
   /**
    * Executes an authenticated request with error handling and retry mechanics.
-   * 
+   *
    * @param {string} endpoint - Relative API endpoint or path.
    * @param {object} [options={}]
    * @param {'GET'|'POST'|'PUT'|'DELETE'} [options.method='GET']
@@ -226,7 +236,7 @@ export class JiraClient {
 
   /**
    * Retrieves all projects accessible to the authenticated account.
-   * 
+   *
    * @param {object} [options={}]
    * @returns {Promise<Array<object>>} List of authorized Jira projects
    */
@@ -236,7 +246,7 @@ export class JiraClient {
 
   /**
    * Retrieves a single project by ID or key.
-   * 
+   *
    * @param {string} projectIdOrKey
    * @returns {Promise<object>} Project details
    */
@@ -249,7 +259,7 @@ export class JiraClient {
 
   /**
    * Searches issues using Jira Query Language (JQL) and offset pagination.
-   * 
+   *
    * @param {string} [jql=''] - JQL query string
    * @param {object} [options={}]
    * @param {number} [options.startAt=0] - Offset index for pagination
@@ -301,7 +311,7 @@ export class JiraClient {
 
   /**
    * Retrieves a single Jira issue by issue key or ID.
-   * 
+   *
    * @param {string} issueIdOrKey - Issue key (e.g., 'PROJ-101') or ID
    * @param {object} [options={}]
    * @returns {Promise<object>} Jira issue object
@@ -311,5 +321,14 @@ export class JiraClient {
       throw new TypeError("Parameter 'issueIdOrKey' must be a non-empty string.");
     }
     return this._request(`/issue/${encodeURIComponent(issueIdOrKey.trim())}`, { query: options });
+  }
+
+  /**
+   * Retrieves profile details for the currently authenticated user.
+   *
+   * @returns {Promise<object>} Jira user profile
+   */
+  async myself() {
+    return this._request('/myself');
   }
 }

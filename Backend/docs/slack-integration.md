@@ -27,12 +27,12 @@ Set the following environment variables in your `.env` file or hosting environme
 
 | Variable Name | Required | Description | Example |
 | :--- | :--- | :--- | :--- |
-| `SLACK_BOT_TOKEN` | Yes | Slack Bot User OAuth Token (`xoxb-...`) | `xoxb-1234567890-...` |
-| `SLACK_DEFAULT_CHANNEL_ID` | Optional | Default channel ID to ingest from | `C0123456789` |
-| `SLACK_WORKSPACE_DOMAIN` | Optional | Slack workspace subdomain for permalinks | `myteam` or `myteam.slack.com` |
+| `SLACK_CLIENT_ID` | Yes | Slack App Client ID | `1234567890.1234567890` |
+| `SLACK_CLIENT_SECRET` | Yes | Slack App Client Secret | `abc123def456...` |
+| `SLACK_REDIRECT_URI` | Optional | OAuth redirect callback URI | `http://localhost:8000/api/connections/slack/callback` |
 
 > [!IMPORTANT]
-> Never commit real bot tokens or `.env` files into source control. Always store integration secrets securely.
+> Never commit client secrets or `.env` files into source control. Always store integration secrets securely.
 
 ---
 

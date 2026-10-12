@@ -278,7 +278,8 @@ describe('real app on real MongoDB', () => {
       const id = r.body.document.id;
       await SourceRecord.deleteOne({ provider: 'document', externalId: id }); // simulate a partial upload
       const results = await Promise.all(Array.from({ length: 6 }, () => reindex(project._id, id, member)));
-      assert.ok(results.every((x) => x.status === 200), JSON.stringify(results.map((x) => x.status)));
+      // A competing retry is refused (409 DOCUMENT_BUSY) rather than double-processed; the winner (200) indexes once.
+      assert.ok(results.some((x) => x.status === 200) && results.every((x) => [200, 409].includes(x.status)), JSON.stringify(results.map((x) => x.status)));
       assert.equal(await SourceRecord.countDocuments({ provider: 'document', externalId: id }), 1);
     });
     it('original file gone -> 409 ORIGINAL_UNAVAILABLE, nothing written, Document kept', async () => {

@@ -8,14 +8,29 @@ export const connectWhatsApp = phone => request('/connections/whatsapp', { metho
 export const disconnectWhatsApp = () => request('/connections/whatsapp', { method: 'DELETE' })
 
 export const getJiraStatus = signal => request('/connections/jira', { signal })
+export const startJiraInstall = () => request('/connections/jira/install', { method: 'POST' })
 export const connectJira = data => request('/connections/jira', { method: 'POST', body: data })
 export const disconnectJira = () => request('/connections/jira', { method: 'DELETE' })
 export const syncJira = () => request('/connections/jira/sync', { method: 'POST' })
 
 export const getSlackStatus = signal => request('/connections/slack', { signal })
-export const connectSlack = data => request('/connections/slack', { method: 'POST', body: data })
+export const startSlackInstall = () => request('/connections/slack/install', { method: 'POST' })
+export const getSlackChannels = signal => request('/connections/slack/channels', { signal })
 export const disconnectSlack = () => request('/connections/slack', { method: 'DELETE' })
 export const syncSlack = () => request('/connections/slack/sync', { method: 'POST' })
+export const linkSlackChannel = (projectId, { channelId, channelName }) =>
+  request(`/projects/${encodeURIComponent(projectId)}/integrations/slack`, { method: 'POST', body: { channelId, channelName } })
+export const unlinkSlackChannel = (projectId, connectionId) =>
+  request(`/projects/${encodeURIComponent(projectId)}/integrations/slack/${encodeURIComponent(connectionId)}`, { method: 'DELETE' })
+export const syncSlackChannel = (projectId, connectionId) =>
+  request(`/projects/${encodeURIComponent(projectId)}/integrations/slack/${encodeURIComponent(connectionId)}/sync`, { method: 'POST', signal: AbortSignal.timeout(120000) })
+
+export const linkJiraProject = (projectId, projectKey) =>
+  request(`/projects/${encodeURIComponent(projectId)}/integrations/jira`, { method: 'POST', body: { projectKey }, signal: AbortSignal.timeout(120000) })
+export const unlinkJiraProject = (projectId, connectionId) =>
+  request(`/projects/${encodeURIComponent(projectId)}/integrations/jira/${encodeURIComponent(connectionId)}`, { method: 'DELETE' })
+export const syncJiraProject = (projectId, connectionId) =>
+  request(`/projects/${encodeURIComponent(projectId)}/integrations/jira/${encodeURIComponent(connectionId)}/sync`, { method: 'POST', signal: AbortSignal.timeout(120000) })
 
 export const getNotionStatus = signal => request('/connections/notion', { signal })
 export const connectNotion = data => request('/connections/notion', { method: 'POST', body: data })
@@ -37,7 +52,7 @@ export const draftHandoffWithAi = handoffId => request(`/handoffs/${encodeURICom
 export const listRepositoryKnowledge = (projectId, signal) => request(`/projects/${encodeURIComponent(projectId)}/repository-knowledge`, { signal })
 export const analyzeRepository = (projectId, connectionId, force = false) =>
   request(`/projects/${encodeURIComponent(projectId)}/integrations/github/${encodeURIComponent(connectionId)}/analyze`, { method: 'POST', body: { force }, signal: AbortSignal.timeout(180000) })
-export const generateHandoffReport = projectId => request(`/projects/${encodeURIComponent(projectId)}/handoff-reports`, { method: 'POST', signal: AbortSignal.timeout(180000) })
+export const generateHandoffReport = (projectId, force = false) => request(`/projects/${encodeURIComponent(projectId)}/handoff-reports`, { method: 'POST', body: force ? { force: true } : {}, signal: AbortSignal.timeout(180000) })
 export const listHandoffReports = (projectId, signal) => request(`/projects/${encodeURIComponent(projectId)}/handoff-reports`, { signal })
 export const getHandoffReport = (projectId, reportId, signal) => request(`/projects/${encodeURIComponent(projectId)}/handoff-reports/${encodeURIComponent(reportId)}`, { signal })
 
