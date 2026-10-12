@@ -51,6 +51,7 @@ export async function fetchPullRequests(client, owner, repo, options = {}) {
   const result = await client.paginate(`/repos/${safeOwner}/${safeRepo}/pulls`, queryParams, {
     perPage: options.perPage || 30,
     maxPages: options.maxPages || 5,
+    requireArray: true,
   });
 
   return {

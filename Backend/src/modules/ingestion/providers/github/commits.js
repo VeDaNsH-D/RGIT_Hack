@@ -22,7 +22,7 @@ const GIT_REF_REGEX = /^[a-zA-Z0-9/_.-]+$/;
  * @param {string} [options.path] - Only commits containing this file path.
  * @param {number} [options.perPage=30] - Results per page (max 100).
  * @param {number} [options.maxPages=5] - Maximum pages to retrieve.
- * @returns {Promise<{ commits: any[], totalFetched: number, pagesFetched: number, rateLimit: Object, hasMore: boolean }>}
+ * @returns {Promise<{ commits: any[], totalFetched: number, pagesFetched: number, rateLimit: Object, hasMore: boolean, repositoryEmpty: boolean }>}
  */
 export async function fetchCommits(client, owner, repo, options = {}) {
   if (!client || typeof client.paginate !== 'function') {
@@ -56,10 +56,28 @@ export async function fetchCommits(client, owner, repo, options = {}) {
     queryParams.path = String(options.path);
   }
 
-  const result = await client.paginate(`/repos/${safeOwner}/${safeRepo}/commits`, queryParams, {
-    perPage: options.perPage || 30,
-    maxPages: options.maxPages || 5,
-  });
+  let result;
+  try {
+    result = await client.paginate(`/repos/${safeOwner}/${safeRepo}/commits`, queryParams, {
+      perPage: options.perPage || 30,
+      maxPages: options.maxPages || 5,
+      requireArray: true,
+    });
+  } catch (err) {
+    // GitHub answers 409 "Git Repository is empty" for repositories without commits.
+    // That is a valid empty result, not a failed request.
+    if (err instanceof GitHubApiError && err.status === 409) {
+      return {
+        commits: [],
+        totalFetched: 0,
+        pagesFetched: 1,
+        rateLimit: err.rateLimit,
+        hasMore: false,
+        repositoryEmpty: true,
+      };
+    }
+    throw err;
+  }
 
   return {
     commits: result.items,
@@ -67,5 +85,6 @@ export async function fetchCommits(client, owner, repo, options = {}) {
     pagesFetched: result.pagesFetched,
     rateLimit: result.rateLimit,
     hasMore: result.hasMore,
+    repositoryEmpty: false,
   };
 }

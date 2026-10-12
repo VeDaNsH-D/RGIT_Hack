@@ -8,7 +8,8 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "test": "node --test",
-    "seed": "node scripts/seed.js"
+    "seed": "node scripts/seed.js",
+    "smoke:github-app": "node scripts/github-app-smoke.js"
   },
   "keywords": [],
   "author": "",

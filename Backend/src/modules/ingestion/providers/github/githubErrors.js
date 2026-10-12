@@ -22,7 +22,57 @@ export const GITHUB_ERROR_CODES = Object.freeze({
   TIMEOUT: 'TIMEOUT',
   NETWORK_ERROR: 'NETWORK_ERROR',
   HTTP_ERROR: 'HTTP_ERROR',
+  CONFIG_ERROR: 'CONFIG_ERROR',
+  UNEXPECTED_RESPONSE: 'UNEXPECTED_RESPONSE',
+  NORMALIZATION_FAILED: 'NORMALIZATION_FAILED',
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
 });
+
+// Patterns for credential material that must never appear in error messages:
+// GitHub token prefixes (installation, PAT, OAuth, user-to-server, refresh,
+// fine-grained PAT), bearer/token authorization values, JWTs, and PEM blocks.
+const SECRET_PATTERNS = [
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)/g,
+  /\b(gh[pousr]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,})/g,
+  // Slack (xoxb-/xoxp-/...), Notion internal integration (secret_/ntn_), Atlassian API tokens
+  /\b(xox[abeoprs]-[A-Za-z0-9-]{10,}|secret_[A-Za-z0-9]{20,}|ntn_[A-Za-z0-9]{20,}|ATATT[A-Za-z0-9_=-]{20,})/g,
+  /\b(Bearer|token)\s+[A-Za-z0-9._~+/=-]{20,}/gi,
+  /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/g,
+];
+
+/**
+ * Removes credential-like substrings from free text before it is attached to
+ * an error. Defense in depth: callers should already avoid passing secrets.
+ *
+ * @param {unknown} text
+ * @returns {string}
+ */
+export function redactSecrets(text) {
+  let out = typeof text === 'string' ? text : String(text ?? '');
+  for (const pattern of SECRET_PATTERNS) {
+    out = out.replace(pattern, '[REDACTED]');
+  }
+  return out;
+}
+
+/**
+ * Converts any thrown value into a small, log-safe summary suitable for
+ * ingestion results and API responses. Unknown (non-GitHubApiError) errors get
+ * a generic message so arbitrary internals are never surfaced.
+ *
+ * @param {unknown} err
+ * @returns {{ code: string, message: string, status: number|null }}
+ */
+export function toSafeErrorSummary(err) {
+  if (err instanceof GitHubApiError) {
+    return { code: err.code, message: redactSecrets(err.message), status: err.status };
+  }
+  return {
+    code: GITHUB_ERROR_CODES.INTERNAL_ERROR,
+    message: 'Unexpected internal error.',
+    status: null,
+  };
+}
 
 /**
  * Base error class for all GitHub API client errors.
@@ -38,7 +88,7 @@ export class GitHubApiError extends Error {
    * @param {unknown} [details.data] - Parsed response payload from GitHub (if any).
    */
   constructor(message, details = {}) {
-    super(message);
+    super(redactSecrets(message));
     this.name = 'GitHubApiError';
     this.code = details.code || GITHUB_ERROR_CODES.HTTP_ERROR;
     this.status = details.status || null;

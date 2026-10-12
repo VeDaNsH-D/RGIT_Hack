@@ -7,11 +7,13 @@
  * ARCHITECTURAL BOUNDARIES & PERSISTENCE LIFECYCLE:
  * 1. SourceRecordCandidate (Produced by Person 1 - Integrations & Data Ingestion):
  *    - Normalized, pre-persistence representation of data from external providers (GitHub, uploaded documents).
- *    - MUST NOT contain database internal IDs (e.g. MongoDB `_id` or system UUID).
+ *    - MUST NOT contain database internal IDs (e.g. MongoDB `_id` or `id`).
  *    - Contains canonical metadata, external identifiers, timestamps, content, and provenance.
- * 2. SourceRecord (Persisted by Person 2 - Core Backend & Persistence):
+ * 2. SourceRecord (Persisted by Person 2 - Core Backend & Persistence, see src/models/SourceRecord.js):
  *    - Persisted entity stored in MongoDB by Person 2's persistence layer.
- *    - Carries an assigned, stable database internal identifier (`id` / `_id`).
+ *    - Carries an assigned, stable database internal identifier (`_id`).
+ *    - Upserted by the unique key (projectId, provider, externalId).
+ *    - `toSourceRecordDocument()` below is the single mapping from candidate to model fields.
  * 3. AI Consumption (Person 3 - AI Pipeline):
  *    - Relies on provenance (`url`, `author`, `authorId`, `createdAt`, `updatedAt`) for evidence citation,
  *      conflict detection, and project timeline summarization.
@@ -20,17 +22,27 @@
  * - `createdAt`: Original source creation timestamp (e.g. issue created, commit authored).
  * - `updatedAt`: Original source modification timestamp (e.g. issue updated, commit committed).
  * - `fetchedAt`: Ingestion batch timestamp (when Relay fetched/extracted the record).
+ * - Candidates hold JS `Date` objects; they serialize to ISO 8601 strings at API boundaries.
+ * - The persisted model's own `createdAt`/`updatedAt` are Mongoose persistence timestamps, NOT source
+ *   timestamps, so the mapping stores source timestamps as `metadata.sourceCreatedAt` / `sourceUpdatedAt`.
  * - `observedAt` is DEPRECATED and removed; separate creation and update timestamps must be used.
  */
 
 /**
- * Supported data source providers.
+ * Supported data source providers produced by the ingestion module.
+ *
+ * Note: Person 2's notes route also persists SourceRecords with provider `manual`
+ * (recordType `decision`/`note`). Those are not ingestion candidates and are
+ * intentionally not part of this enum.
  * @readonly
  * @enum {string}
  */
 export const SOURCE_PROVIDERS = Object.freeze({
   GITHUB: 'github',
   DOCUMENT: 'document',
+  NOTION: 'notion',
+  JIRA: 'jira',
+  SLACK: 'slack',
 });
 
 /**
@@ -44,6 +56,9 @@ export const SOURCE_RECORD_TYPES = Object.freeze({
   PULL_REQUEST: 'pull_request',
   COMMIT: 'commit',
   DOCUMENT: 'document',
+  NOTE: 'note',
+  DECISION: 'decision',
+  MESSAGE: 'message',
 });
 
 /**
@@ -56,6 +71,39 @@ export const SOURCE_CONTENT_TYPES = Object.freeze({
   PLAIN: 'text/plain',
   HTML: 'text/html',
   JSON: 'application/json',
+});
+
+/**
+ * Fields that are owned by the persistence layer (or deprecated) and must never
+ * appear on an unpersisted candidate.
+ * @readonly
+ */
+export const CANDIDATE_FORBIDDEN_FIELDS = Object.freeze(['_id', 'id', 'observedAt', 'type']);
+
+/**
+ * Overall status of a fetch-and-normalize ingestion run.
+ * - `succeeded`: every resource category was fetched (an empty result is still a success).
+ * - `partial`: at least one category failed, at least one succeeded.
+ * - `failed`: no category succeeded.
+ * @readonly
+ * @enum {string}
+ */
+export const INGESTION_STATUS = Object.freeze({
+  SUCCEEDED: 'succeeded',
+  PARTIAL: 'partial',
+  FAILED: 'failed',
+});
+
+/**
+ * Per-resource-category status inside an ingestion result.
+ * - `skipped`: not attempted (disabled by caller or aborted after a fatal error).
+ * @readonly
+ * @enum {string}
+ */
+export const RESOURCE_STATUS = Object.freeze({
+  SUCCEEDED: 'succeeded',
+  FAILED: 'failed',
+  SKIPPED: 'skipped',
 });
 
 /**
@@ -88,6 +136,41 @@ export const SOURCE_CONTENT_TYPES = Object.freeze({
  */
 
 /**
+ * @typedef {Object} IngestionError
+ * @property {string} resource - Resource category that failed (e.g. 'pullRequests').
+ * @property {string} code - Stable error code (GITHUB_ERROR_CODES).
+ * @property {string} message - Sanitized, credential-free message.
+ * @property {number|null} [status] - Upstream HTTP status, when applicable.
+ * @property {string} [externalId] - Offending record, for per-record normalization failures.
+ */
+
+/**
+ * @typedef {Object} IngestionResult
+ * @property {string} provider
+ * @property {string} projectId
+ * @property {'succeeded'|'partial'|'failed'} status
+ * @property {boolean} persisted - false until a persistence adapter writes the candidates.
+ * @property {number} fetchedCount - Items returned by the provider across all categories.
+ * @property {number} normalizedCount - Items that became valid SourceRecordCandidates.
+ * @property {number} skippedCount - Items intentionally excluded (e.g. PRs on the issues endpoint).
+ * @property {number} failedCount - Items fetched but rejected during normalization.
+ * @property {number|null} createdCount - null until persisted (never fabricated).
+ * @property {number|null} updatedCount - null until persisted (never fabricated).
+ * @property {Record<string, Object>} resources - Per-category breakdown.
+ * @property {IngestionError[]} errors
+ * @property {string} startedAt - ISO 8601.
+ * @property {string|null} completedAt - ISO 8601.
+ */
+
+function isValidDate(value) {
+  return value instanceof Date && !isNaN(value.getTime());
+}
+
+function isOptional(value) {
+  return value === undefined || value === null;
+}
+
+/**
  * Validates whether an object conforms to the agreed SourceRecordCandidate contract.
  * Ensures candidates do not prematurely assign internal database IDs and use separate
  * createdAt/updatedAt timestamps instead of deprecated observedAt.
@@ -98,18 +181,23 @@ export const SOURCE_CONTENT_TYPES = Object.freeze({
 export function validateSourceRecordCandidate(record) {
   const errors = [];
 
-  if (!record || typeof record !== 'object') {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
     return { valid: false, errors: ['Candidate record must be a non-null object.'] };
   }
 
   // Ensure candidate does not contain internal database ID (owned by Person 2 upon persistence)
-  if ('_id' in record || ('id' in record && record.recordType !== undefined)) {
+  if ('_id' in record || 'id' in record) {
     errors.push('Candidate records must not include internal database IDs ("id" or "_id"); IDs are assigned by persistence layer.');
   }
 
   // Reject deprecated observedAt field
   if ('observedAt' in record) {
     errors.push('Field "observedAt" is deprecated; use "createdAt" and "updatedAt" instead.');
+  }
+
+  // "type" is the persisted model's field name; candidates must use "recordType"
+  if ('type' in record) {
+    errors.push('Field "type" belongs to the persisted SourceRecord; candidates must use "recordType".');
   }
 
   // Required string fields
@@ -145,7 +233,7 @@ export function validateSourceRecordCandidate(record) {
   }
 
   // Lifecycle & status flags
-  if (typeof record.version !== 'number' || record.version < 1) {
+  if (!Number.isInteger(record.version) || record.version < 1) {
     errors.push('Field "version" is required and must be a positive integer.');
   }
 
@@ -158,51 +246,51 @@ export function validateSourceRecordCandidate(record) {
   }
 
   // Date validations
-  if (!record.fetchedAt || !(record.fetchedAt instanceof Date) || isNaN(record.fetchedAt.getTime())) {
+  if (!isValidDate(record.fetchedAt)) {
     errors.push('Field "fetchedAt" is required and must be a valid Date object.');
   }
 
-  if (record.createdAt !== undefined && record.createdAt !== null) {
-    if (!(record.createdAt instanceof Date) || isNaN(record.createdAt.getTime())) {
-      errors.push('Field "createdAt", if provided, must be a valid Date object.');
-    }
+  if (!isOptional(record.createdAt) && !isValidDate(record.createdAt)) {
+    errors.push('Field "createdAt", if provided, must be a valid Date object.');
   }
 
-  if (record.updatedAt !== undefined && record.updatedAt !== null) {
-    if (!(record.updatedAt instanceof Date) || isNaN(record.updatedAt.getTime())) {
-      errors.push('Field "updatedAt", if provided, must be a valid Date object.');
-    }
+  if (!isOptional(record.updatedAt) && !isValidDate(record.updatedAt)) {
+    errors.push('Field "updatedAt", if provided, must be a valid Date object.');
   }
 
   // Optional string fields
-  if (record.url !== undefined && record.url !== null && typeof record.url !== 'string') {
-    errors.push('Field "url", if provided, must be a string.');
+  if (!isOptional(record.url)) {
+    if (typeof record.url !== 'string') {
+      errors.push('Field "url", if provided, must be a string.');
+    } else if (record.url && !/^https?:\/\//i.test(record.url)) {
+      errors.push('Field "url", if provided, must be an http(s) URL.');
+    }
   }
 
-  if (record.author !== undefined && record.author !== null && typeof record.author !== 'string') {
+  if (!isOptional(record.author) && typeof record.author !== 'string') {
     errors.push('Field "author", if provided, must be a string.');
   }
 
-  if (record.authorId !== undefined && record.authorId !== null && typeof record.authorId !== 'string') {
+  if (!isOptional(record.authorId) && typeof record.authorId !== 'string') {
     errors.push('Field "authorId", if provided, must be a string.');
   }
 
   // Optional document chunk fields
-  if (record.pageNumber !== undefined && record.pageNumber !== null && typeof record.pageNumber !== 'number') {
+  if (!isOptional(record.pageNumber) && typeof record.pageNumber !== 'number') {
     errors.push('Field "pageNumber", if provided, must be a number.');
   }
 
-  if (record.passageReference !== undefined && record.passageReference !== null && typeof record.passageReference !== 'string') {
+  if (!isOptional(record.passageReference) && typeof record.passageReference !== 'string') {
     errors.push('Field "passageReference", if provided, must be a string.');
   }
 
-  if (record.extractionStatus !== undefined && record.extractionStatus !== null && typeof record.extractionStatus !== 'string') {
+  if (!isOptional(record.extractionStatus) && typeof record.extractionStatus !== 'string') {
     errors.push('Field "extractionStatus", if provided, must be a string.');
   }
 
   // Metadata validation
-  if (record.metadata !== undefined && record.metadata !== null && typeof record.metadata !== 'object') {
-    errors.push('Field "metadata", if provided, must be an object.');
+  if (!isOptional(record.metadata) && (typeof record.metadata !== 'object' || Array.isArray(record.metadata))) {
+    errors.push('Field "metadata", if provided, must be a plain object.');
   }
 
   return {
@@ -215,3 +303,136 @@ export function validateSourceRecordCandidate(record) {
  * Backward compatibility alias for validateSourceRecordCandidate.
  */
 export const validateSourceRecord = validateSourceRecordCandidate;
+
+/**
+ * Maps a validated SourceRecordCandidate onto the field set of Person 2's
+ * persisted SourceRecord model (src/models/SourceRecord.js). Pure function; it
+ * performs no database access and does not assign `_id`.
+ *
+ * Mapping:
+ *   candidate.recordType          -> type
+ *   candidate.url (undefined)     -> url ''          (model default)
+ *   projectId/provider/externalId -> same names      (unique upsert key)
+ *   title/content                 -> same names
+ *   contentType, author, authorId, fetchedAt, version, isActive, isDeleted,
+ *   pageNumber, passageReference, extractionStatus
+ *                                 -> metadata.<same name>
+ *   createdAt / updatedAt         -> metadata.sourceCreatedAt / metadata.sourceUpdatedAt
+ *                                    (the model's own createdAt/updatedAt are Mongoose
+ *                                    persistence timestamps and must not be overwritten)
+ *   metadata (provider-specific)  -> metadata.providerMetadata
+ *
+ * `projectId` is passed through as a string; Mongoose casts it to ObjectId.
+ *
+ * @param {SourceRecordCandidate} candidate
+ * @returns {{ projectId: string, provider: string, externalId: string, type: string, title: string, url: string, content: string, metadata: Record<string, unknown> }}
+ * @throws {TypeError} If the candidate violates the contract.
+ */
+export function toSourceRecordDocument(candidate) {
+  const validation = validateSourceRecordCandidate(candidate);
+  if (!validation.valid) {
+    throw new TypeError(`Cannot map invalid SourceRecordCandidate: ${validation.errors.join('; ')}`);
+  }
+
+  const metadata = {
+    contentType: candidate.contentType,
+    author: candidate.author ?? null,
+    authorId: candidate.authorId ?? null,
+    sourceCreatedAt: candidate.createdAt ?? null,
+    sourceUpdatedAt: candidate.updatedAt ?? null,
+    fetchedAt: candidate.fetchedAt,
+    version: candidate.version,
+    isActive: candidate.isActive,
+    isDeleted: candidate.isDeleted,
+    providerMetadata: candidate.metadata ? { ...candidate.metadata } : {},
+  };
+
+  for (const field of ['pageNumber', 'passageReference', 'extractionStatus']) {
+    if (!isOptional(candidate[field])) metadata[field] = candidate[field];
+  }
+
+  return {
+    projectId: candidate.projectId,
+    provider: candidate.provider,
+    externalId: candidate.externalId,
+    type: candidate.recordType,
+    title: candidate.title,
+    url: candidate.url || '',
+    content: candidate.content,
+    metadata,
+  };
+}
+
+/**
+ * Creates an empty ingestion result with predictable counters. Persistence
+ * counters start as `null` so a fetch-only run can never claim records were
+ * created or updated.
+ *
+ * @param {Object} params
+ * @param {string} params.provider
+ * @param {string} params.projectId
+ * @param {string[]} [params.resources] - Resource category names to pre-register.
+ * @param {Date} [params.startedAt]
+ * @returns {IngestionResult}
+ */
+export function createIngestionResult({ provider, projectId, resources = [], startedAt = new Date() }) {
+  const result = {
+    provider,
+    projectId,
+    status: INGESTION_STATUS.SUCCEEDED,
+    persisted: false,
+    fetchedCount: 0,
+    normalizedCount: 0,
+    skippedCount: 0,
+    failedCount: 0,
+    createdCount: null,
+    updatedCount: null,
+    resources: {},
+    errors: [],
+    startedAt: startedAt.toISOString(),
+    completedAt: null,
+  };
+
+  for (const name of resources) {
+    result.resources[name] = {
+      status: RESOURCE_STATUS.SKIPPED,
+      fetchedCount: 0,
+      normalizedCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      hasMore: false,
+    };
+  }
+
+  return result;
+}
+
+/**
+ * Recomputes totals and overall status from the per-resource breakdown and
+ * stamps completedAt. Mutates and returns the given result.
+ *
+ * @param {IngestionResult} result
+ * @param {Date} [completedAt]
+ * @returns {IngestionResult}
+ */
+export function finalizeIngestionResult(result, completedAt = new Date()) {
+  const entries = Object.values(result.resources);
+
+  for (const key of ['fetchedCount', 'normalizedCount', 'skippedCount', 'failedCount']) {
+    result[key] = entries.reduce((sum, r) => sum + r[key], 0);
+  }
+
+  const succeeded = entries.filter((r) => r.status === RESOURCE_STATUS.SUCCEEDED).length;
+
+  // Any error (failed category or rejected record) downgrades a clean success.
+  if (result.errors.length === 0) {
+    result.status = INGESTION_STATUS.SUCCEEDED;
+  } else if (succeeded > 0) {
+    result.status = INGESTION_STATUS.PARTIAL;
+  } else {
+    result.status = INGESTION_STATUS.FAILED;
+  }
+
+  result.completedAt = completedAt.toISOString();
+  return result;
+}
