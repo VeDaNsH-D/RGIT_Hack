@@ -1,3 +1,4 @@
+import { createNotionInstallUrl, consumeNotionState, completeNotionInstall, isNotionOAuthConfigured, withNotionToken, NotionConnectError } from '../services/notionOAuthService.js';
 import { Router } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config.js';
@@ -532,14 +533,42 @@ router.post('/slack/sync', requireAuth, needUser, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+router.post('/notion/install', requireAuth, needUser, async (req, res, next) => {
+  try { res.set('Cache-Control', 'no-store').json({ url: await createNotionInstallUrl(req.user.id) }); }
+  catch (error) {
+    if (error instanceof NotionConnectError) return res.status(503).json({ error: error.reason, message: 'Notion OAuth is not configured on this server.' });
+    next(error);
+  }
+});
+router.get('/notion/callback', async (req, res, next) => {
+  const finishNotion = (status, reason) => {
+    res.set('Cache-Control', 'no-store');
+    const url = new URL('/connections', config.frontendUrl);
+    url.searchParams.set('notion', status);
+    if (reason) url.searchParams.set('reason', reason);
+    return res.redirect(url.toString());
+  };
+  try {
+    const userId = await consumeNotionState(req.query.state);
+    if (req.query.error) return finishNotion('cancelled');
+    await completeNotionInstall(userId, req.query.code);
+    return finishNotion('connected');
+  } catch (error) {
+    if (error instanceof NotionConnectError) return finishNotion('error', error.reason);
+    next(error);
+  }
+});
+
 router.get('/notion', requireAuth, needUser, async (req, res, next) => {
   try {
     const conn = await NotionConnection.findOne({ userId: req.user.id });
     if (!conn || !conn.active) {
-      return res.set('Cache-Control', 'no-store').json({ connected: false });
+      return res.set('Cache-Control', 'no-store').json({ connected: false, configured: isNotionOAuthConfigured() });
     }
     return res.set('Cache-Control', 'no-store').json({
       connected: true,
+      configured: isNotionOAuthConfigured(),
+      authMethod: conn.authMethod,
       workspaceName: conn.workspaceName,
       pageId: conn.pageId,
       databaseId: conn.databaseId,
@@ -579,6 +608,8 @@ router.post('/notion', requireAuth, needUser, async (req, res, next) => {
       {
         userId: req.user.id,
         apiKey,
+        encryptedTokens: '',
+        authMethod: 'token',
         pageId,
         databaseId,
         workspaceName: 'Notion Workspace',
@@ -613,12 +644,11 @@ router.post('/notion/sync', requireAuth, needUser, async (req, res, next) => {
     if (!conn) {
       return res.status(400).json({ error: 'not_connected', message: 'Notion is not connected.' });
     }
-    const connector = new NotionConnector({ apiKey: conn.apiKey });
-    const result = await connector.sync({
+    const result = await withNotionToken(conn, apiKey => new NotionConnector({ apiKey }).sync({
       databaseId: conn.databaseId || undefined,
       pageIds: conn.pageId ? [conn.pageId] : undefined,
       maxPages: 3,
-    });
+    }));
     conn.lastSyncAt = new Date();
     conn.syncedPageCount = result.recordsCount || 0;
     await conn.save();
