@@ -19,10 +19,12 @@ This module pulls project information from external sources, normalizes it into
 | Slack     | Implemented: channel messages and threads (see `Backend/docs/slack-integration.md`) |
 | Documents | Planned (`.pdf`, `.docx`, `.txt`); contract fields already reserved |
 
-Persistence, HTTP routes, and document extraction are **not** implemented here yet.
+Persistence is implemented (section 3a). HTTP routes and document extraction are **not** implemented here yet.
 
 ```
 contracts/sourceRecord.js            Shared contract, validation, persistence mapping, ingestion result
+persistence/sourceRecordStore.js     Idempotent upserts of candidates into the SourceRecord model
+persistence/inMemorySourceRecordModel.js   bulkWrite test double (unique index, races, write errors)
 providers/github/
   githubErrors.js                    Error codes, GitHubApiError, secret redaction
   githubClient.js                    HTTP transport: auth header, timeouts, bounded pagination, SSRF guards
@@ -30,7 +32,8 @@ providers/github/
   installationDiscovery.js           GET /installation/repositories
   repositories.js / issues.js / pullRequests.js / commits.js   Resource fetchers
   githubNormalizer.js                Raw GitHub payloads -> SourceRecordCandidate
-  githubIngestionService.js          Unified fetch-and-normalize with partial-failure reporting
+  githubIngestionService.js          Unified fetch-and-normalize with partial-failure reporting (no DB)
+  githubSyncService.js               Fetch -> normalize -> persist; SourceConnection-driven sync
 providers/notion/, providers/jira/, providers/slack/   Client, connector, extractor, normalizer per provider
 scripts/github-app-smoke.js          Read-only live check (Backend/scripts)
 ```
@@ -109,16 +112,49 @@ Candidates hold JS `Date`s; they serialize to ISO 8601 at API/JSON boundaries.
 Source timestamps live in `metadata` because the model's own `createdAt`/`updatedAt`
 are Mongoose persistence timestamps (`timestamps: true`) and must not be overwritten.
 
-Suggested upsert for the future persistence adapter (not implemented here):
+### 3a. Persistence and deduplication
+
+`persistSourceRecordCandidates({ projectId, records })` (`persistence/sourceRecordStore.js`)
+writes candidates with one unordered `SourceRecord.bulkWrite` of `updateOne` upserts per
+chunk (500), keyed on the model's unique index `{ projectId, provider, externalId }`.
+
+- **Idempotent:** re-ingesting a source updates the existing document; `_id`, `isDemo`
+  and Mongoose `createdAt` are preserved.
+- **Merge, not replace:** `type`, `title`, `content` are always set; `url` only when
+  present; metadata via dotted `$set` paths, so fields a provider omits stay intact.
+  `null` in provider metadata is written (cleared at source); `undefined` is skipped.
+- **Authoritative projectId:** must be a 24-hex ObjectId supplied by the caller from an
+  authorized project association. Records whose `projectId` differs (including the
+  `'default-project'` placeholder some normalizers use) fail with `PROJECT_MISMATCH`.
+- **Input:** `SourceRecordCandidate`s only. Legacy `integrations/common/types.js` records
+  (`id`/`type`/`observedAt`) fail with `UNSUPPORTED_RECORD_FORMAT`; use the providers'
+  candidate output (`asCandidate: true` for Jira/Slack connectors).
+- **Races:** an `E11000` from a concurrent writer is retried once and becomes an update.
+- **Secrets:** provider metadata is scrubbed before writing: credential-like keys
+  (`*token*`, `*secret*`, `*password*`, `*apikey*`, `authorization`, ...) are dropped and
+  token-like values (GitHub, Slack, Notion, Atlassian, Bearer, JWT, PEM) are redacted.
+- **Never throws** for record or database errors; throws only for an invalid `projectId`
+  or a non-array `records` argument.
+
+Result (same conventions as the ingestion result):
 
 ```javascript
-const doc = toSourceRecordDocument(candidate);
-await SourceRecord.findOneAndUpdate(
-  { projectId: doc.projectId, provider: doc.provider, externalId: doc.externalId },
-  { $set: doc },
-  { upsert: true, new: true, includeResultMetadata: true }, // lastErrorObject.updatedExisting -> created vs updated
-);
+{
+  provider: 'github' | 'notion' | 'jira' | 'slack' | 'mixed' | null,
+  projectId, status: 'succeeded' | 'partial' | 'failed',
+  persisted,            // true only if at least one write was acknowledged
+  receivedCount, createdCount, updatedCount,
+  skippedCount,         // duplicates of the same identity within the batch
+  failedCount,          // invalid records + write failures
+  errors: [{ index, provider, externalId, code, message }],   // index into `records`
+  startedAt, completedAt,
+}
 ```
+
+Error codes: `INVALID_RECORD`, `UNSUPPORTED_RECORD_FORMAT`, `PROJECT_MISMATCH`,
+`RECORD_TOO_LARGE`, `DUPLICATE_IN_BATCH` (skipped), `WRITE_FAILED`, `DATABASE_ERROR`
+(non-write failure such as a lost connection: the whole chunk is reported failed),
+`ERRORS_TRUNCATED`.
 
 ---
 
@@ -250,6 +286,24 @@ const out = await fetchGitHubRepositoryDataForInstallation({
   authService: auth, installationId, owner: 'acme', repo: 'relay', projectId,
 });
 ```
+
+Persistence-enabled path (imported directly; not re-exported from `providers/github/index.js`
+so the fetch-only barrel has no database dependency):
+
+```javascript
+import { syncGitHubRepository, syncGitHubSourceConnection } from './providers/github/githubSyncService.js';
+
+// projectId must be the authorized Relay project's ObjectId (e.g. req.project._id)
+const { result } = await syncGitHubRepository({ owner, repo, projectId: req.project._id, client });
+// result.persisted, result.createdCount, result.updatedCount, result.persistence
+
+// Or from a GitHub SourceConnection: projectId comes from the connection document.
+// Proposed config shape: { installationId, owner, repo }
+const { result: r } = await syncGitHubSourceConnection({ connection, authService: auth });
+```
+
+In sync results, persistence errors are appended to `result.errors` with
+`resource: 'persistence'`, and `status` reflects both fetch and persistence errors.
 
 Invalid `owner`/`repo`/`projectId`/`limits`/`since` throw `INVALID_INPUT` before any
 request. GitHub failures do **not** throw; they appear in `result.errors`, and records

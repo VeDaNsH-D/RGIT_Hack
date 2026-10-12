@@ -34,6 +34,8 @@ export const GITHUB_ERROR_CODES = Object.freeze({
 const SECRET_PATTERNS = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)/g,
   /\b(gh[pousr]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,})/g,
+  // Slack (xoxb-/xoxp-/...), Notion internal integration (secret_/ntn_), Atlassian API tokens
+  /\b(xox[abeoprs]-[A-Za-z0-9-]{10,}|secret_[A-Za-z0-9]{20,}|ntn_[A-Za-z0-9]{20,}|ATATT[A-Za-z0-9_=-]{20,})/g,
   /\b(Bearer|token)\s+[A-Za-z0-9._~+/=-]{20,}/gi,
   /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/g,
 ];
