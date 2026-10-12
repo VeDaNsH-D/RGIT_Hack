@@ -314,27 +314,34 @@ export default function CallsPage() {
         rtcManager.localVideoTrack.play(localVideoRef.current);
       }
 
-      // 3. Connect Agora RTM for In-Call Chat
-      const rtmManager = rtmRef.current;
-      await rtmManager.login({
-        appId,
-        userId: String(uid),
-        token: rtmToken,
-      });
+      // 3. Connect Agora RTM for In-Call Chat (graceful fallback)
+      try {
+        if (rtmToken) {
+          const rtmManager = rtmRef.current;
+          await rtmManager.login({
+            appId,
+            userId: String(uid),
+            token: rtmToken,
+          });
 
-      await rtmManager.joinChannel(targetChannel, {
-        onMessage: (msg, senderId) => {
-          setChatMessages(prev => [
-            ...prev,
-            {
-              id: Date.now() + Math.random(),
-              sender: senderId,
-              text: msg,
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          await rtmManager.joinChannel(targetChannel, {
+            onMessage: (msg, senderId) => {
+              setChatMessages(prev => [
+                ...prev,
+                {
+                  id: Date.now() + Math.random(),
+                  sender: senderId,
+                  text: msg,
+                  time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                },
+              ]);
             },
-          ]);
-        },
-      });
+          });
+        }
+      } catch (rtmErr) {
+        console.warn('Agora RTM in-call messaging unavailable or not enabled in Agora console:', rtmErr.message);
+      }
+
 
       // 4. Start Live Captions & Recording
       startSpeechRecognition();
@@ -432,7 +439,9 @@ export default function CallsPage() {
     if (!text || !inCall) return;
 
     try {
-      await rtmRef.current.sendMessage(text);
+      if (rtmRef.current?.isLoggedIn) {
+        await rtmRef.current.sendMessage(text);
+      }
       setChatMessages(prev => [
         ...prev,
         {
@@ -446,6 +455,7 @@ export default function CallsPage() {
     } catch (err) {
       console.warn('Failed sending chat message:', err);
     }
+
   };
 
   // 6. Generate Meeting Summary with Groq (Whisper + LLM)
