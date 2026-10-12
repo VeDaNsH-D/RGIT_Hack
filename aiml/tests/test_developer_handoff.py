@@ -215,3 +215,18 @@ def test_retries_once_on_a_degenerate_thin_report_for_a_non_trivial_pack():
     app.dependency_overrides[get_context_service] = lambda: GroqContextService(api_key="k", client=Client())
     body = http.post("/api/v1/developer-handoff/generate", json=big).json()
     assert len(body["sections"]) == 3
+
+
+def test_jira_and_slack_are_grouped_labelled_and_governed_by_authority_rules():
+    pack = {**PACK, "sources": PACK["sources"] + [
+        {"id": "jira_1", "title": "Retry failed payments", "provider": "jira", "record_type": "issue", "content": "Retry up to 3 times.",
+         "metadata": {"key": "PAY-12", "status": "In Progress", "priority": "High", "assignee": "Priya", "mentionedIn": ["src_issue_8"]}},
+        {"id": "slack_1", "title": "We agreed on three retries", "provider": "slack", "record_type": "note", "content": "Agreed on three retries.",
+         "metadata": {"channelName": "payments", "replyCount": 2, "jira": ["PAY-12"]}},
+    ]}
+    prompt = build_developer_handoff_prompt(ContextPackRequest.model_validate(pack))
+    assert "## JIRA ISSUES\n[jira_1] issue Retry failed payments | key=PAY-12 status=In Progress priority=High assignee=Priya mentionedIn=src_issue_8" in prompt
+    assert "## SLACK DISCUSSION\n[slack_1] note We agreed on three retries | channelName=payments replyCount=2 jira=PAY-12" in prompt
+    assert "tracked_work_and_discussion" in SECTION_KEYS
+    for phrase in ("authoritative for planning", "informal discussion", "weak evidence", "exact key reference"):
+        assert phrase in DEVELOPER_HANDOFF_SYSTEM_PROMPT

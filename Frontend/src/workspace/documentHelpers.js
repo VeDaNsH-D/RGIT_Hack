@@ -26,5 +26,5 @@ export const STATUS_BADGES = { indexed: 'ws-badge-completed', processing: 'ws-ba
 // Citation kinds shown in the handoff preview, so GitHub, repository, document and Relay sources are distinguishable.
 export const SOURCE_TYPE_LABELS = {
   repository_file: 'Repository file', repository: 'Repository', issue: 'GitHub issue', pull_request: 'Pull request', commit: 'Commit',
-  document: 'Uploaded document', note: 'Relay note', handoff: 'Previous handoff', task: 'Relay task',
+  document: 'Uploaded document', jira_issue: 'Jira issue', slack_message: 'Slack message', note: 'Relay note', handoff: 'Previous handoff', task: 'Relay task',
 }

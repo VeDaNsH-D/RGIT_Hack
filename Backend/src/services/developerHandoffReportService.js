@@ -7,6 +7,7 @@ import { AiServiceError, generateDeveloperHandoff as callAi } from './aiClient.j
 import { createHash } from 'node:crypto';
 import { DraftError, buildHandoffContext, labelFor } from './handoffDraftService.js';
 import { addDocumentLinkHints } from './documentContext.js';
+import { addJiraKeyLinks } from './crossLinks.js';
 import { serializeAnalysis, latestCommitSha } from './repositoryAnalysisService.js';
 import { serializeSync } from './githubSyncEngine.js';
 
@@ -24,9 +25,9 @@ import { serializeSync } from './githubSyncEngine.js';
 // Tight on purpose: the model is given what it needs to SYNTHESIZE. Complete lists (open items, recent activity, setup,
 // files, coverage, links, documents) are rendered deterministically from the database, so they cost no tokens.
 export const REPORT_LIMITS = Object.freeze({ fileExcerptChars: 900, importantFiles: 8, routes: 40 });
-export const REPORT_ACTIVITY_LIMITS = Object.freeze({ openPrs: 12, openIssues: 15, recentClosedPrs: 6, commits: 12, notes: 8, tasks: 25 });
+export const REPORT_ACTIVITY_LIMITS = Object.freeze({ openPrs: 12, openIssues: 15, recentClosedPrs: 6, commits: 12, notes: 8, tasks: 25, jiraOpen: 10, jiraDone: 3, slack: 8 });
 // Bump when the prompt or pack format changes, so cached reports are not reused across incompatible versions.
-export const PIPELINE_VERSION = 3;
+export const PIPELINE_VERSION = 4;
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 // Provider-side "request too large" / tokens-per-minute failures: retry once or twice with less context.
 const TOO_LARGE = /\b413\b|request too large|tokens per minute|reduce your message size/i;
@@ -37,9 +38,9 @@ export class ReportError extends Error {
 }
 
 const SECTION_TITLES = {
-  executive_summary: 'Executive summary', purpose_and_state: 'Project purpose and current state', documented_requirements: 'Documented requirements and plans', architecture: 'Repository architecture',
+  executive_summary: 'Executive summary', purpose_and_state: 'Project purpose and current state', documented_requirements: 'Documented requirements and plans', tracked_work_and_discussion: 'Tracked work and team discussion (Jira, Slack)', architecture: 'Repository architecture',
   modules: 'Major modules and responsibilities', important_files: 'Important files and entry points', setup: 'Development setup and test instructions',
-  recent_changes: 'Recent changes and their significance', outstanding_work: 'Outstanding issues and pull requests', open_items: 'Open pull requests and issues', recent_activity: 'Recent commits and merged pull requests', work_in_progress: 'Work in progress',
+  recent_changes: 'Recent changes and their significance', outstanding_work: 'Outstanding issues and pull requests', open_items: 'Open pull requests and issues', jira_items: 'Open Jira issues', recent_activity: 'Recent commits and merged pull requests', work_in_progress: 'Work in progress',
   decisions_constraints: 'Decisions and technical constraints', blockers_risks: 'Blockers and risks', next_steps: 'Recommended next steps',
   inspect_first: 'Suggested files to inspect first', documents: 'Project documents used', links: 'Relevant source links', coverage: 'Data freshness and analysis coverage',
 };
@@ -128,7 +129,8 @@ function activitySections(activity) {
     ...activity.closedPrs.filter((r) => pm(r).merged || pm(r).merged_at).slice(0, 6).map((r) => ({ text: `Merged PR #${pm(r).number}: ${r.title} (${day(pm(r).merged_at || r.metadata?.sourceUpdatedAt)})`, kind: 'fact', evidence: [recRef(r)] })),
     ...activity.commits.slice(0, 10).map((r) => ({ text: `${String(pm(r).sha || '').slice(0, 7)} ${r.title}${r.metadata?.author ? ` — ${r.metadata.author}` : ''}, ${day(r.metadata?.sourceCreatedAt || r.metadata?.sourceUpdatedAt)}`, kind: 'fact', evidence: [recRef(r)] })),
   ];
-  return { open_items: open, recent_activity: recent };
+  const jira = (activity.jiraOpen || []).slice(0, 20).map((r) => ({ text: `${pm(r).key || r.externalId}: ${r.title} (${[pm(r).issueType, pm(r).status && `status ${pm(r).status}`, pm(r).priority && `priority ${pm(r).priority}`, pm(r).assignee ? `assigned to ${pm(r).assignee}` : 'unassigned', pm(r).dueDate && `due ${day(pm(r).dueDate)}`].filter(Boolean).join('; ')})`, kind: 'fact', evidence: [recRef(r)] }));
+  return { open_items: open, jira_items: jira, recent_activity: recent };
 }
 
 /** Project documents that fed this handoff (and any that could not), built from retrieval results, never from the model. */
@@ -149,6 +151,7 @@ const hasFacts = (s) => s.items.length > 0;
 /** Report-stored form of an evidence entry. `type` lets the preview and PDF distinguish source kinds. */
 export function evidenceRef(id, e) {
   const type = e.provider === 'document' ? 'document'
+    : e.provider === 'jira' ? 'jira_issue' : e.provider === 'slack' ? 'slack_message' : e.type === 'task' ? 'task'
     : e.provider === 'repository' ? (e.type === 'file' ? 'repository_file' : 'repository')
     : e.type === 'issue' ? 'issue' : e.type === 'pull_request' ? 'pull_request' : e.type === 'commit' ? 'commit'
     : e.provider === 'relay' ? 'handoff' : e.provider === 'manual' ? 'note' : e.type === 'file' ? 'repository_file' : (e.provider || 'other');
@@ -189,12 +192,13 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
       }
     }
     const queryHints = loaded.flatMap(({ snapshot }) => [...(snapshot.knowledge.components || []).map((c) => c.name), ...(snapshot.knowledge.overview?.frameworks || []), snapshot.fullName]);
-    const { pack, evidence, limitations, counts, documents, activity } = await buildHandoffContext(project, { requireActivity: false, extraLimitations: factor < 1 ? [...extraLimitations, 'The context was reduced to fit the AI provider’s request-size limit, so some details may be missing.'] : extraLimitations, budgetChars: Math.floor(budget * 0.3), includePreviousHandoffs: true, includeDocuments: true, documentBudgetChars: Math.floor(budget * 0.25), queryHints, limits: REPORT_ACTIVITY_LIMITS, scale: factor, contentChars: clamp(Math.floor(budget * 0.015), 200, 1200) });
+    const { pack, evidence, limitations, counts, documents, activity, integrations } = await buildHandoffContext(project, { requireActivity: false, extraLimitations: factor < 1 ? [...extraLimitations, 'The context was reduced to fit the AI provider’s request-size limit, so some details may be missing.'] : extraLimitations, budgetChars: Math.floor(budget * 0.3), includePreviousHandoffs: true, includeDocuments: true, documentBudgetChars: Math.floor(budget * 0.25), queryHints, limits: REPORT_ACTIVITY_LIMITS, scale: factor, contentChars: clamp(Math.floor(budget * 0.015), 200, 1200) });
     for (const item of repoItems) {
       pack.sources.unshift({ id: item.id, external_id: null, provider: 'repository', record_type: item.type, title: item.title, content: item.content, content_type: 'text/plain', url: item.url, author: null, author_id: null, created_at: null, updated_at: null, fetched_at: null, metadata: {} });
       evidence.set(item.id, { id: item.id, label: item.label, url: item.url, type: item.type, provider: 'repository' });
     }
     addDocumentLinkHints(pack.sources);
+    addJiraKeyLinks(pack.sources);
     if (factor === 1) {
       fingerprint = createHash('sha256').update(JSON.stringify([PIPELINE_VERSION, pack.case_description, pack.sources.map((x) => [x.id, x.title, x.content, x.metadata]), pack.tasks.map((t) => [t.id, t.title, t.status, t.priority, t.description])])).digest('hex');
       if (!force) {
@@ -203,7 +207,7 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
       }
     }
     try {
-      result = { ai: await generate(pack), evidence, limitations, counts, documents, activity, pack };
+      result = { ai: await generate(pack), evidence, limitations, counts, documents, activity, integrations, pack };
       reducedTo = factor < 1 ? factor : null;
       break;
     } catch (err) {
@@ -212,7 +216,7 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
       throw err;
     }
   }
-  const { ai, evidence, limitations, counts, documents, activity, pack: sentPack } = result;
+  const { ai, evidence, limitations, counts, documents, activity, integrations, pack: sentPack } = result;
   const contentOfDocs = sentPack.sources.filter((x) => x.provider === 'document').map((x) => [x.id, x.content]);
   if (reducedTo) limitations.push(`The AI request was reduced to ${Math.round(reducedTo * 100)}% of the normal context to fit the provider’s limit.`);
   const knownPaths = new Set(snapshots.flatMap((s) => s.fileManifest.map((f) => f.path)));
@@ -220,7 +224,7 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
   const sections = new Map();
   let removedUnverified = 0; let removedUnknownRef = 0;
   for (const section of Array.isArray(ai.sections) ? ai.sections : []) {
-    if (!SECTION_ORDER.includes(section?.key) || ['important_files', 'setup', 'links', 'coverage', 'documents', 'open_items', 'recent_activity'].includes(section.key) || sections.has(section.key)) continue;
+    if (!SECTION_ORDER.includes(section?.key) || ['important_files', 'setup', 'links', 'coverage', 'documents', 'open_items', 'jira_items', 'recent_activity'].includes(section.key) || sections.has(section.key)) continue;
     const items = [];
     for (const claim of Array.isArray(section.claims) ? section.claims : []) {
       if (typeof claim?.text !== 'string' || !claim.text.trim()) continue;
@@ -242,6 +246,7 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
 
   const evidenceById = new Map([...evidence.entries()]);
   const det = deterministicSections({ snapshots, connections: connById, syncByRepo, evidenceById, freshnessByRepo });
+  for (const i of integrations || []) det.coverage.push({ text: `${i.label}: sync ${i.sync.status || 'pending'}${i.sync.lastSuccessAt ? `, last successful ${new Date(i.sync.lastSuccessAt).toISOString()}` : ', never completed successfully'}${i.sync.error ? ` (${String(i.sync.error).slice(0, 120)})` : ''}.`, kind: i.sync.status === 'completed' ? 'fact' : 'unknown', evidence: [] });
   for (const [key, items] of Object.entries(det)) sections.set(key, { key, title: SECTION_TITLES[key], origin: 'deterministic', items });
   for (const [key, items] of Object.entries(activitySections(activity))) sections.set(key, { key, title: SECTION_TITLES[key], origin: 'deterministic', items });
   sections.set('documents', { key: 'documents', title: SECTION_TITLES.documents, origin: 'deterministic', items: documentSection({ documents, evidence }) });

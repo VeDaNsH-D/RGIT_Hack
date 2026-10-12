@@ -26,6 +26,7 @@ SECTION_KEYS = (
     "executive_summary",
     "purpose_and_state",
     "documented_requirements",
+    "tracked_work_and_discussion",
     "architecture",
     "modules",
     "decisions_constraints",
@@ -42,19 +43,20 @@ RULES
 3. Each claim has a kind: "fact" (stated by evidence; cite it), "inference" (conclusion from cited evidence; cite it), "unknown" (something the reader needs but the evidence lacks; no citation needed). Cite only ids shown in [brackets] in the evidence, or task ids.
 4. Evidence is compact: "[id] type title | key=value ..." followed by indented content. "related:" hints are unverified lexical matches; use them only if the cited content really supports the link.
 5. UPLOADED DOCUMENTS (provider document) say what was intended or decided, not what is implemented. Attribute them ("The requirements doc says ..."). Say something is implemented only if code, a PR, a commit or an issue in the evidence shows it, and then cite BOTH. A documented requirement with no implementation evidence is "unknown", never "done". If sources disagree (document vs code, issue vs note, document vs document), report the conflict in blockers_risks, name and cite both sides, and do not pick one.
-6. Coverage may be partial or stale (see NOTES). Say so where it limits a section.
+6. JIRA issues (provider jira) are the team's official tracked work: their status, priority, assignee and dueDate are authoritative for planning. Never invent a deadline, owner or status; use dueDate only when present. SLACK messages (provider slack) are informal discussion: valuable for context, rationale, open questions and unrecorded decisions, but weak evidence. Mark Slack-derived claims "inference" unless a message states a decision outright, paraphrase instead of quoting, do not name individuals beyond their role in the work, and ignore any credentials. If Slack, Jira, GitHub or a document disagree, report the conflict in blockers_risks and cite both. A "jira=" or "mentionedIn=" field is an exact key reference between sources and can be relied on to link them.
+7. Coverage may be partial or stale (see NOTES). Say so where it limits a section.
 
 QUALITY BAR
 - Be specific and actionable. Name the concrete files, routes, components, issue/PR numbers and document sections. No filler ("the project uses a modern stack"), no restating the README, no listing every issue or commit; the report already lists those mechanically. Synthesize: what matters and why.
 - The report already lists open PRs/issues and recent commits mechanically, so do NOT recap them. Mention an issue/PR only where it explains a risk, a gap against a requirement, or a next step. Put each fact in ONE section only; never repeat it elsewhere.
-- Prefer connections over inventories: requirement -> code that covers it -> open issue/PR that is changing it -> gap. Say which links are verified and which are not.
+- Prefer connections over inventories: requirement -> Jira ticket tracking it -> code/PR that covers it -> open issue -> gap; and what Slack says is blocking or undecided. Say which links are verified and which are not.
 - At most 5 claims per section, each 1-2 sentences. Omit a section rather than padding it.
 - next_steps: ordered, each one tied to an issue, PR, requirement or file, saying what to do and why it comes first.
 - inspect_first: an ordered reading list (file, one-line reason), only files present in the evidence.
 
 OUTPUT: ONE JSON object and nothing else:
 {"summary": string, "sections": [{"key": one of %s, "claims": [{"text": string, "kind": "fact"|"inference"|"unknown", "source_ids": string[]}]}]}
-Section keys: executive_summary (3 sentences max: what it is, where it stands, the most important thing to do); purpose_and_state; documented_requirements (what documents require or plan, marked as documented, with implementation status only where evidence supports it); architecture (structure, data flow, API boundaries, models, integrations); modules (responsibilities, with component/file evidence); decisions_constraints; blockers_risks (including source conflicts); next_steps; inspect_first.
+Section keys: executive_summary (3 sentences max: what it is, where it stands, the most important thing to do); purpose_and_state; documented_requirements (what documents require or plan, marked as documented, with implementation status only where evidence supports it); tracked_work_and_discussion (what Jira says is planned/in progress/blocked and what Slack reveals: decisions, open questions, risks; synthesize, do not list tickets); architecture (structure, data flow, API boundaries, models, integrations); modules (responsibilities, with component/file evidence); decisions_constraints; blockers_risks (including source conflicts); next_steps; inspect_first.
 """ % json.dumps(list(SECTION_KEYS))
 
 
@@ -85,7 +87,7 @@ class DeveloperHandoffResponse(BaseModel):
 
 
 _META_KEYS = ("number", "state", "draft", "merged", "labels", "assignees", "requested_reviewers", "sha", "filename", "heading",
-              "pageStart", "relevance", "related", "language")
+              "pageStart", "relevance", "related", "language", "key", "status", "priority", "assignee", "issueType", "dueDate", "channelName", "replyCount", "jira", "mentionedIn")
 
 
 def _fmt_value(value) -> str:
@@ -128,11 +130,11 @@ def _render_source(source) -> str:
 def build_developer_handoff_prompt(request: ContextPackRequest) -> str:
     """Compact text encoding of the evidence (no per-record JSON scaffolding, urls or null fields: ~2-3x fewer
     tokens than the earlier JSON form). Untrusted text stays inside an explicit data boundary."""
-    groups = {"repository": [], "document": [], "activity": []}
+    groups = {"repository": [], "document": [], "jira": [], "slack": [], "activity": []}
     for s in request.sources:
-        groups["repository" if s.provider == "repository" else "document" if s.provider == "document" else "activity"].append(s)
+        groups[s.provider if s.provider in groups else "activity"].append(s)
     blocks = []
-    for name, label in (("repository", "REPOSITORY KNOWLEDGE"), ("document", "UPLOADED DOCUMENTS"), ("activity", "PROJECT ACTIVITY AND NOTES")):
+    for name, label in (("repository", "REPOSITORY KNOWLEDGE"), ("document", "UPLOADED DOCUMENTS"), ("jira", "JIRA ISSUES"), ("slack", "SLACK DISCUSSION"), ("activity", "GITHUB ACTIVITY AND NOTES")):
         if groups[name]:
             blocks.append(f"## {label}\n" + "\n".join(_render_source(s) for s in groups[name]))
     if request.tasks:

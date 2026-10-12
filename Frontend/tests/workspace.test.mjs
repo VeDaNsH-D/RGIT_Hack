@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { createServer } from 'vite'
 
-let McpAuthorizePage, NotificationBell, notificationLinks, InvitationPage, oauth, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout, DeveloperHandoffView, analysisHelpers, ReportBody, AiProjectContextView, workflow, AiDraftPanel, RepositoryActivityView, ConnectedRepositoriesView, GitHubRepositoryPicker, ProjectDocumentsView, documentHelpers, documentsApi
+let McpAuthorizePage, NotificationBell, notificationLinks, InvitationPage, oauth, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout, DeveloperHandoffView, analysisHelpers, ReportBody, AiProjectContextView, workflow, AiDraftPanel, RepositoryActivityView, ConnectedRepositoriesView, GitHubRepositoryPicker, ProjectDocumentsView, documentHelpers, documentsApi, ConnectedJiraProjectsView, isJiraKey
 const storage = new Map()
 const originalWindow = globalThis.window
 const originalStorage = globalThis.sessionStorage
@@ -45,6 +45,8 @@ before(async () => {
   analysisHelpers = await server.ssrLoadModule('/src/workspace/analysisHelpers.js')
   ;({ HandoffReportBody: ReportBody } = await server.ssrLoadModule('/src/workspace/HandoffReportPreview.jsx'))
   ;({ ProjectDocumentsView } = await server.ssrLoadModule('/src/workspace/ProjectDocuments.jsx'))
+  ;({ ConnectedJiraProjectsView } = await server.ssrLoadModule('/src/workspace/ConnectedJiraProjects.jsx'))
+  ;({ isJiraKey } = await server.ssrLoadModule('/src/workspace/jiraHelpers.js'))
   documentHelpers = await server.ssrLoadModule('/src/workspace/documentHelpers.js')
   documentsApi = await server.ssrLoadModule('/src/api/documents.js')
   ;({ AiDraftPanel } = await server.ssrLoadModule('/src/workspace/AiDraftPanel.jsx'))
@@ -475,4 +477,33 @@ test('handoff report shows document sources next to GitHub sources, typed, with 
   assert.match(html, /<button[^>]*>Document &quot;Spec&quot; &gt; CORS, p\. 2<\/button>/); assert.match(html, /ref d1:0/)
   assert.match(html, /href="https:\/\/github.com\/acme\/relay\/issues\/8"/)
   assert.doesNotMatch(html, /href="[^"]*documents/)
+})
+
+
+const jiraView = props => renderToString(React.createElement(MemoryRouter, null, React.createElement(ConnectedJiraProjectsView, { state: 'ready', links: [], canManage: true, canSync: true, jiraConnected: true, keyInput: '', onKeyInput() {}, onLink() {}, onSync() {}, onAskRemove() {}, onCancel() {}, onRemove() {}, ...props })))
+
+test('jira projects: empty state with a key form, or a connect prompt when the account is not connected', () => {
+  assert.match(jiraView(), /No Jira project linked yet/); assert.match(jiraView(), /Link Jira project/)
+  const disconnected = jiraView({ jiraConnected: false })
+  assert.match(disconnected, /Connect Jira/); assert.doesNotMatch(disconnected, /Link Jira project/)
+  assert.doesNotMatch(jiraView({ canManage: false }), /Link Jira project/)
+  assert.equal(isJiraKey('PAY'), true); assert.equal(isJiraKey('pay'), false); assert.equal(isJiraKey('P'), false)
+  assert.match(jiraView({ keyInput: 'x-1' }), /such as PROJ/)
+})
+
+test('jira projects: linked rows show status, counts, errors and the unlink confirmation', () => {
+  const ok = { id: 'j1', projectKey: 'PAY', siteName: 'Acme', sync: { status: 'completed', lastSuccessAt: '2026-10-10T10:00:00Z', syncedIssueCount: 12 } }
+  const html = jiraView({ links: [ok] })
+  assert.match(html, /Jira project PAY/); assert.match(html, />Synced</); assert.match(html, /12 issues available to handoffs/); assert.match(html, /Sync now/); assert.match(html, />Unlink</)
+  const failed = jiraView({ links: [{ ...ok, sync: { status: 'failed', error: 'Jira rejected the credentials.' } }] })
+  assert.match(failed, /Sync failed/); assert.match(failed, /Jira rejected the credentials/); assert.doesNotMatch(failed, /issues available/)
+  assert.match(jiraView({ links: [ok], confirmingId: 'j1' }), /removed from this project and future handoffs/)
+  assert.doesNotMatch(jiraView({ links: [ok], canManage: false, canSync: false }), /Unlink|Sync now/)
+})
+
+test('handoff report distinguishes Jira and Slack sources', () => {
+  const report = { projectId: 'p1', projectName: 'Relay', generatedAt: '2026-01-02T10:00:00Z', limitations: [], repositories: [], sections: [{ key: 'tracked_work_and_discussion', title: 'Tracked work and team discussion (Jira, Slack)', items: [{ text: 'PAY-12 is in progress.', kind: 'fact', evidence: [
+    { id: 'j', type: 'jira_issue', label: 'Jira PAY-12', url: 'https://acme.atlassian.net/browse/PAY-12' }, { id: 's', type: 'slack_message', label: 'Slack #payments 2026-10-01', url: null }] }] }] }
+  const html = renderToString(React.createElement(ReportBody, { report }))
+  assert.match(html, /Jira issue/); assert.match(html, /Slack message/); assert.match(html, /href="https:\/\/acme.atlassian.net\/browse\/PAY-12"/)
 })

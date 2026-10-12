@@ -21,6 +21,8 @@ import { ACTIVITY_KINDS, listActivity, repositoryStats } from '../services/githu
 import { RepositoryError, linkRepository, resolveAccessibleRepository, serializeConnection } from '../services/githubRepositoryService.js';
 import { SourceConnection } from '../models/SourceConnection.js';
 import { SlackConnection } from '../models/SlackConnection.js';
+import { JiraConnection } from '../models/JiraConnection.js';
+import { JIRA_KEY, serializeJiraLink, syncJiraLink } from '../services/jiraProjectSync.js';
 import { SlackConnector } from '../modules/ingestion/providers/slack/slackConnector.js';
 import { persistSourceRecordCandidates } from '../modules/ingestion/persistence/sourceRecordStore.js';
 import { NotificationModel as Notification } from '../models/Notification.js';
@@ -96,9 +98,11 @@ router.get('/:id/integrations', requireAuth, attachProject(), requireRole('viewe
     const rows = await SourceConnection.find({ projectId: req.project._id, provider: 'github' }).sort({ createdAt: 1 }).lean();
     const stats = await repositoryStats(req.project._id, rows.map((r) => r.config?.repositoryId).filter(Number.isSafeInteger));
     const slackRows = await SourceConnection.find({ projectId: req.project._id, provider: 'slack' }).sort({ createdAt: 1 }).lean();
+    const jiraRows = await SourceConnection.find({ projectId: req.project._id, provider: 'jira' }).sort({ createdAt: 1 }).lean();
     res.json({
       integrations: {
         github: rows.map((r) => serializeConnection(r, stats.get(r.config?.repositoryId))),
+        jira: jiraRows.map(serializeJiraLink),
         slack: slackRows.map((r) => ({
           id: String(r._id),
           channelId: r.config?.channelId,
@@ -265,6 +269,45 @@ router.post('/:id/integrations/slack', requireAuth, attachProject(), requireRole
         },
       },
     });
+  } catch (err) { next(err); }
+});
+
+/** Links one Jira project key to this Relay project (owner) using the owner's own Jira connection, then syncs it. */
+router.post('/:id/integrations/jira', requireAuth, attachProject(), requireRole('owner'), async (req, res, next) => {
+  try {
+    const projectKey = String(req.body?.projectKey || '').trim().toUpperCase();
+    if (!JIRA_KEY.test(projectKey)) return res.status(400).json({ error: 'validation_error', message: 'Enter a Jira project key such as PROJ.' });
+    const jiraConn = await JiraConnection.findOne({ userId: req.user._id, active: true });
+    if (!jiraConn) return res.status(400).json({ error: 'not_connected', message: 'Jira is not connected. Connect Jira in Connections first.' });
+    let link = await SourceConnection.findOne({ projectId: req.project._id, provider: 'jira', 'config.projectKey': projectKey });
+    if (!link) link = new SourceConnection({ projectId: req.project._id, provider: 'jira', connectedBy: req.user._id, config: { projectKey, sync: { status: 'syncing' } } });
+    else link.connectedBy = req.user._id;
+    await link.save();
+    await syncJiraLink(link);
+    await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'PROJECT_UPDATED', targetType: 'Project', targetId: req.project._id, payload: { jiraProject: projectKey } });
+    res.status(201).json({ integration: { jira: serializeJiraLink(link) } });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/integrations/jira/:connectionId/sync', requireAuth, attachProject(), requireRole('member'), async (req, res, next) => {
+  try {
+    if (!/^[a-f0-9]{24}$/i.test(req.params.connectionId)) return res.status(400).json({ error: 'validation_error', message: 'Invalid connection id' });
+    const link = await SourceConnection.findOne({ _id: req.params.connectionId, projectId: req.project._id, provider: 'jira' });
+    if (!link) return res.status(404).json({ error: 'not_found', message: 'Jira connection not found' });
+    await syncJiraLink(link);
+    res.json({ integration: { jira: serializeJiraLink(link) } });
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id/integrations/jira/:connectionId', requireAuth, attachProject(), requireRole('owner'), async (req, res, next) => {
+  try {
+    if (!/^[a-f0-9]{24}$/i.test(req.params.connectionId)) return res.status(400).json({ error: 'validation_error', message: 'Invalid connection id' });
+    const removed = await SourceConnection.findOneAndDelete({ _id: req.params.connectionId, projectId: req.project._id, provider: 'jira' }).lean();
+    if (!removed) return res.status(404).json({ error: 'not_found', message: 'Jira connection not found' });
+    // Issues of the unlinked Jira project stop feeding this project's handoffs.
+    await SourceRecord.deleteMany({ projectId: req.project._id, provider: 'jira', externalId: { $regex: `^${removed.config.projectKey}-\\d+$` } });
+    await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'PROJECT_UPDATED', targetType: 'Project', targetId: req.project._id, payload: { jiraProjectRemoved: removed.config?.projectKey } });
+    res.json({ removed: true });
   } catch (err) { next(err); }
 });
 
