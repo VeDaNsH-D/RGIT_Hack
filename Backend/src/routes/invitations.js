@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { attachProject, requireRole } from '../middleware/access.js';
 import { ProjectInvitation } from '../models/ProjectInvitation.js';
 import { ProjectMembership } from '../models/ProjectMembership.js';
+import { ProjectOnboarding } from '../models/ProjectOnboarding.js';
 import { Project } from '../models/Project.js';
 import { User } from '../models/User.js';
 import { config } from '../config.js';
@@ -67,6 +68,7 @@ router.post('/invitations/accept', requireAuth, handle(async (req, res) => {
   // Insert only: an invite must never overwrite an existing member or owner role.
   await ProjectMembership.updateOne({ projectId: project._id, userId: user._id }, { $setOnInsert: { projectId: project._id, userId: user._id, role: invitation.role, invitedBy: invitation.invitedBy } }, { upsert: true });
   if (invitation.status !== 'accepted') await logActivity({ projectId: project._id, actorId: user._id, action: 'INVITATION_ACCEPTED', targetType: 'ProjectInvitation', targetId: invitation._id, payload: { role: invitation.role } });
-  res.json({ projectId: String(project._id), accepted: true });
+  const onboarding = await ProjectOnboarding.findOneAndUpdate({ projectId: project._id, email: invitation.email.toLowerCase() }, { $set: { userId: user._id } }, { new: true });
+  res.json({ projectId: String(project._id), accepted: true, onboardingId: onboarding ? String(onboarding._id) : null });
 }));
 export default router;
