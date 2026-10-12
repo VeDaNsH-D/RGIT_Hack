@@ -70,6 +70,10 @@ export class WhatsAppWebSeleniumAdapter {
       candidate = await this.phoneResolver(notification.recipientUserId);
     }
 
+    if (!candidate && this.config.defaultPhone) {
+      candidate = this.config.defaultPhone;
+    }
+
     if (!candidate) {
       throw new InvalidRecipientError(
         `Recipient phone number not found for user '${notification.recipientUserId}'. An international phone number with country code is required.`

@@ -75,5 +75,6 @@ export const config = {
     headless: process.env.WHATSAPP_WEB_HEADLESS === 'true',
     navigationTimeoutMs: Number(process.env.WHATSAPP_WEB_NAVIGATION_TIMEOUT_MS) || 30000,
     actionTimeoutMs: Number(process.env.WHATSAPP_WEB_ACTION_TIMEOUT_MS) || 15000,
+    defaultPhone: process.env.WHATSAPP_WEB_DEFAULT_PHONE || '+919021875564',
   },
 };

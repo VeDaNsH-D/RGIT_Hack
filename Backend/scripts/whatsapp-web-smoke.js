@@ -52,11 +52,13 @@ async function main() {
     process.exit(0);
   }
 
-  const phone = await askQuestion(
-    'Enter authorized recipient phone number with country code (e.g., +14155552671): '
+  const defaultPhone = config.defaultPhone || '+919021875564';
+  const phoneInput = await askQuestion(
+    `Enter authorized recipient phone number with country code [default: ${defaultPhone}]: `
   );
+  const phone = phoneInput.trim() || defaultPhone;
 
-  if (!phone || !phone.trim().startsWith('+')) {
+  if (!phone || !phone.startsWith('+')) {
     console.error('\n[ERROR] Phone number must be in international E.164 format starting with +.');
     rl.close();
     process.exit(1);

@@ -40,6 +40,8 @@ export function resolveWhatsAppConfig(rawConfig = {}) {
     rawConfig.authCheckTimeoutMs ?? env.WHATSAPP_WEB_AUTH_CHECK_TIMEOUT_MS ?? 10000
   );
 
+  const defaultPhone = rawConfig.defaultPhone || env.WHATSAPP_WEB_DEFAULT_PHONE || '+919021875564';
+
   const resolved = {
     enabled,
     browser,
@@ -48,6 +50,7 @@ export function resolveWhatsAppConfig(rawConfig = {}) {
     navigationTimeoutMs,
     actionTimeoutMs,
     authCheckTimeoutMs,
+    defaultPhone,
   };
 
   validateWhatsAppConfig(resolved);
