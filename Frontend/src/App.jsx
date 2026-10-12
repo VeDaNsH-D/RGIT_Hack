@@ -1,122 +1,15 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
-
-function App() {
-  const [count, setCount] = useState(0)
-
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+import { useState } from 'react';
+import AuthForm from './components/AuthForm';
+import Workflow from './components/Workflow';
+import ContinuityBranch from './components/ContinuityBranch';
+import BrandIcon from './components/BrandIcon';
+import './App.css';
+export default function App() {
+  const [mode, setMode] = useState(window.location.hash === '#signin' ? 'login' : 'register');
+  const [session, setSession] = useState(null);
+  function switchMode(next) {
+    setMode(next);
+    window.history.replaceState(null, '', next === 'login' ? '#signin' : '#signup');
+  }
+  return <div className="page-shell"><header><a className="brand" href="#signup" onClick={() => switchMode('register')}><BrandIcon />Over2u<span className="brand-dot">.</span></a><span className="header-note">Good work deserves a seamless handoff.</span><button className="header-signin" onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Create an account' : 'Sign in'} ↗</button></header><main className="signup-layout"><section className="hero-copy"><div className="eyebrow"><i /> CONTEXT GOES WITH YOU</div><h1>Never lose context.<br />Never miss<br className="desktop-break" /> a handoff<span>.</span></h1><p className="hero-description">Over2u brings cases, decisions, tasks, and AI-powered insights together so every handoff starts with the context your team needs.</p><div className="continuity-section"><ContinuityBranch /><div className="feature"><span className="feature-icon" aria-hidden="true">⇄</span><div><h2>Built for Team Continuity</h2><p>Keep ownership clear, preserve critical knowledge, and move work forward without starting from scratch.</p><a href="#workflow">Discover how Over2u works →</a></div></div></div></section><Workflow /><section className="form-panel" aria-label="Over2u account">{session ? <div className="success-state" role="status"><span>✓</span><h2>{mode === 'register' ? 'Your account is ready.' : 'Welcome back.'}</h2><p>You’re signed in as <strong>{session.user.name}</strong>. Your Over2u session is active.</p></div> : <AuthForm key={mode} mode={mode} onSwitch={switchMode} onAuthenticated={setSession} />}</section></main><footer><span>© {new Date().getFullYear()} Over2u</span><span>A little less friction. A lot more continuity.</span><span className="footer-status">● Built to keep work moving</span></footer></div>;
 }
-
-export default App
