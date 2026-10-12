@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { createServer } from 'vite'
 
-let McpAuthorizePage, NotificationBell, notificationLinks, InvitationPage, oauth, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout, DeveloperHandoffView, analysisHelpers, ReportBody, AiProjectContextView, workflow, AiDraftPanel, RepositoryActivityView, ConnectedRepositoriesView, GitHubRepositoryPicker
+let treeLayout, WorkTreeCanvas, McpAuthorizePage, NotificationBell, notificationLinks, InvitationPage, oauth, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout, DeveloperHandoffView, analysisHelpers, ReportBody, AiProjectContextView, workflow, AiDraftPanel, RepositoryActivityView, ConnectedRepositoriesView, GitHubRepositoryPicker
 const storage = new Map()
 const originalWindow = globalThis.window
 const originalStorage = globalThis.sessionStorage
@@ -33,6 +33,8 @@ before(async () => {
   ;({ default: HandoffDetailPage } = await server.ssrLoadModule('/src/workspace/HandoffDetailPage.jsx'))
   ;({ default: ConnectionsPage, ConnectionsView } = await server.ssrLoadModule('/src/workspace/ConnectionsPage.jsx'))
   ;({ default: InvitationPage } = await server.ssrLoadModule('/src/pages/InvitationPage.jsx'))
+  ;({ WorkTreeCanvas } = await server.ssrLoadModule('/src/workspace/ProjectWorkTree.jsx'))
+  treeLayout = await server.ssrLoadModule('/src/workspace/workTreeLayout.js')
   ;({ default: McpAuthorizePage } = await server.ssrLoadModule('/src/workspace/McpAuthorizePage.jsx'))
   ;({ default: NotificationBell } = await server.ssrLoadModule('/src/workspace/NotificationBell.jsx'))
   notificationLinks = await server.ssrLoadModule('/src/workspace/notificationLinks.js')
@@ -416,4 +418,20 @@ test('AI errors distinguish unreadable output, token limits, and missing keys fr
   assert.equal(workflow.describeDraftError(e(502, 'AI_SERVICE_HTTP_ERROR', 'AI service rejected request (502): Error code: 413 - Request too large ... tokens per minute')).kind, 'too_large')
   assert.match(workflow.describeDraftError(e(503, 'AI_SERVICE_HTTP_ERROR', 'GROQ_API_KEY is not configured')).message, /GROQ_API_KEY/)
   assert.equal(workflow.describeDraftError(e(502, 'AI_SERVICE_CONNECTION_ERROR', 'Failed to connect')).kind, 'unavailable')
+})
+
+test('working tree lays out real events by branch and renders read-only activity cards', () => {
+  const nodes = [
+    { id: 'one', category: 'team', label: 'Teammate joined', actor: 'Sam', occurredAt: '2026-01-01T12:00:00Z', kind: 'action', status: 'completed' },
+    { id: 'two', category: 'development', label: 'Code pushed', description: 'team/repo', occurredAt: '2026-01-02T12:00:00Z', kind: 'trigger', status: 'completed' },
+    { id: 'three', category: 'team', label: 'Invitation sent', actor: 'Alex', occurredAt: '2026-01-03T12:00:00Z', kind: 'action', status: 'completed' },
+  ]
+  const graph = treeLayout.layoutWorkTree({ name: 'Launch', createdAt: '2026-01-01' }, nodes, [{ id: 'team', label: 'Team', color: '#c99cf5' }, { id: 'development', label: 'Development', color: '#ffc06b' }])
+  assert.equal(graph.nodes.filter(node => node.kind !== 'lane').length, 3)
+  assert.equal(graph.edges.length, 5)
+  assert.ok(graph.nodes.find(node => node.id === 'three').y > graph.nodes.find(node => node.id === 'one').y)
+  for (const edge of graph.edges) assert.doesNotMatch(treeLayout.treeEdgePath(edge), /NaN|undefined/)
+  const html = renderToString(React.createElement(WorkTreeCanvas, { graph, selected: 'two', onSelect() {} }))
+  assert.match(html, /Teammate joined/); assert.match(html, /Code pushed/); assert.match(html, /aria-pressed="true"/)
+  assert.doesNotMatch(html, /draggable=|Add node|Execute workflow/)
 })

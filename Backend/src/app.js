@@ -18,6 +18,7 @@ import handoffsRouter from './routes/handoffs.js';
 import conflictsRouter from './routes/conflicts.js';
 import connectionsRouter from './routes/connections.js';
 import repositoryKnowledgeRouter from './routes/repositoryKnowledge.js';
+import workTreeRouter from './routes/worktree.js';
 import githubWebhookRouter from './routes/githubWebhook.js';
 import cronRouter from './routes/cron.js';
 import { notificationRouter } from './notifications/routes.js';
@@ -66,6 +67,7 @@ app.use('/api/projects', ingestionRouter);
 app.use('/api/projects', notionRouter);
 app.use('/api', invitationsRouter);
 app.use('/api/projects', repositoryKnowledgeRouter);
+app.use('/api/projects', workTreeRouter);
 // notesRouter and tasksRouter each define both a /projects/:id/... path and
 // a flat /notes/:id or /tasks/:id path, so they're mounted at /api rather
 // than /api/projects.

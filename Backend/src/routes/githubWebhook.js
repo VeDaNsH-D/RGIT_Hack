@@ -5,6 +5,8 @@ import { GitHubInstallation } from '../models/GitHubInstallation.js';
 import { GitHubWebhookDelivery } from '../models/GitHubWebhookDelivery.js';
 import { SourceConnection } from '../models/SourceConnection.js';
 import { syncConnection } from '../services/githubSyncEngine.js';
+import { logActivity } from '../audit/service.js';
+import { ActivityEvent } from '../models/ActivityEvent.js';
 
 /**
  * POST /api/webhooks/github  (configure as the GitHub App's webhook URL, content type application/json)
@@ -52,7 +54,13 @@ router.post('/github', async (req, res) => {
       await GitHubInstallation.updateMany({ installationId: payload.installation.id }, { $set: { status: 'active' } });
     } else if (SYNC_EVENTS.has(event) && Number.isSafeInteger(payload.repository?.id) && Number.isSafeInteger(payload.installation?.id)) {
       // Only connections made through THIS installation are touched.
-      const connections = await SourceConnection.find({ provider: 'github', 'config.repositoryId': payload.repository.id, 'config.installationId': payload.installation.id }).select('_id').lean();
+      const connections = await SourceConnection.find({ provider: 'github', 'config.repositoryId': payload.repository.id, 'config.installationId': payload.installation.id }).select('_id projectId').lean();
+      for (const projectId of new Set(connections.map(connection => String(connection.projectId)))) {
+        const action = `GITHUB_${event.toUpperCase()}_RECEIVED`;
+        if (!await ActivityEvent.exists({ projectId, action, 'payload.deliveryId': deliveryId })) {
+          await logActivity({ projectId, actorType: 'system', action, targetType: 'Project', targetId: projectId, payload: { deliveryId, repository: String(payload.repository.full_name || '').slice(0, 160), branch: String(payload.ref || '').replace(/^refs\/heads\//, '').slice(0, 120), sha: String(payload.after || '').slice(0, 40), commitCount: Array.isArray(payload.commits) ? payload.commits.length : 0 } });
+        }
+      }
       await SourceConnection.updateMany({ _id: { $in: connections.map((c) => c._id) } }, { $set: { 'config.sync.staleAt': new Date(), ...(event === 'push' ? { 'config.analysis.staleAt': new Date() } : {}) } });
       for (const c of connections) syncConnection(c._id).catch(() => {}); // outcome is recorded on the connection itself
       return res.status(202).json({ ok: true, connections: connections.length });

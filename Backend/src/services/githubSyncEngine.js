@@ -7,6 +7,7 @@ import { fetchGitHubRepositoryData } from '../modules/ingestion/providers/github
 import { GITHUB_ERROR_CODES, GitHubApiError } from '../modules/ingestion/providers/github/githubErrors.js';
 import { persistSourceRecordCandidates } from '../modules/ingestion/persistence/sourceRecordStore.js';
 import { INGESTION_STATUS } from '../modules/ingestion/contracts/sourceRecord.js';
+import { logActivity } from '../audit/service.js';
 
 /**
  * Synchronization engine for one project <-> repository association (a GitHub SourceConnection).
@@ -111,7 +112,13 @@ export async function syncConnection(connectionId, { now = () => new Date() } = 
 
   const cfg = locked.config || {};
   const previous = cfg.sync || {};
-  const fail = (code, errors) => finishRun(connectionId, runId, { status: 'failed', errors: errors || [safeError('repository', code)], lastAttemptAt: startedAt });
+  const recordRun = action => logActivity({ projectId: locked.projectId, actorType: 'system', action, targetType: 'SourceConnection', targetId: locked._id, payload: { repository: cfg.fullName, runId } });
+  await recordRun('REPOSITORY_SYNC_STARTED');
+  const fail = async (code, errors) => {
+    const result = await finishRun(connectionId, runId, { status: 'failed', errors: errors || [safeError('repository', code)], lastAttemptAt: startedAt });
+    await recordRun('REPOSITORY_SYNC_FAILED');
+    return result;
+  };
 
   try {
     const install = await GitHubInstallation.findOne({ userId: locked.connectedBy, installationId: cfg.installationId, status: 'active' }).lean();
@@ -155,6 +162,7 @@ export async function syncConnection(connectionId, { now = () => new Date() } = 
     };
     if (status === 'completed') { fields.lastSuccessAt = now(); fields.cursor = startedAt; }
     const updated = await finishRun(connectionId, runId, fields);
+    await recordRun(`REPOSITORY_SYNC_${status.toUpperCase()}`);
     // Keep display metadata fresh (renames, visibility changes); the stable id never changes.
     if (updated && repository?.fullName && repository.fullName.includes('/')) {
       const [owner, repo] = repository.fullName.split('/');

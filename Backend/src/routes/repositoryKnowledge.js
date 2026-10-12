@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { logActivity } from '../audit/service.js';
 import { requireAuth } from '../middleware/auth.js';
 import { attachProject, requireRole } from '../middleware/access.js';
 import { SourceConnection } from '../models/SourceConnection.js';
@@ -35,6 +36,7 @@ router.post('/:id/integrations/github/:connectionId/analyze', requireAuth, attac
     const owned = await SourceConnection.exists({ _id: req.params.connectionId, projectId: req.project._id, provider: 'github' });
     if (!owned) return res.status(404).json({ error: 'not_found', message: 'Repository connection not found' });
     const doc = await analyzeConnection(req.params.connectionId, { force: req.body?.force === true });
+    await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'REPOSITORY_ANALYSIS_UPDATED', targetType: 'SourceConnection', targetId: doc._id, payload: { repository: doc.config?.fullName, status: doc.config?.analysis?.status } });
     res.json(await describe(doc));
   } catch (err) {
     if (err instanceof SyncError) return res.status(err.status).json({ error: err.code, message: err.message });
@@ -45,7 +47,9 @@ router.post('/:id/integrations/github/:connectionId/analyze', requireAuth, attac
 /** Generate a developer handoff report from repository knowledge + project activity. Not a team handoff. */
 router.post('/:id/handoff-reports', requireAuth, attachProject(), requireRole('member'), async (req, res, next) => {
   try {
-    res.status(201).json({ report: await generateDeveloperHandoffReport(req.project, req.user) });
+    const report = await generateDeveloperHandoffReport(req.project, req.user);
+    await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'HANDOFF_REPORT_GENERATED', targetType: 'HandoffReport', targetId: report.id, payload: { title: req.project.name } });
+    res.status(201).json({ report });
   } catch (err) {
     if (err instanceof ReportError || err instanceof DraftError) return res.status(err.status).json({ error: err.code, message: err.message });
     if (err instanceof AiServiceError) return res.status(err.status || 502).json({ error: err.code || 'ai_service_error', message: err.message });

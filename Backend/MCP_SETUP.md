@@ -178,6 +178,7 @@ Tools:
 | --- | --- |
 | list_projects | create_task |
 | get_project_context | update_task |
+| get_project_work_tree | |
 | list_tasks | add_project_note |
 | list_project_notes | create_handoff (draft only) |
 | list_source_records | |

@@ -120,3 +120,31 @@ The backend serves Streamable HTTP MCP at `http://localhost:8000/mcp`; the local
 bridge is `Backend/scripts/mcp-stdio.js`. See [MCP_SETUP.md](../Backend/MCP_SETUP.md)
 for the complete Codex/Claude Desktop configuration, private `.mcp.env` setup,
 tool list, HTTPS deployment, hosted OAuth sign-in and access-key alternatives.
+
+## Automatically updating working tree
+
+Each project page has a read-only Working tree with a dark grid, event cards,
+animated connectors, category filters, zoom, drag-to-pan, event details and a
+Latest event shortcut. It reads `/api/projects/:id/work-tree` every five seconds
+while the page is visible, and immediately on focus. There is no workflow editor
+or manual node creation: project audit events generate the nodes automatically.
+Connector lines show chronological activity within each branch, not inferred
+causal dependencies or an executable workflow.
+
+The tree includes invitations, teammates, tasks, notes, handoffs, documents,
+Notion, email workflow changes, MCP actions, repository syncs/analysis, and handoff
+reports. Unknown future project audit actions also appear automatically. Existing
+source records are labeled as imported evidence rather than invented past
+triggers. The initial window is the latest 100 audit events plus up to 40 imported
+sources; Load older events expands the audit window to 300. Activity persists
+across page refreshes, browser sessions, and backend restarts through MongoDB.
+MCP clients can read it with `get_project_work_tree`.
+
+For automatic GitHub push/issue/PR triggers, configure the GitHub App webhook URL
+as `<public-backend-origin>/api/webhooks/github` with JSON content and the same
+secret as `GITHUB_WEBHOOK_SECRET`. The repository must be linked to the project
+through that app installation. A development backend needs a reachable public
+URL/tunnel to receive real GitHub events; localhost cannot receive them directly.
+Deliveries are signature-checked and deduplicated before creating project events.
+Only current project members can read the tree; raw audit payloads, credentials,
+and source content are not returned by this endpoint.

@@ -32,6 +32,7 @@ test('real HTTP client discovers read tools, resources and prompts; only scoped 
   const tools=await readClient.listTools();assert.ok(tools.tools.some(tool=>tool.name==='get_project_context'));assert.ok(!tools.tools.some(tool=>tool.name==='create_task'));
   const result=await readClient.callTool({name:'list_projects',arguments:{}});assert.deepEqual(args(result).projects.map(project=>project.id),[projectId]);
   const context=await readClient.callTool({name:'get_project_context',arguments:{projectId}});assert.equal(context.isError,undefined);assert.equal(args(context).project.name,'MCP launch');
+  const tree=await readClient.callTool({name:'get_project_work_tree',arguments:{projectId}});assert.equal(args(tree).project.id,projectId);
   const resources=await readClient.listResourceTemplates();assert.match(resources.resourceTemplates[0].uriTemplate,/over2u/);
   const resource=await readClient.readResource({uri:`over2u://projects/${projectId}/context`});assert.equal(JSON.parse(resource.contents[0].text).project.name,'MCP launch');
   assert.ok((await readClient.listPrompts()).prompts.some(prompt=>prompt.name==='project_brief'));

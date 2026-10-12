@@ -5,6 +5,11 @@ import { User } from '../models/User.js';
 import mongoose from 'mongoose';
 import { Handoff } from '../models/Handoff.js';
 const actions = {
+  GITHUB_PUSH_RECEIVED: ['Code pushed', 'received a repository push'],
+  GITHUB_ISSUES_RECEIVED: ['GitHub issue updated', 'received an issue update'],
+  GITHUB_PULL_REQUEST_RECEIVED: ['Pull request updated', 'received a pull request update'],
+  REPOSITORY_SYNC_COMPLETED: ['Repository synced', 'synced repository activity'],
+  REPOSITORY_SYNC_FAILED: ['Repository sync failed', 'could not finish a repository sync'],
   INVITATION_ACCEPTED: ['Invitation accepted', 'accepted the invitation and joined the team'],
   INVITATION_SENT: ['Teammate invited', 'sent a teammate invitation'],
   INVITATION_REVOKED: ['Invitation cancelled', 'cancelled a teammate invitation'],

@@ -30,6 +30,7 @@ export function createProjectMcpServer({identity,apiBaseUrl}){
   });
   tool('list_projects','List only projects authorized for this MCP access key.',{},async()=>{const data=await api('/projects');return {projects:data.projects.filter(project=>allowed.has(project.id))};});
   tool('get_project_context','Read current members, tasks, project sources, decisions, conflicts and handoff context.',projectSchema,({projectId})=>api(`/projects/${projectId}/context`));
+  tool('get_project_work_tree','Read live project activity, including team changes, repository triggers, tasks and handoffs.',projectSchema,({projectId})=>api(`/projects/${projectId}/work-tree`));
   tool('list_tasks','List project tasks with pagination.',{...projectSchema,status:z.enum(['open','completed']).optional(),page:z.number().int().min(1).default(1)},({projectId,status,page})=>api(`/projects/${projectId}/tasks?${new URLSearchParams({page:String(page),limit:'50',...(status?{status}:{})})}`));
   tool('list_project_notes','Read project notes and decisions.',{...projectSchema,page:z.number().int().min(1).default(1)},({projectId,page})=>api(`/projects/${projectId}/notes?page=${page}&limit=50`));
   tool('list_source_records','List imported Notion, selected email, document and other source records. Read text using get_source_record.',{...projectSchema,page:z.number().int().min(1).default(1)},({projectId,page})=>api(`/projects/${projectId}/ingestion/source-records?page=${page}&limit=50`));
