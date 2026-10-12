@@ -2,6 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { config } from './config.js';
+import authRouter from './routes/auth.js';
+import projectsRouter from './routes/projects.js';
+import notesRouter from './routes/notes.js';
 
 export const app = express();
 
@@ -25,7 +28,14 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Route modules are mounted here in later steps (auth, projects, handoffs, ...).
+app.use('/api/auth', authRouter);
+app.use('/api/projects', projectsRouter);
+// notesRouter defines both /projects/:id/notes and /notes/:id, so it's
+// mounted at /api rather than /api/projects.
+app.use('/api', notesRouter);
+
+// Remaining route modules (handoffs, conflicts, cron, ...) are mounted here
+// in later steps.
 
 // 404 for unmatched API routes.
 app.use((req, res) => {
