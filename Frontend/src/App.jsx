@@ -5,6 +5,7 @@ import AuthPage from './components/AuthPage'
 import OAuthCallbackPage from './pages/OAuthCallbackPage'
 import WorkspaceLayout from './workspace/WorkspaceLayout'
 import { DashboardPage, ProjectsPage, ProjectDetailPage, TasksPage, HandoffsPage } from './workspace/WorkspacePages'
+import ConnectionsPage from './workspace/ConnectionsPage'
 import HandoffDetailPage from './workspace/HandoffDetailPage'
 import { AgoraRoom } from './components/AgoraRoom'
 import './App.css'
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/handoffs" element={<HandoffsPage />} />
           <Route path="/handoffs/:handoffId" element={<HandoffDetailPage />} />
+          <Route path="/connections" element={<ConnectionsPage />} />
           <Route path="/app" element={<Navigate to="/dashboard" replace />} />
         </Route>
         {/* Agora Real-Time Audio, Video, and Chat Routes */}
