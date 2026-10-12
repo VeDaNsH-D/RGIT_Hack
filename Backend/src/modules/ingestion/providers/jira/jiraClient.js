@@ -263,13 +263,15 @@ export class JiraClient {
    * @param {string} [jql=''] - JQL query string
    * @param {object} [options={}]
    * @param {number} [options.startAt=0] - Offset index for pagination
+   * @param {string} [options.nextPageToken] - Cursor token for pagination on /search/jql
    * @param {number} [options.maxResults=50] - Number of results per page
    * @param {string[]} [options.fields] - Fields to retrieve
    * @param {string[]} [options.expand] - Expand parameters
-   * @returns {Promise<{ issues: object[], startAt: number, maxResults: number, total: number }>}
+   * @returns {Promise<{ issues: object[], startAt?: number, nextPageToken?: string, isLast?: boolean, maxResults: number, total?: number }>}
    */
   async searchIssues(jql = '', {
     startAt = 0,
+    nextPageToken,
     maxResults = 50,
     fields = [
       'summary',
@@ -291,21 +293,35 @@ export class JiraClient {
     ],
     expand,
   } = {}) {
-    const query = {
+    const jqlQuery = {
       jql,
-      startAt,
       maxResults,
       fields,
     };
-    if (expand) query.expand = expand;
+    if (nextPageToken) {
+      jqlQuery.nextPageToken = nextPageToken;
+    } else if (startAt !== undefined && startAt !== null) {
+      jqlQuery.startAt = startAt;
+    }
+    if (expand) jqlQuery.expand = expand;
 
     try {
-      return await this._request('/search/jql', { method: 'GET', query });
+      return await this._request('/search/jql', { method: 'GET', query: jqlQuery });
     } catch (err) {
-      if (err.statusCode === 404 || err.statusCode === 410 || err.statusCode === 405) {
-        return await this._request('/search', { method: 'GET', query });
+      // If /search/jql fails (HTTP 400, 404, 405, 410, or server error), fallback to /search
+      const legacyQuery = {
+        jql,
+        startAt: typeof startAt === 'number' ? startAt : 0,
+        maxResults,
+        fields,
+      };
+      if (expand) legacyQuery.expand = expand;
+
+      try {
+        return await this._request('/search', { method: 'GET', query: legacyQuery });
+      } catch (fallbackErr) {
+        throw err || fallbackErr;
       }
-      throw err;
     }
   }
 

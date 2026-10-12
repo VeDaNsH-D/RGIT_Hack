@@ -100,6 +100,7 @@ function filesToLoad(snapshot, complexity) {
 
 const hasItems = (s) => s.items.length > 0;
 
+
 export async function generateDeveloperHandoffReport(project, user, { generate = callAi, force = false } = {}) {
   const connections = await SourceConnection.find({ projectId: project._id, provider: 'github' }).lean();
   const connById = new Map(connections.map((c) => [String(c._id), c]));

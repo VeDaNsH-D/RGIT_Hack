@@ -20,9 +20,18 @@ export class JiraLinkError extends Error {
 /** Connector for the credentials stored on a user's JiraConnection (OAuth or API token). */
 export async function connectorFor(conn) {
   if (conn.authType === 'oauth' || conn.cloudId) {
-    return new JiraConnector({ cloudId: conn.cloudId, accessToken: await getValidJiraAccessToken(conn) });
+    return new JiraConnector({
+      cloudId: conn.cloudId,
+      accessToken: await getValidJiraAccessToken(conn),
+      siteUrl: conn.siteUrl || conn.host,
+    });
   }
-  return new JiraConnector({ host: conn.host, email: conn.email, apiToken: conn.apiToken });
+  return new JiraConnector({
+    host: conn.host,
+    email: conn.email,
+    apiToken: conn.apiToken,
+    siteUrl: conn.siteUrl || conn.host,
+  });
 }
 
 /**
