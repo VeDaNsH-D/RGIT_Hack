@@ -3,7 +3,10 @@ import mongoose from 'mongoose';
 const schema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    apiKey: { type: String, required: true },
+    apiKey: { type: String, default: '' },
+    encryptedTokens: { type: String, default: '' },
+    authMethod: { type: String, enum: ['token', 'oauth'], default: 'token' },
+    workspaceId: { type: String, default: '' },
     pageId: { type: String, default: '' },
     databaseId: { type: String, default: '' },
     workspaceName: { type: String, default: '' },

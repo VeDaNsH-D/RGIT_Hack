@@ -73,3 +73,5 @@ export async function downloadHandoffPdf(projectId, reportId) {
   link.remove()
   setTimeout(() => URL.revokeObjectURL(url), 10000)
 }
+
+export const startNotionInstall = () => request('/connections/notion/install', { method: 'POST' })

@@ -24,7 +24,7 @@ before(async () => {
   globalThis.window = new EventTarget()
   window.location = { search: '' }
   globalThis.sessionStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) }
-  server = await createServer({ server: { middlewareMode: true, hmr: false, ws: false, watch: null }, appType: 'custom' })
+  server = await createServer({ envDir: false, server: { middlewareMode: true, hmr: false, ws: false, watch: null }, appType: 'custom' })
   api = await server.ssrLoadModule('/src/api/client.js')
   sessions = await server.ssrLoadModule('/src/auth/session.js')
   ;({ AuthContext } = await server.ssrLoadModule('/src/auth/AuthContext.js'))
@@ -523,4 +523,13 @@ test('handoff report distinguishes Jira and Slack sources', () => {
     { id: 'j', type: 'jira_issue', label: 'Jira PAY-12', url: 'https://acme.atlassian.net/browse/PAY-12' }, { id: 's', type: 'slack_message', label: 'Slack #payments 2026-10-01', url: null }] }] }] }
   const html = renderToString(React.createElement(ReportBody, { report }))
   assert.match(html, /Jira issue/); assert.match(html, /Slack message/); assert.match(html, /href="https:\/\/acme.atlassian.net\/browse\/PAY-12"/)
+})
+
+
+test('Notion offers browser authorization when OAuth is configured', () => {
+  const html = render(() => React.createElement(ConnectionsView, {
+    notion: { status: { connected: false, configured: true }, form: { apiKey: '', databaseId: '' }, setForm() {}, onInstall() {} },
+  }), '/connections')
+  assert.match(html, /Authorize with Notion/)
+  assert.match(html, /Use an integration token instead/)
 })

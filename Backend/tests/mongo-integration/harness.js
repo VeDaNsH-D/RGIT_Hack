@@ -20,6 +20,8 @@ process.env.MONGODB_URI = 'mongodb://127.0.0.1:1/never_used_test';
 process.env.JWT_SECRET = 'integration-test-jwt-secret-at-least-32-chars';
 process.env.CRON_SECRET = 'integration-test-cron-secret';
 process.env.NODE_ENV = 'test';
+// Keep AI calls isolated from a deployed URL configured in the developer's .env.
+process.env.AI_SERVICE_URL = 'http://127.0.0.1:8001';
 // Uploads in the real app write here (removed in stopMongo), never to a shared directory.
 export const STORAGE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-itest-docs-'));
 process.env.DOCUMENT_STORAGE_DIR = STORAGE_DIR;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   getGitHubStatus,
@@ -8,7 +8,6 @@ import {
   disconnectWhatsApp,
   getJiraStatus,
   startJiraInstall,
-  connectJira,
   disconnectJira,
   syncJira,
   getSlackStatus,
@@ -16,6 +15,7 @@ import {
   disconnectSlack,
   syncSlack,
   getNotionStatus,
+  startNotionInstall,
   connectNotion,
   disconnectNotion,
   syncNotion,
@@ -359,6 +359,9 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
           </>
         ) : (
           <div className="ws-connection-action" style={{ display: 'grid', gap: '10px' }}>
+            {notion.status?.configured && <button className="ws-button ws-button-primary" onClick={notion.onInstall} disabled={notion.connecting}>{notion.connecting ? 'Opening Notion…' : 'Authorize with Notion'}</button>}
+            {!notion.status?.configured && <p className="ws-muted">Notion OAuth credentials are not configured on this server.</p>}
+            <details><summary>Use an integration token instead</summary>
             <div style={{ display: 'grid', gap: '4px' }}>
               <label htmlFor="notion-token-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
                 Internal Integration Secret
@@ -415,6 +418,7 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
             <span className="ws-muted" style={{ fontSize: '11px' }}>
               Connects to pages explicitly shared with your integration.
             </span>
+            </details>
           </div>
         )}
 
@@ -511,6 +515,7 @@ export default function ConnectionsPage() {
   const returned = params.get('github')
   const returnedSlack = params.get('slack')
   const returnedJira = params.get('jira')
+  const returnedNotion = params.get('notion')
   const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
@@ -536,8 +541,8 @@ export default function ConnectionsPage() {
   const [jiraConnecting, setJiraConnecting] = useState(false)
   const [jiraDisconnecting, setJiraDisconnecting] = useState(false)
   const [jiraSyncing, setJiraSyncing] = useState(false)
-  const [jiraError, setJiraError] = useState('')
-  const [jiraSyncNotice, setJiraSyncNotice] = useState('')
+  const [jiraError, setJiraError] = useState(() => returnedJira === 'error' ? 'Could not complete Jira authorization.' : '')
+  const [jiraSyncNotice, setJiraSyncNotice] = useState(() => returnedJira === 'connected' ? 'Jira connected successfully.' : '')
 
   // Slack state
   const [slackStatus, setSlackStatus] = useState(null)
@@ -546,7 +551,7 @@ export default function ConnectionsPage() {
   const [slackDisconnecting, setSlackDisconnecting] = useState(false)
   const [slackSyncing, setSlackSyncing] = useState(false)
   const [slackError, setSlackError] = useState('')
-  const [slackSyncNotice, setSlackSyncNotice] = useState('')
+  const [slackSyncNotice, setSlackSyncNotice] = useState(() => returnedSlack === 'connected' ? 'Slack workspace connected successfully.' : '')
 
   // Notion state
   const [notionStatus, setNotionStatus] = useState(null)
@@ -559,8 +564,8 @@ export default function ConnectionsPage() {
   const [notionConnecting, setNotionConnecting] = useState(false)
   const [notionDisconnecting, setNotionDisconnecting] = useState(false)
   const [notionSyncing, setNotionSyncing] = useState(false)
-  const [notionError, setNotionError] = useState('')
-  const [notionSyncNotice, setNotionSyncNotice] = useState('')
+  const [notionError, setNotionError] = useState(() => returnedNotion === 'error' ? 'Could not authorize Notion. Check the OAuth configuration and try again.' : returnedNotion === 'cancelled' ? 'Notion authorization was cancelled.' : '')
+  const [notionSyncNotice, setNotionSyncNotice] = useState(() => returnedNotion === 'connected' ? 'Notion workspace connected successfully.' : '')
 
   // Read once so the notice survives the URL cleanup below.
   const [message] = useState(() => (returned && returned !== 'connected' ? (RETURN_MESSAGES[returned] || RETURN_MESSAGES.error) + (params.get('reason') ? ` (${params.get('reason')})` : '') : ''))
@@ -631,26 +636,17 @@ export default function ConnectionsPage() {
 
   // Drop the non-sensitive return markers from the URL once read.
   useEffect(() => {
-    if (returned || returnedSlack || returnedJira) {
-      if (returnedSlack === 'connected') {
-        setSlackSyncNotice('Slack workspace connected successfully.')
-      }
-      if (returnedJira === 'connected') {
-        setJiraSyncNotice('Jira connected successfully.')
-        getJiraStatus().then(setJiraStatus).catch(() => {})
-      } else if (returnedJira === 'error') {
-        setJiraError(params.get('reason') || 'Could not complete Jira authorization.')
-      }
-
+    if (returned || returnedSlack || returnedJira || returnedNotion) {
       setParams(current => {
         current.delete('github')
         current.delete('slack')
         current.delete('jira')
+        current.delete('notion')
         current.delete('reason')
         return current
       }, { replace: true })
     }
-  }, [returned, returnedSlack, returnedJira, setParams, params])
+  }, [returned, returnedSlack, returnedJira, returnedNotion, setParams, params])
 
   async function onConnectGitHub() {
     setStarting(true)
@@ -788,6 +784,18 @@ export default function ConnectionsPage() {
     }
   }
 
+  async function onInstallNotion() {
+    setNotionConnecting(true)
+    setNotionError('')
+    try {
+      const { url } = await startNotionInstall()
+      window.location.assign(url)
+    } catch (failure) {
+      setNotionError(failure.message)
+      setNotionConnecting(false)
+    }
+  }
+
   async function onConnectNotion() {
     setNotionConnecting(true)
     setNotionError('')
@@ -886,6 +894,7 @@ export default function ConnectionsPage() {
         syncing: notionSyncing,
         error: notionError,
         syncNotice: notionSyncNotice,
+        onInstall: onInstallNotion,
         onConnect: onConnectNotion,
         onDisconnect: onDisconnectNotion,
         onSync: onSyncNotion,
