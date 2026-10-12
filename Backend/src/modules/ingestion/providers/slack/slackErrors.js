@@ -1,18 +1,21 @@
 /**
  * @file slackErrors.js
- * @description Error classifications and domain exceptions for Slack Web API interactions.
+ * @description Error classifications and domain exceptions for Slack Web API interactions, extending the common IntegrationError taxonomy.
  */
 
-export class SlackClientError extends Error {
-  constructor(message, { statusCode, status, code, retryAfter, data } = {}) {
-    super(message);
+import { IntegrationError } from '../../../../integrations/common/errors.js';
+
+export class SlackClientError extends IntegrationError {
+  constructor(message, { statusCode, status, code, retryAfter, data, cause } = {}) {
+    super(message, {
+      provider: 'slack',
+      statusCode: statusCode || status,
+      code,
+      retryAfter,
+      data,
+      cause,
+    });
     this.name = 'SlackClientError';
-    this.statusCode = statusCode || status;
-    this.status = this.statusCode;
-    this.code = code;
-    this.retryAfter = retryAfter;
-    this.retryAfterSeconds = retryAfter;
-    this.data = data;
   }
 }
 

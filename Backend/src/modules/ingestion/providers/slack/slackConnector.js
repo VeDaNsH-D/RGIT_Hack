@@ -1,18 +1,21 @@
 /**
  * @file slackConnector.js
- * @description High-level Slack Ingestion Connector.
+ * @description High-level Slack Ingestion Connector conforming to the shared BaseConnector contract.
  *
  * Orchestrates fetching messages from configured Slack channels, retrieving thread
  * replies where authorized, handling cursor-based pagination, and mapping records
  * into canonical SourceRecord / SourceRecordCandidate schemas.
  */
 
+import { BaseConnector } from '../../../../integrations/common/connector.js';
+import { createSyncResult, SYNC_STATUS } from '../../../../integrations/common/results.js';
+import { normalizeProviderError } from '../../../../integrations/common/errors.js';
 import { SlackClient } from './slackClient.js';
 import { normalizeSlackMessage, normalizeSlackMessageCandidate } from './slackNormalizer.js';
 import { SlackAuthenticationError, SlackValidationError } from './slackErrors.js';
 import { validateSourceRecord } from '../../../../integrations/common/types.js';
 
-export class SlackConnector {
+export class SlackConnector extends BaseConnector {
   /**
    * @param {object} [config={}]
    * @param {SlackClient} [config.client] Custom or preconfigured Slack client
@@ -21,6 +24,7 @@ export class SlackConnector {
    * @param {typeof fetch} [config.fetchFn] Injected fetch implementation
    */
   constructor({ client, token, teamDomain, fetchFn, ...clientOptions } = {}) {
+    super();
     if (!client) {
       const resolvedToken = token !== undefined
         ? token
@@ -36,6 +40,160 @@ export class SlackConnector {
 
     this.client = client || new SlackClient({ token, fetchFn, ...clientOptions });
     this.teamDomain = teamDomain || process.env.SLACK_WORKSPACE_DOMAIN || '';
+  }
+
+  /**
+   * Identifies the external provider.
+   * @returns {string}
+   */
+  get provider() {
+    return 'slack';
+  }
+
+  /**
+   * Validates configuration credentials and required settings.
+   *
+   * @param {object} [config={}]
+   * @returns {{ valid: boolean, errors: string[] }}
+   */
+  static validateConfig(config = {}) {
+    const token = config.token !== undefined
+      ? config.token
+      : (process.env.SLACK_BOT_TOKEN || process.env.SLACK_TOKEN);
+
+    const errors = [];
+    if (!token || typeof token !== 'string' || !token.trim()) {
+      errors.push('SLACK_BOT_TOKEN (or SLACK_TOKEN) is required.');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  }
+
+  /**
+   * Instance method validating configuration.
+   *
+   * @param {object} [config={}]
+   * @returns {{ valid: boolean, errors: string[] }}
+   */
+  validateConfig(config = {}) {
+    return SlackConnector.validateConfig(config);
+  }
+
+  /**
+   * Verifies credentials and connectivity by contacting the Slack Web API.
+   *
+   * @returns {Promise<{ ok: boolean, error?: string, details?: object }>}
+   */
+  async verifyConnection() {
+    try {
+      const auth = await this.client.authTest();
+      return {
+        ok: true,
+        details: {
+          user: auth?.user,
+          userId: auth?.user_id,
+          team: auth?.team,
+          teamId: auth?.team_id,
+        },
+      };
+    } catch (err) {
+      const normalized = normalizeProviderError(err, 'slack');
+      return {
+        ok: false,
+        error: normalized.message,
+        details: {
+          code: normalized.code,
+          statusCode: normalized.statusCode,
+        },
+      };
+    }
+  }
+
+  /**
+   * Performs an authorized sync of Slack messages returning a standardized SyncResult.
+   *
+   * @param {object} [options={}]
+   * @param {string} [options.channelId] - Single channel identifier
+   * @param {string[]} [options.channelIds=[]] - Array of channel identifiers
+   * @param {string} [options.projectId='default-project'] - Target Relay project identifier
+   * @param {number} [options.maxPages=5] - Maximum pagination pages per channel
+   * @param {number} [options.perPage=100] - Messages per page
+   * @param {boolean} [options.includeThreads=false] - Whether to fetch thread replies
+   * @param {boolean} [options.asCandidate=true] - Return SourceRecordCandidate by default
+   * @returns {Promise<import('../../../../integrations/common/results.js').SyncResult>}
+   */
+  async sync({
+    channelId,
+    channelIds = [],
+    projectId = 'default-project',
+    maxPages = 5,
+    perPage = 100,
+    includeThreads = false,
+    asCandidate = true,
+  } = {}) {
+    const records = [];
+    const errors = [];
+    let hasMore = false;
+    let nextCursor = null;
+
+    try {
+      let targets = [];
+      if (channelId && typeof channelId === 'string' && channelId.trim()) {
+        targets.push(channelId.trim());
+      }
+      if (Array.isArray(channelIds)) {
+        for (const id of channelIds) {
+          if (id && typeof id === 'string' && !targets.includes(id.trim())) {
+            targets.push(id.trim());
+          }
+        }
+      }
+
+      // If no channels specified, attempt to discover member channels
+      if (targets.length === 0) {
+        try {
+          const channels = await this.getChannels();
+          const joined = channels.filter((c) => c.is_member).map((c) => c.id);
+          targets = joined.length > 0 ? joined : channels.slice(0, 3).map((c) => c.id);
+        } catch (discErr) {
+          errors.push(normalizeProviderError(discErr, 'slack'));
+        }
+      }
+
+      for (const targetChan of targets) {
+        try {
+          const chanRecords = await this.fetchMessages({
+            channelId: targetChan,
+            projectId,
+            maxPages,
+            perPage,
+            includeThreads,
+            asCandidate,
+          });
+          records.push(...chanRecords);
+        } catch (chanErr) {
+          errors.push(normalizeProviderError(chanErr, 'slack'));
+        }
+      }
+    } catch (fatalErr) {
+      errors.push(normalizeProviderError(fatalErr, 'slack'));
+    }
+
+    return createSyncResult({
+      provider: 'slack',
+      records,
+      recordsProcessed: records.length,
+      errors,
+      cursor: nextCursor,
+      hasMore,
+      metadata: {
+        projectId,
+        includeThreads,
+      },
+    });
   }
 
   /**

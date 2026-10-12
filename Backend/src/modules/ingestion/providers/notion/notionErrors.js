@@ -1,17 +1,14 @@
 /**
  * @file notionErrors.js
- * @description Error classifications for Notion API interactions.
+ * @description Error classifications for Notion API interactions, extending the common IntegrationError taxonomy.
  */
 
-export class NotionClientError extends Error {
+import { IntegrationError } from '../../../../integrations/common/errors.js';
+
+export class NotionClientError extends IntegrationError {
   constructor(message, { statusCode, code, retryAfter } = {}) {
-    super(message);
+    super(message, { provider: 'notion', statusCode, code, retryAfter });
     this.name = 'NotionClientError';
-    this.statusCode = statusCode;
-    this.status = statusCode;
-    this.code = code;
-    this.retryAfter = retryAfter;
-    this.retryAfterSeconds = retryAfter;
   }
 }
 
@@ -35,6 +32,7 @@ export class NotionRateLimitError extends NotionClientError {
   constructor(message = 'Notion API rate limit exceeded.', retryAfter = 1) {
     super(message, { statusCode: 429, code: 'rate_limited', retryAfter });
     this.name = 'NotionRateLimitError';
+    this.isTransient = true;
   }
 }
 
