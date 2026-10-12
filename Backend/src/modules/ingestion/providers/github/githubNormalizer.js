@@ -40,6 +40,33 @@ export function parseDate(val) {
 }
 
 /**
+ * Extracts a bounded list of logins from an array of GitHub user objects.
+ *
+ * @param {unknown} users
+ * @returns {string[]}
+ */
+function loginsOf(users) {
+  if (!Array.isArray(users)) return [];
+  return users
+    .map((u) => (u && typeof u === 'object' ? u.login : undefined))
+    .filter((login) => typeof login === 'string' && login)
+    .slice(0, 50);
+}
+
+/**
+ * Extracts label names from GitHub label objects or strings.
+ *
+ * @param {unknown} labels
+ * @returns {string[]}
+ */
+function labelNamesOf(labels) {
+  if (!Array.isArray(labels)) return [];
+  return labels
+    .map((l) => (typeof l === 'object' && l ? l.name : typeof l === 'string' ? l : undefined))
+    .filter((name) => typeof name === 'string' && name);
+}
+
+/**
  * Ensures an explicit, non-empty projectId is provided by the caller.
  *
  * @param {string} projectId
@@ -122,7 +149,14 @@ export function normalizeRepository(repo, context = {}) {
     node_id: repo.node_id,
     name: repo.name,
     full_name: repo.full_name,
+    owner: author,
+    description: typeof repo.description === 'string' ? repo.description : null,
+    html_url: repo.html_url,
     private: repo.private,
+    visibility: repo.visibility || (repo.private === true ? 'private' : repo.private === false ? 'public' : undefined),
+    archived: repo.archived,
+    fork: repo.fork,
+    topics: Array.isArray(repo.topics) ? repo.topics.slice(0, 50) : [],
     default_branch: repo.default_branch,
     language: repo.language,
     stargazers_count: repo.stargazers_count,
@@ -183,6 +217,14 @@ export function normalizeIssue(issue, context = {}) {
     });
   }
 
+  // GitHub's issues endpoint also returns pull requests; those must be ingested
+  // only through normalizePullRequest so a PR never appears as both record types.
+  if (issue.pull_request) {
+    throw new GitHubApiError('Item is a pull request and must not be normalized as an issue.', {
+      code: GITHUB_ERROR_CODES.INVALID_INPUT,
+    });
+  }
+
   const projectId = assertProjectId(context.projectId);
   const fetchedAt = resolveFetchedAt(context.fetchedAt);
 
@@ -225,9 +267,9 @@ export function normalizeIssue(issue, context = {}) {
     created_at: issue.created_at,
     updated_at: issue.updated_at,
     closed_at: issue.closed_at,
-    labels: Array.isArray(issue.labels)
-      ? issue.labels.map((l) => (typeof l === 'object' && l ? l.name : String(l)))
-      : [],
+    labels: labelNamesOf(issue.labels),
+    assignee: issue.assignee && typeof issue.assignee === 'object' ? issue.assignee.login : undefined,
+    assignees: loginsOf(issue.assignees),
     milestone: issue.milestone && typeof issue.milestone === 'object' ? issue.milestone.title : undefined,
     is_pull_request: Boolean(issue.pull_request),
   };
@@ -324,11 +366,14 @@ export function normalizePullRequest(pr, context = {}) {
     updated_at: pr.updated_at,
     closed_at: pr.closed_at,
     merged_at: pr.merged_at,
+    merge_commit_sha: pr.merge_commit_sha,
     base_branch: pr.base && typeof pr.base === 'object' ? pr.base.ref : undefined,
+    base_sha: pr.base && typeof pr.base === 'object' ? pr.base.sha : undefined,
     head_branch: pr.head && typeof pr.head === 'object' ? pr.head.ref : undefined,
-    labels: Array.isArray(pr.labels)
-      ? pr.labels.map((l) => (typeof l === 'object' && l ? l.name : String(l)))
-      : [],
+    head_sha: pr.head && typeof pr.head === 'object' ? pr.head.sha : undefined,
+    labels: labelNamesOf(pr.labels),
+    assignees: loginsOf(pr.assignees),
+    requested_reviewers: loginsOf(pr.requested_reviewers),
   };
 
   /** @type {import('../../contracts/sourceRecord.js').SourceRecordCandidate} */
@@ -433,7 +478,7 @@ export function normalizeCommit(commit, context = {}) {
     author_email: commit.commit && commit.commit.author ? commit.commit.author.email : undefined,
     committer_name: commit.commit && commit.commit.committer ? commit.commit.committer.name : undefined,
     committer_date: commit.commit && commit.commit.committer ? commit.commit.committer.date : undefined,
-    parents: Array.isArray(commit.parents) ? commit.parents.map((p) => p.sha).filter(Boolean) : [],
+    parents: Array.isArray(commit.parents) ? commit.parents.map((p) => (p && p.sha) || null).filter(Boolean) : [],
   };
 
   /** @type {import('../../contracts/sourceRecord.js').SourceRecordCandidate} */
