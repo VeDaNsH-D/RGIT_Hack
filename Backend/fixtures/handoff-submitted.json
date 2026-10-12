@@ -1,0 +1,10 @@
+{
+  "eventId": "evt_handoff_sub_001",
+  "type": "HANDOFF_SUBMITTED",
+  "projectId": "proj_relay_alpha_101",
+  "recipientUserId": "usr_incoming_owner_202",
+  "occurredAt": "2026-10-12T10:30:00Z",
+  "entityId": "hnd_payment_service_001",
+  "outgoingUserId": "usr_outgoing_owner_101",
+  "handoffTitle": "Payment Service Transition to Q4 Owner"
+}

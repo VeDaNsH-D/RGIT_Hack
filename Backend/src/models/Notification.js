@@ -1,27 +1,87 @@
 import mongoose from 'mongoose';
-import { NOTIFICATION_EVENT_TYPES } from '../constants.js';
+import { NOTIFICATION_EVENT_TYPES } from '../notifications/events.js';
+import { NOTIFICATION_DELIVERY_STATUS } from '../notifications/records.js';
 
-const { Schema } = mongoose;
-
-// Minimal in-app fallback sink for notification events (see
-// src/notifications/events.js). Person 4's delivery module (WhatsApp/etc.)
-// is expected to register its own handler and may replace or supplement
-// this one.
-const notificationSchema = new Schema(
+const notificationSchema = new mongoose.Schema(
   {
-    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    projectId: { type: Schema.Types.ObjectId, ref: 'Project', default: null },
-    type: { type: String, enum: NOTIFICATION_EVENT_TYPES, required: true },
-    payload: { type: Schema.Types.Mixed, default: {} },
-    // Used to prevent duplicate alerts for the same underlying occurrence
-    // (e.g. one TASK_OVERDUE per task per day). Sparse so events that don't
-    // need dedupe can omit it.
-    dedupeKey: { type: String, default: null },
-    read: { type: Boolean, default: false },
+    id: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
+    recipientUserId: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    eventId: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
+    type: {
+      type: String,
+      required: true,
+      enum: Object.values(NOTIFICATION_EVENT_TYPES),
+      index: true,
+    },
+    title: {
+      type: String,
+      required: true,
+    },
+    message: {
+      type: String,
+      required: true,
+    },
+    projectId: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    entityId: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    readAt: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    createdAt: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    deliveryStatus: {
+      type: String,
+      enum: Object.values(NOTIFICATION_DELIVERY_STATUS),
+      default: NOTIFICATION_DELIVERY_STATUS.PENDING,
+      index: true,
+    },
   },
-  { timestamps: true }
+  {
+    timestamps: false,
+    versionKey: false,
+    toJSON: {
+      transform: (doc, ret) => {
+        delete ret._id;
+        return ret;
+      },
+    },
+    toObject: {
+      transform: (doc, ret) => {
+        delete ret._id;
+        return ret;
+      },
+    },
+  }
 );
 
-notificationSchema.index({ dedupeKey: 1 }, { unique: true, sparse: true });
+// Compound index for querying a user's notifications efficiently by date or unread status
+notificationSchema.index({ recipientUserId: 1, readAt: 1, createdAt: -1 });
 
-export const Notification = mongoose.model('Notification', notificationSchema);
+export const NotificationModel =
+  mongoose.models.Notification || mongoose.model('Notification', notificationSchema);

@@ -9,4 +9,4 @@ export { Handoff } from './Handoff.js';
 export { Conflict } from './Conflict.js';
 export { ConflictEvidence } from './ConflictEvidence.js';
 export { ActivityEvent } from './ActivityEvent.js';
-export { Notification } from './Notification.js';
+export { NotificationModel } from './Notification.js';

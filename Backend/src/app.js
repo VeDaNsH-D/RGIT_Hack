@@ -5,6 +5,7 @@ import { config } from './config.js';
 import authRouter from './routes/auth.js';
 import projectsRouter from './routes/projects.js';
 import notesRouter from './routes/notes.js';
+import { notificationRouter } from './notifications/routes.js';
 
 export const app = express();
 
@@ -33,6 +34,7 @@ app.use('/api/projects', projectsRouter);
 // notesRouter defines both /projects/:id/notes and /notes/:id, so it's
 // mounted at /api rather than /api/projects.
 app.use('/api', notesRouter);
+app.use('/api/notifications', notificationRouter);
 
 // Remaining route modules (handoffs, conflicts, cron, ...) are mounted here
 // in later steps.

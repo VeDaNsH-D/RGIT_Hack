@@ -1,0 +1,275 @@
+# Notification Contracts & Event Specifications
+
+## Overview
+This document specifies the notification event contracts, envelope schema, presentation records, and validation utilities for the notification and reliability layer (Person 4).
+
+## Supported Event Types and Recipients
+
+| Event Type | Intended Recipient | Description / Domain Purpose |
+| :--- | :--- | :--- |
+| `HANDOFF_SUBMITTED` | Incoming Owner | Emitted when an outgoing owner submits a handoff package for review and acceptance. |
+| `HANDOFF_ACCEPTED` | Outgoing Owner | Emitted when the incoming owner accepts the handoff and assumes project responsibility. |
+| `HANDOFF_NEEDS_CLARIFICATION` | Outgoing Owner | Emitted when the incoming owner requests clarification on specific handoff items or blockers. |
+| `CRITICAL_CONFLICT_DETECTED` | Designated Reviewer / Project Owner | Emitted when the conflict detection engine identifies critical discrepancies (e.g., deadline mismatches, conflicting owners). |
+
+---
+
+## Event Envelope and Fields
+
+All events use a consistent envelope structure containing common metadata:
+
+### Common Envelope Fields
+- `eventId` (`string`): Unique event identifier (e.g., `evt_handoff_sub_001`).
+- `type` (`string`): One of the 4 supported types above.
+- `projectId` (`string`): Associated project identifier.
+- `recipientUserId` (`string`): Intended recipient user identifier.
+- `occurredAt` (`string`): ISO 8601 formatted timestamp (e.g., `2026-10-12T10:30:00Z`).
+- `entityId` (`string`): Primary entity ID (e.g., `handoffId` or `conflictId`).
+
+### Event-Specific Fields
+- **`HANDOFF_SUBMITTED`**:
+  - `outgoingUserId` (`string`, required): Outgoing owner submitting the handoff.
+  - `handoffTitle` (`string`, optional): Human-readable handoff title.
+- **`HANDOFF_ACCEPTED`**:
+  - `acceptedByUserId` (`string`, required): User accepting the handoff.
+  - `notes` (`string`, optional): Acceptance notes.
+- **`HANDOFF_NEEDS_CLARIFICATION`**:
+  - `requestedByUserId` (`string`, required): User requesting clarification.
+  - `clarificationNote` (`string`, required): Details of missing or ambiguous items.
+  - `unresolvedItems` (`string[]`, optional): Specific item IDs or references.
+- **`CRITICAL_CONFLICT_DETECTED`**:
+  - `conflictType` (`string`, required): Category of conflict (e.g., `DEADLINE_MISMATCH`, `STATUS_MISMATCH`).
+  - `description` (`string`, required): Explanation of the detected contradiction.
+  - `severity` (`string`, optional): Severity level (e.g., `CRITICAL`).
+  - `competingSources` (`array`, optional): Supporting evidence references.
+
+---
+
+## Events vs. Notification Records
+
+- **Notification Event**: Represents a domain event describing *what happened* in the workflow (immutable event payload).
+- **Notification Record**: Represents the persisted recipient-facing state describing *what is delivered and displayed* to a user.
+
+### Notification Record Schema
+- `id` (`string`): Unique record ID (e.g., `rec_notif_001`).
+- `recipientUserId` (`string`): Recipient user ID.
+- `eventId` (`string`): Linked event ID.
+- `type` (`string`): Supported event type.
+- `title` (`string`): Notification title for display.
+- `message` (`string`): Notification message text.
+- `projectId` (`string`): Associated project ID.
+- `entityId` (`string`): Associated entity ID.
+- `readAt` (`string | null`): ISO 8601 timestamp when read by user, or `null` if unread.
+- `createdAt` (`string`): ISO 8601 creation timestamp.
+- `deliveryStatus` (`string`): Delivery state (`PENDING`, `SENT`, `FAILED`).
+
+---
+
+## Validation & Usage
+
+The validation module is dependency-free and can be imported directly into backend services:
+
+```javascript
+import {
+  validateNotificationEvent,
+  assertValidNotificationEvent,
+  validateNotificationRecord,
+  assertValidNotificationRecord,
+} from './src/notifications/index.js';
+
+// Validate an incoming event
+const result = validateNotificationEvent(eventPayload);
+if (!result.valid) {
+  console.error('Validation failed:', result.errors);
+}
+
+// Or assert directly
+assertValidNotificationEvent(eventPayload);
+```
+
+---
+
+## Notification Service & Template Engine (Task 2)
+
+### Centralized Template Engine (`templates.js`)
+Deterministic mapping that converts validated event payloads into user-facing titles and messages without fabricating missing metadata:
+
+- **`HANDOFF_SUBMITTED`**:
+  - Title: `"Project Handoff Submitted"`
+  - Message: `"Project handoff ['<handoffTitle>'] (ID: <entityId>) was submitted by <outgoingUserId> for project <projectId> and is awaiting review."`
+- **`HANDOFF_ACCEPTED`**:
+  - Title: `"Project Handoff Accepted"`
+  - Message: `"Handoff <entityId> for project <projectId> was accepted by <acceptedByUserId>. [Note: "<notes>".] Ownership transfer is complete."`
+- **`HANDOFF_NEEDS_CLARIFICATION`**:
+  - Title: `"Handoff Clarification Requested"`
+  - Message: `"Clarification requested by <requestedByUserId> on handoff <entityId> for project <projectId>: "<clarificationNote>"."`
+- **`CRITICAL_CONFLICT_DETECTED`**:
+  - Title: `"Critical Conflict Detected"`
+  - Message: `"[<severity>] Conflict (<conflictType>) detected in project <projectId> (ID: <entityId>): <description>"`
+
+### Repository Interface (`repository.js`)
+A database-agnostic interface decoupling service logic from Prisma, MongoDB, or PostgreSQL:
+- `create(record)`: Saves a notification record.
+- `findById(id)`: Fetches a single notification record by ID.
+- `findByRecipient(recipientUserId, options)`: Fetches notifications for a recipient, supporting `unreadOnly`, `limit`, and `offset`.
+- `findByEventId(eventId)`: Fetches record by originating event ID for idempotency checks.
+
+An `InMemoryNotificationRepository` is provided for tests and local development, using immutable deep-cloning (`structuredClone`) to prevent cross-test state leakage.
+
+### Core Service API (`service.js`)
+```javascript
+import {
+  NotificationService,
+  InMemoryNotificationRepository,
+} from './src/notifications/index.js';
+
+const repository = new InMemoryNotificationRepository();
+const service = new NotificationService({ repository });
+
+// Process an incoming domain event
+const notification = await service.processEvent(eventPayload);
+
+// Query notifications for a specific user
+const unread = await service.getNotificationsForRecipient('usr_123', { unreadOnly: true });
+```
+
+### Idempotency & Duplicate Event Handling
+- The service queries `repository.findByEventId(event.eventId)` before record creation.
+- By default (`throwOnDuplicate: false`), returning the existing notification record ensures safe, idempotent processing.
+- Setting `options.throwOnDuplicate: true` throws `DuplicateNotificationEventError` when explicit duplicate rejection is required.
+
+---
+
+## Notification REST APIs & Storage Integration (Task 3)
+
+### Mongoose Storage Repository (`mongooseRepository.js`)
+Production repository integrating with the canonical MongoDB database via Mongoose:
+- Model: `NotificationModel` in `src/models/Notification.js`.
+- Indexes: Compound index on `{ recipientUserId: 1, readAt: 1, createdAt: -1 }`, unique index on `eventId` for atomic database-level deduplication.
+- Atomic updates: `findOneAndUpdate` and `updateMany` for safe, single-query state transitions.
+
+### Authenticated REST Endpoints (`routes.js`)
+All notification routes require verified authentication via JWT (`Bearer <token>`), existing session, or development header (`x-user-id`). User identity is strictly derived from the authenticated context—client-provided `recipientUserId` parameters are never trusted.
+
+Mounted at: `/api/notifications`
+
+#### 1. `GET /api/notifications`
+Returns paginated notifications for the authenticated user, ordered newest first.
+- **Query Parameters**:
+  - `limit` (optional, integer 1-100, default `20`): Page size.
+  - `offset` (optional, integer >= 0, default `0`): Pagination offset.
+  - `unreadOnly` (optional, boolean `'true'` | `'false'`, default `false`): Filter by unread status.
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "items": [ /* notification records */ ],
+      "pagination": { "limit": 20, "offset": 0, "count": 1 }
+    }
+  }
+  ```
+
+#### 2. `GET /api/notifications/unread-count`
+Efficiently counts unread notifications for the authenticated user using MongoDB `countDocuments`.
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "data": { "unreadCount": 3 }
+  }
+  ```
+
+#### 3. `PATCH /api/notifications/:id/read`
+Atomically marks a single notification as read.
+- **Ownership Security**: If the notification belongs to another user, responds with `404 Not Found` to prevent notification ID enumeration or data leakage.
+- **Idempotency**: Repeated requests safely succeed without mutating the original `readAt` timestamp.
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "data": { "id": "rec_123", "readAt": "2026-10-12T12:00:00.000Z", ... }
+  }
+  ```
+
+#### 4. `PATCH /api/notifications/read-all`
+Atomically marks all unread notifications for the authenticated user as read in a single batch query.
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "message": "All unread notifications marked as read",
+    "data": { "updatedCount": 3 }
+  }
+  ```
+
+---
+
+## Reliability, Failure Handling & Resilience (Task 4)
+
+### 1. Concurrent & Durable Idempotency
+- **Deduplication Key**: Stable `eventId`.
+- **Durable Uniqueness**: Enforced via a unique sparse index on `eventId` in MongoDB (`NotificationModel`) and indexed mapping in memory.
+- **Race Condition Resolution**: If two concurrent processes execute `processEvent()` with the same `eventId` at the exact same millisecond:
+  - Both pass validation.
+  - The first insert succeeds.
+  - The second insert is caught by the database unique constraint and automatically resolves the winning notification record. Exactly one record is ever persisted.
+
+### 2. Bounded Retries & Error Classification (`retry.js`)
+Transient failures are retried using bounded exponential backoff (`withRetry`):
+- **Permanent Errors (Never Retried)**:
+  - Validation failures (`NotificationValidationError`, `UnsupportedTemplateEventError`)
+  - Schema/Type mismatches (`TypeError`, `RangeError`)
+  - HTTP 4xx Client Errors (except 429)
+  - Fail immediately on attempt 1 without retry overhead.
+- **Transient Errors (Retried with Backoff)**:
+  - Network connection resets/timeouts (`ECONNRESET`, `ETIMEDOUT`, `ECONNREFUSED`, `EAI_AGAIN`)
+  - Rate limiting (HTTP 429)
+  - HTTP 5xx Server Errors
+  - Database primary failover / cluster reconnections
+- **Retry Bounds**: Configurable `maxRetries` (default 3), `initialDelayMs` (default 100ms), and `backoffFactor` (default 2). On exhaustion, raises `RetryExhaustedError` preserving full attempt history.
+- **Zero-Wait Testing**: Supports custom `sleepFn` allowing test suites to execute instant, deterministic retries.
+
+### 3. Delivery State Machine & Dispatcher (`dispatcher.js`)
+State transitions are strictly managed by `NotificationDeliveryDispatcher`:
+- `PENDING`: Notification saved to database; delivery not yet confirmed.
+- `SENT`: Confirmed by delivery provider (e.g., in-app delivery confirmed, or external channel ACK received).
+- `FAILED`: Delivery failed permanently or bounded retries exhausted.
+- **Provider Boundary**: Delivery channels implement the `DeliveryProvider` interface (`send(notification)`), allowing optional providers (such as WhatsApp Business API) to plug in without modifying notification workflows.
+- **Partial Failure Isolation**: `dispatchBatch()` isolates delivery failures using `Promise.allSettled`, guaranteeing that a failure delivering to one recipient never blocks unrelated notifications.
+
+### 4. Structured Observability & Data Sanitization (`logger.js`)
+- Structured JSON logs via `logNotification(level, message, context)`.
+- Automatically redacts sensitive fields matching regex patterns (e.g., `token`, `password`, `secret`, `authorization`, `cookie`, `jwt`, `apiKey`).
+
+---
+
+## Running Tests
+
+Run all contract, service, API integration, and reliability test suites:
+
+```bash
+cd Backend
+npm test
+```
+
+Or run individual suites:
+
+```bash
+node --test tests/notifications/contracts.test.js
+node --test tests/notifications/service.test.js
+node --test tests/notifications/api.test.js
+node --test tests/notifications/reliability.test.js
+```
+
+---
+
+## Integration Notes & Assumptions
+
+1. **Identifier Format**: IDs are validated as non-empty strings, supporting CUID, UUID, or MongoDB ObjectIds.
+2. **Channel Delivery Decoupling**: External delivery (WhatsApp / Webhooks / Email) hooks into notification creation without altering the core API or storage contract.
+3. **Database Independence**: The API router supports dependency injection (`createNotificationRouter({ repository })`), making it fully testable in-memory and cleanly swappable between Mongoose and Prisma.
+4. **Authentication**: Upstream authentication middleware (owned by Person 2) populates `req.user`. Development testing supports `x-user-id` and Bearer JWTs via `JWT_SECRET`.
+5. **Durable Idempotency**: True exactly-once persistence requires the database unique index on `eventId` provided by `NotificationModel`. In distributed multi-worker environments, this prevents duplicate records even across independent Node processes.
+
+
