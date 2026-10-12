@@ -11,7 +11,7 @@ import {
   disconnectJira,
   syncJira,
   getSlackStatus,
-  connectSlack,
+  startSlackInstall,
   disconnectSlack,
   syncSlack,
   getNotionStatus,
@@ -95,97 +95,6 @@ const RETURN_MESSAGES = {
   cancelled: 'GitHub installation was cancelled. Nothing was connected.',
   pending: 'Your GitHub organization needs to approve the installation before it can be connected.',
   error: 'We couldn’t verify the GitHub installation. Nothing was connected. Please try again.',
-}
-
-function SlackInstructionsModal({ isOpen, onClose }) {
-  const dialogRef = useRef(null)
-
-  useEffect(() => {
-    const node = dialogRef.current
-    if (!node) return
-    if (isOpen) {
-      if (!node.open) node.showModal()
-    } else {
-      if (node.open) node.close()
-    }
-  }, [isOpen])
-
-  if (!isOpen) return null
-
-  return (
-    <dialog
-      ref={dialogRef}
-      className="ws-modal"
-      onCancel={onClose}
-      onClick={e => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-      style={{ maxWidth: '520px' }}
-    >
-      <button className="ws-modal-close" aria-label="Close dialog" onClick={onClose}>
-        ×
-      </button>
-      <span className="ws-eyebrow">SLACK SETUP GUIDE</span>
-      <h2>How to connect your Slack workspace</h2>
-      <p className="ws-muted" style={{ marginBottom: '16px', fontSize: '13px' }}>
-        Follow these steps to obtain a Bot User OAuth Token for your personal or team workspace:
-      </p>
-
-      <div style={{ display: 'grid', gap: '12px', fontSize: '13px', color: 'var(--ws-ink)', lineHeight: '1.5' }}>
-        <div style={{ background: '#fdf8f4', border: '1px solid #f2dfd0', borderRadius: '8px', padding: '12px' }}>
-          <strong>Step 1: Create a Slack App</strong>
-          <p style={{ margin: '4px 0 0', color: 'var(--ws-muted)', fontSize: '12px' }}>
-            Go to{' '}
-            <a
-              href="https://api.slack.com/apps"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: '#c14e16', textDecoration: 'underline', fontWeight: '500' }}
-            >
-              api.slack.com/apps ↗
-            </a>
-            , click <strong>Create New App</strong> → <strong>From scratch</strong>, name your app (e.g. <em>Relay</em>), and select your personal workspace.
-          </p>
-        </div>
-
-        <div style={{ background: '#fdf8f4', border: '1px solid #f2dfd0', borderRadius: '8px', padding: '12px' }}>
-          <strong>Step 2: Add Bot Token Scopes</strong>
-          <p style={{ margin: '4px 0 0', color: 'var(--ws-muted)', fontSize: '12px' }}>
-            In the left sidebar, click <strong>OAuth & Permissions</strong>. Scroll down to <strong>Bot Token Scopes</strong> and add:
-          </p>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
-            <code style={{ background: '#f5e8dc', padding: '2px 6px', borderRadius: '4px', fontSize: '11.5px' }}>channels:history</code>
-            <code style={{ background: '#f5e8dc', padding: '2px 6px', borderRadius: '4px', fontSize: '11.5px' }}>channels:read</code>
-            <code style={{ background: '#f5e8dc', padding: '2px 6px', borderRadius: '4px', fontSize: '11.5px' }}>groups:history</code>
-            <code style={{ background: '#f5e8dc', padding: '2px 6px', borderRadius: '4px', fontSize: '11.5px' }}>groups:read</code>
-          </div>
-        </div>
-
-        <div style={{ background: '#fdf8f4', border: '1px solid #f2dfd0', borderRadius: '8px', padding: '12px' }}>
-          <strong>Step 3: Install & Copy Token</strong>
-          <p style={{ margin: '4px 0 0', color: 'var(--ws-muted)', fontSize: '12px' }}>
-            Scroll to the top of <strong>OAuth & Permissions</strong> and click <strong>Install to Workspace</strong> → <strong>Allow</strong>. Copy the <strong>Bot User OAuth Token</strong> (starts with <code>xoxb-</code>) and paste it into the Slack card.
-          </p>
-        </div>
-
-        <div style={{ background: '#fdf8f4', border: '1px solid #f2dfd0', borderRadius: '8px', padding: '12px' }}>
-          <strong>Step 4: Invite Bot to Your Channel</strong>
-          <p style={{ margin: '4px 0 0', color: 'var(--ws-muted)', fontSize: '12px' }}>
-            In your Slack client, go to the channel you want to sync and run:
-          </p>
-          <div style={{ marginTop: '4px' }}>
-            <code style={{ background: '#f5e8dc', padding: '2px 6px', borderRadius: '4px', fontSize: '11.5px' }}>/invite @YourBotName</code>
-          </div>
-        </div>
-      </div>
-
-      <div className="ws-modal-actions" style={{ marginTop: '20px' }}>
-        <button type="button" className="ws-button ws-button-primary" onClick={onClose}>
-          Got it
-        </button>
-      </div>
-    </dialog>
-  )
 }
 
 function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notion }) {
@@ -429,6 +338,7 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
   if (id === 'slack' && slack) {
     const connected = Boolean(slack.status?.connected)
     const badge = connected ? 'Connected' : 'Available'
+
     return (
       <article className="ws-connection-card" aria-labelledby={`connection-${id}`}>
         <div className="ws-project-card-top">
@@ -447,7 +357,7 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
               <span className="ws-muted">
                 {slack.status.lastSyncAt
                   ? `Synced ${slack.status.syncedMessageCount || 0} messages · Last sync ${formatDate(slack.status.lastSyncAt)}`
-                  : 'Team messages and thread context are ready to sync.'}
+                  : 'Workspace connected. Channels can be linked directly inside projects.'}
               </span>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <button
@@ -468,110 +378,20 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
             </div>
           </>
         ) : (
-          <div className="ws-connection-action" style={{ display: 'grid', gap: '10px' }}>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <label htmlFor="slack-token-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                  Your Bot User OAuth Token
-                </label>
-                <button
-                  type="button"
-                  onClick={slack.onOpenGuide}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#c14e16',
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                    padding: 0,
-                    textDecoration: 'underline',
-                    fontWeight: '500',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '3px',
-                  }}
-                >
-                  💡 Instructions
-                </button>
-              </div>
-              <input
-                id="slack-token-input"
-                type="password"
-                placeholder="xoxb-your-slack-bot-token"
-                value={slack.form.botToken}
-                onChange={e => slack.setForm(f => ({ ...f, botToken: e.target.value }))}
-                disabled={slack.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="slack-workspace-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Workspace Domain or Name (optional)
-              </label>
-              <input
-                id="slack-workspace-input"
-                type="text"
-                placeholder="e.g. your-team or acme-workspace"
-                value={slack.form.teamDomain || ''}
-                onChange={e => slack.setForm(f => ({ ...f, teamDomain: e.target.value }))}
-                disabled={slack.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
-            <div style={{ display: 'grid', gap: '4px' }}>
-              <label htmlFor="slack-channel-input" style={{ fontSize: '11px', color: 'var(--ws-muted)' }}>
-                Channel ID (optional)
-              </label>
-              <input
-                id="slack-channel-input"
-                type="text"
-                placeholder="e.g. C0123456789"
-                value={slack.form.channelId}
-                onChange={e => slack.setForm(f => ({ ...f, channelId: e.target.value }))}
-                disabled={slack.connecting}
-                style={{
-                  border: '1px solid var(--ws-border)',
-                  borderRadius: '7px',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  color: 'var(--ws-ink)',
-                  background: '#fff',
-                  outline: 'none',
-                  width: '100%',
-                }}
-              />
-            </div>
+          <div className="ws-connection-action">
             <button
               className="ws-button ws-button-primary"
-              onClick={slack.onConnect}
-              disabled={slack.connecting || (!slack.form.botToken.trim() && !slack.form.teamDomain?.trim())}
+              onClick={slack.onInstall}
+              disabled={slack.loading || slack.starting || slack.status?.configured === false}
             >
-              {slack.connecting ? 'Connecting…' : 'Connect Slack'}
+              {slack.starting ? 'Opening Slack…' : 'Connect Slack'}
             </button>
-            <span className="ws-muted" style={{ fontSize: '11px' }}>
-              Connects to your team workspace channel.
-            </span>
           </div>
         )}
 
+        {!connected && slack.status?.configured === false && (
+          <p className="ws-notice" role="status">Slack App integration isn’t configured on this server yet.</p>
+        )}
         {slack.syncNotice && <p className="ws-notice" role="status" style={{ marginTop: '12px' }}>{slack.syncNotice}</p>}
         {slack.error && <p className="ws-error" role="alert" style={{ marginTop: '12px' }}>{slack.error}</p>}
       </article>
@@ -770,6 +590,7 @@ export default function ConnectionsPage() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const returned = params.get('github')
+  const returnedSlack = params.get('slack')
   const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
@@ -801,17 +622,11 @@ export default function ConnectionsPage() {
   // Slack state
   const [slackStatus, setSlackStatus] = useState(null)
   const [slackLoading, setSlackLoading] = useState(true)
-  const [slackForm, setSlackForm] = useState({
-    botToken: '',
-    teamDomain: '',
-    channelId: '',
-  })
-  const [slackConnecting, setSlackConnecting] = useState(false)
+  const [slackStarting, setSlackStarting] = useState(false)
   const [slackDisconnecting, setSlackDisconnecting] = useState(false)
   const [slackSyncing, setSlackSyncing] = useState(false)
   const [slackError, setSlackError] = useState('')
   const [slackSyncNotice, setSlackSyncNotice] = useState('')
-  const [showSlackGuide, setShowSlackGuide] = useState(false)
 
   // Notion state
   const [notionStatus, setNotionStatus] = useState(null)
@@ -896,8 +711,18 @@ export default function ConnectionsPage() {
 
   // Drop the non-sensitive return markers from the URL once read.
   useEffect(() => {
-    if (returned) setParams(current => { current.delete('github'); current.delete('reason'); return current }, { replace: true })
-  }, [returned, setParams])
+    if (returned || returnedSlack) {
+      if (returnedSlack === 'connected') {
+        setSlackSyncNotice('Slack workspace connected successfully.')
+      }
+      setParams(current => {
+        current.delete('github')
+        current.delete('slack')
+        current.delete('reason')
+        return current
+      }, { replace: true })
+    }
+  }, [returned, returnedSlack, setParams])
 
   async function onConnectGitHub() {
     setStarting(true)
@@ -987,17 +812,16 @@ export default function ConnectionsPage() {
     }
   }
 
-  async function onConnectSlack() {
-    setSlackConnecting(true)
+  async function onInstallSlack() {
+    setSlackStarting(true)
     setSlackError('')
-    setSlackSyncNotice('')
     try {
-      const data = await connectSlack(slackForm)
-      setSlackStatus(data)
-      setSlackConnecting(false)
+      const { url } = await startSlackInstall()
+      if (!url?.startsWith('https://slack.com/oauth/')) throw new Error('Slack returned an unexpected installation address.')
+      window.location.assign(url)
     } catch (failure) {
       setSlackError(failure.message)
-      setSlackConnecting(false)
+      setSlackStarting(false)
     }
   }
 
@@ -1113,17 +937,14 @@ export default function ConnectionsPage() {
       slack={{
         status: slackStatus,
         loading: slackLoading,
-        form: slackForm,
-        setForm: setSlackForm,
-        connecting: slackConnecting,
+        starting: slackStarting,
         disconnecting: slackDisconnecting,
         syncing: slackSyncing,
         error: slackError,
         syncNotice: slackSyncNotice,
-        onConnect: onConnectSlack,
+        onInstall: onInstallSlack,
         onDisconnect: onDisconnectSlack,
         onSync: onSyncSlack,
-        onOpenGuide: () => setShowSlackGuide(true),
       }}
       notion={{
         status: notionStatus,
@@ -1139,10 +960,6 @@ export default function ConnectionsPage() {
         onDisconnect: onDisconnectNotion,
         onSync: onSyncNotion,
       }}
-    />
-    <SlackInstructionsModal
-      isOpen={showSlackGuide}
-      onClose={() => setShowSlackGuide(false)}
     />
   </>
   )

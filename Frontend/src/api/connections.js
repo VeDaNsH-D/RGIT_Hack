@@ -13,9 +13,16 @@ export const disconnectJira = () => request('/connections/jira', { method: 'DELE
 export const syncJira = () => request('/connections/jira/sync', { method: 'POST' })
 
 export const getSlackStatus = signal => request('/connections/slack', { signal })
-export const connectSlack = data => request('/connections/slack', { method: 'POST', body: data })
+export const startSlackInstall = () => request('/connections/slack/install', { method: 'POST' })
+export const getSlackChannels = signal => request('/connections/slack/channels', { signal })
 export const disconnectSlack = () => request('/connections/slack', { method: 'DELETE' })
 export const syncSlack = () => request('/connections/slack/sync', { method: 'POST' })
+export const linkSlackChannel = (projectId, { channelId, channelName }) =>
+  request(`/projects/${encodeURIComponent(projectId)}/integrations/slack`, { method: 'POST', body: { channelId, channelName } })
+export const unlinkSlackChannel = (projectId, connectionId) =>
+  request(`/projects/${encodeURIComponent(projectId)}/integrations/slack/${encodeURIComponent(connectionId)}`, { method: 'DELETE' })
+export const syncSlackChannel = (projectId, connectionId) =>
+  request(`/projects/${encodeURIComponent(projectId)}/integrations/slack/${encodeURIComponent(connectionId)}/sync`, { method: 'POST', signal: AbortSignal.timeout(120000) })
 
 export const getNotionStatus = signal => request('/connections/notion', { signal })
 export const connectNotion = data => request('/connections/notion', { method: 'POST', body: data })

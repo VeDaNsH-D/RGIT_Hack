@@ -10,6 +10,7 @@ import { NotionClient } from '../modules/ingestion/providers/notion/notionClient
 import { NotionConnector } from '../modules/ingestion/providers/notion/notionConnector.js';
 import { RepositoryError, listAccessibleRepositories, publicRepository } from '../services/githubRepositoryService.js';
 import { ConnectError, completeInstall, consumeState, createInstallUrl, getStatus } from '../services/githubConnectionService.js';
+import { SlackConnectError, completeSlackInstall, consumeSlackState, createSlackInstallUrl, isSlackAppConfigured } from '../services/slackAppService.js';
 
 /**
  * Workspace = the authenticated Relay user's own workspace (there is no Workspace model).
@@ -298,14 +299,26 @@ router.post('/jira/sync', requireAuth, needUser, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+function finishSlack(res, status, reason) {
+  if (status === 'error') console.warn(`[slack-connect] callback failed: ${reason}`);
+  res.set('Cache-Control', 'no-store');
+  if (!config.frontendUrl) return res.status(status === 'connected' ? 200 : 400).json({ status, ...(reason ? { reason } : {}) });
+  const url = new URL('/connections', config.frontendUrl);
+  url.searchParams.set('slack', status);
+  if (reason) url.searchParams.set('reason', reason);
+  return res.redirect(url.toString());
+}
+
 router.get('/slack', requireAuth, needUser, async (req, res, next) => {
   try {
     const conn = await SlackConnection.findOne({ userId: req.user.id });
+    const configured = isSlackAppConfigured();
     if (!conn || !conn.active) {
-      return res.set('Cache-Control', 'no-store').json({ connected: false });
+      return res.set('Cache-Control', 'no-store').json({ connected: false, configured });
     }
     return res.set('Cache-Control', 'no-store').json({
       connected: true,
+      configured,
       teamDomain: conn.teamDomain,
       teamName: conn.teamName,
       channelId: conn.channelId,
@@ -316,62 +329,37 @@ router.get('/slack', requireAuth, needUser, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/slack', requireAuth, needUser, async (req, res, next) => {
+router.post('/slack/install', requireAuth, needUser, async (req, res, next) => {
   try {
-    let { botToken, teamDomain, channelId } = req.body || {};
-    botToken = String(botToken || '').trim();
-    teamDomain = String(teamDomain || '').trim();
-    channelId = String(channelId || '').trim();
-
-    if (!botToken && process.env.SLACK_BOT_TOKEN) {
-      botToken = process.env.SLACK_BOT_TOKEN.trim();
+    res.set('Cache-Control', 'no-store').json({ url: await createSlackInstallUrl(req.user.id) });
+  } catch (err) {
+    if (err instanceof SlackConnectError && err.reason === 'not_configured') {
+      return res.status(503).json({ error: 'not_configured', message: 'Slack App integration is not configured on this server.' });
     }
+    next(err);
+  }
+});
 
-    if (!botToken || !botToken.startsWith('xoxb-')) {
-      return res.status(400).json({
-        error: 'invalid_token',
-        message: 'Please provide a valid Slack Bot User OAuth Token (starts with xoxb-).',
-      });
-    }
-
-    let auth;
+router.get('/slack/callback', async (req, res, next) => {
+  try {
+    const q = req.query;
+    const one = (v) => (typeof v === 'string' ? v : undefined);
+    let userId;
     try {
-      const client = new SlackClient({ token: botToken });
-      auth = await client.testAuth();
+      userId = await consumeSlackState(one(q.state));
     } catch (err) {
-      return res.status(400).json({
-        error: 'slack_verification_failed',
-        message: err.message || 'Could not verify Slack bot token.',
-      });
+      if (err instanceof SlackConnectError) return finishSlack(res, 'error', err.reason);
+      throw err;
     }
-
-    // Prioritize user's requested workspace domain or name
-    const teamName = teamDomain || auth?.team || 'Slack Workspace';
-    const effectiveDomain = teamDomain || (auth?.url ? new URL(auth.url).hostname.replace('.slack.com', '') : '');
-
-    const conn = await SlackConnection.findOneAndUpdate(
-      { userId: req.user.id },
-      {
-        userId: req.user.id,
-        botToken,
-        teamDomain: effectiveDomain,
-        channelId,
-        teamName,
-        active: true,
-        connectedAt: new Date(),
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-
-    return res.status(200).json({
-      connected: true,
-      teamDomain: conn.teamDomain,
-      teamName: conn.teamName,
-      channelId: conn.channelId,
-      connectedAt: conn.connectedAt,
-      lastSyncAt: conn.lastSyncAt,
-      syncedMessageCount: conn.syncedMessageCount,
-    });
+    if (one(q.error)) return finishSlack(res, 'cancelled', one(q.error));
+    try {
+      await completeSlackInstall({ userId, code: one(q.code) });
+    } catch (err) {
+      if (err instanceof SlackConnectError) return finishSlack(res, 'error', err.reason);
+      console.warn(`[slack-connect] unexpected failure: ${err?.name} ${err?.message || ''}`);
+      return finishSlack(res, 'error', 'server_error');
+    }
+    return finishSlack(res, 'connected');
   } catch (err) { next(err); }
 });
 
@@ -380,6 +368,32 @@ router.delete('/slack', requireAuth, needUser, async (req, res, next) => {
     await SlackConnection.deleteOne({ userId: req.user.id });
     return res.status(200).json({ connected: false });
   } catch (err) { next(err); }
+});
+
+router.get('/slack/channels', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const conn = await SlackConnection.findOne({ userId: req.user.id, active: true });
+    if (!conn) {
+      return res.set('Cache-Control', 'no-store').json({ connected: false, channels: [] });
+    }
+    const connector = new SlackConnector({
+      token: conn.botToken,
+      teamDomain: conn.teamDomain,
+    });
+    const channels = await connector.getChannels();
+    return res.set('Cache-Control', 'no-store').json({
+      connected: true,
+      teamDomain: conn.teamDomain,
+      teamName: conn.teamName,
+      channels,
+    });
+  } catch (err) {
+    return res.status(400).json({
+      error: 'slack_channels_failed',
+      message: err.message || 'Failed to fetch Slack channels.',
+      channels: [],
+    });
+  }
 });
 
 router.post('/slack/sync', requireAuth, needUser, async (req, res, next) => {

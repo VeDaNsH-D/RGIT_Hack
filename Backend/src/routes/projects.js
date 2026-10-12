@@ -19,6 +19,9 @@ import { SyncError, syncConnection } from '../services/githubSyncEngine.js';
 import { ACTIVITY_KINDS, listActivity, repositoryStats } from '../services/githubActivityService.js';
 import { RepositoryError, linkRepository, resolveAccessibleRepository, serializeConnection } from '../services/githubRepositoryService.js';
 import { SourceConnection } from '../models/SourceConnection.js';
+import { SlackConnection } from '../models/SlackConnection.js';
+import { SlackConnector } from '../modules/ingestion/providers/slack/slackConnector.js';
+import { persistSourceRecordCandidates } from '../modules/ingestion/persistence/sourceRecordStore.js';
 import { NotificationModel as Notification } from '../models/Notification.js';
 import { ConflictEvidence } from '../models/ConflictEvidence.js';
 import { EmailReview } from '../models/EmailReview.js';
@@ -91,7 +94,21 @@ router.get('/:id/integrations', requireAuth, attachProject(), requireRole('viewe
   try {
     const rows = await SourceConnection.find({ projectId: req.project._id, provider: 'github' }).sort({ createdAt: 1 }).lean();
     const stats = await repositoryStats(req.project._id, rows.map((r) => r.config?.repositoryId).filter(Number.isSafeInteger));
-    res.json({ integrations: { github: rows.map((r) => serializeConnection(r, stats.get(r.config?.repositoryId))) } });
+    const slackRows = await SourceConnection.find({ projectId: req.project._id, provider: 'slack' }).sort({ createdAt: 1 }).lean();
+    res.json({
+      integrations: {
+        github: rows.map((r) => serializeConnection(r, stats.get(r.config?.repositoryId))),
+        slack: slackRows.map((r) => ({
+          id: String(r._id),
+          channelId: r.config?.channelId,
+          channelName: r.config?.channelName,
+          teamDomain: r.config?.teamDomain,
+          teamName: r.config?.teamName,
+          sync: r.config?.sync || { status: 'pending' },
+          createdAt: r.createdAt,
+        })),
+      },
+    });
   } catch (err) { next(err); }
 });
 
@@ -150,6 +167,180 @@ router.post('/:id/integrations/github', requireAuth, attachProject(), requireRol
     if (err instanceof RepositoryError) return res.status(err.status).json({ error: err.code, message: err.message });
     next(err);
   }
+});
+
+router.post('/:id/integrations/slack', requireAuth, attachProject(), requireRole('owner'), async (req, res, next) => {
+  try {
+    const { channelId, channelName } = req.body || {};
+    if (!channelId || typeof channelId !== 'string') {
+      return res.status(400).json({ error: 'validation_error', message: 'channelId is required' });
+    }
+    const slackConn = await SlackConnection.findOne({ userId: req.user._id, active: true });
+    if (!slackConn) {
+      return res.status(400).json({ error: 'not_connected', message: 'Slack workspace is not connected. Connect Slack in Connections first.' });
+    }
+
+    let connection = await SourceConnection.findOne({ projectId: req.project._id, provider: 'slack', 'config.channelId': channelId });
+    if (!connection) {
+      connection = new SourceConnection({
+        projectId: req.project._id,
+        provider: 'slack',
+        connectedBy: req.user._id,
+        config: {
+          channelId,
+          channelName: channelName || channelId,
+          teamDomain: slackConn.teamDomain,
+          teamName: slackConn.teamName,
+          sync: { status: 'syncing' },
+        },
+      });
+    } else {
+      connection.config = {
+        ...connection.config,
+        channelName: channelName || connection.config?.channelName || channelId,
+        teamDomain: slackConn.teamDomain,
+        teamName: slackConn.teamName,
+        sync: { status: 'syncing' },
+      };
+    }
+    await connection.save();
+
+    let syncedCount = 0;
+    try {
+      const connector = new SlackConnector({
+        token: slackConn.botToken,
+        teamDomain: slackConn.teamDomain,
+      });
+      const result = await connector.sync({
+        channelId,
+        projectId: String(req.project._id),
+        maxPages: 3,
+        perPage: 50,
+        includeThreads: true,
+        asCandidate: true,
+      });
+      if (result.records?.length) {
+        await persistSourceRecordCandidates({
+          projectId: String(req.project._id),
+          records: result.records,
+          now: new Date(),
+        });
+        syncedCount = result.records.length;
+      }
+      connection.config.sync = {
+        status: 'completed',
+        lastSuccessAt: new Date(),
+        syncedMessageCount: syncedCount,
+      };
+    } catch (syncErr) {
+      connection.config.sync = {
+        status: 'partial',
+        error: syncErr.message,
+        syncedMessageCount: syncedCount,
+      };
+    }
+    connection.markModified('config');
+    await connection.save();
+
+    await logActivity({
+      projectId: req.project._id,
+      actorId: req.user._id,
+      action: 'PROJECT_UPDATED',
+      targetType: 'Project',
+      targetId: req.project._id,
+      payload: { slackChannel: channelName || channelId, syncedCount },
+    });
+
+    res.status(201).json({
+      integration: {
+        slack: {
+          id: String(connection._id),
+          channelId: connection.config.channelId,
+          channelName: connection.config.channelName,
+          teamDomain: connection.config.teamDomain,
+          teamName: connection.config.teamName,
+          sync: connection.config.sync,
+          createdAt: connection.createdAt,
+        },
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/integrations/slack/:connectionId/sync', requireAuth, attachProject(), requireRole('member'), async (req, res, next) => {
+  try {
+    if (!/^[a-f0-9]{24}$/i.test(req.params.connectionId)) return res.status(400).json({ error: 'validation_error', message: 'Invalid connection id' });
+    const connection = await SourceConnection.findOne({ _id: req.params.connectionId, projectId: req.project._id, provider: 'slack' });
+    if (!connection) return res.status(404).json({ error: 'not_found', message: 'Slack connection not found' });
+    const slackConn = await SlackConnection.findOne({ userId: req.user._id, active: true });
+    if (!slackConn) return res.status(400).json({ error: 'not_connected', message: 'Slack workspace is not connected.' });
+
+    connection.config.sync = { ...connection.config.sync, status: 'syncing' };
+    connection.markModified('config');
+    await connection.save();
+
+    let syncedCount = 0;
+    try {
+      const connector = new SlackConnector({
+        token: slackConn.botToken,
+        teamDomain: slackConn.teamDomain,
+      });
+      const result = await connector.sync({
+        channelId: connection.config.channelId,
+        projectId: String(req.project._id),
+        maxPages: 3,
+        perPage: 50,
+        includeThreads: true,
+        asCandidate: true,
+      });
+      if (result.records?.length) {
+        await persistSourceRecordCandidates({
+          projectId: String(req.project._id),
+          records: result.records,
+          now: new Date(),
+        });
+        syncedCount = result.records.length;
+      }
+      connection.config.sync = {
+        status: 'completed',
+        lastSuccessAt: new Date(),
+        syncedMessageCount: syncedCount,
+      };
+    } catch (syncErr) {
+      connection.config.sync = {
+        status: 'partial',
+        error: syncErr.message,
+        syncedMessageCount: connection.config.sync?.syncedMessageCount || 0,
+      };
+    }
+    connection.markModified('config');
+    await connection.save();
+
+    res.json({
+      integration: {
+        slack: {
+          id: String(connection._id),
+          channelId: connection.config.channelId,
+          channelName: connection.config.channelName,
+          teamDomain: connection.config.teamDomain,
+          teamName: connection.config.teamName,
+          sync: connection.config.sync,
+          createdAt: connection.createdAt,
+        },
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id/integrations/slack/:connectionId', requireAuth, attachProject(), requireRole('owner'), async (req, res, next) => {
+  try {
+    if (!/^[a-f0-9]{24}$/i.test(req.params.connectionId)) return res.status(400).json({ error: 'validation_error', message: 'Invalid connection id' });
+    const removed = await SourceConnection.findOneAndDelete({ _id: req.params.connectionId, projectId: req.project._id, provider: 'slack' }).lean();
+    if (!removed) return res.status(404).json({ error: 'not_found', message: 'Slack connection not found' });
+    await SourceRecord.deleteMany({ projectId: req.project._id, provider: 'slack', 'metadata.providerMetadata.channelId': removed.config?.channelId });
+    await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'PROJECT_UPDATED', targetType: 'Project', targetId: req.project._id, payload: { slackChannelRemoved: removed.config?.channelName || removed.config?.channelId } });
+    res.json({ removed: true });
+  } catch (err) { next(err); }
 });
 
 router.get('/', requireAuth, async (req, res, next) => {

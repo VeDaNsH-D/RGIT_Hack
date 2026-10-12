@@ -17,6 +17,7 @@ export { GitHubInstallState } from './GitHubInstallState.js';
 export { WhatsAppConnection } from './WhatsAppConnection.js';
 export { JiraConnection } from './JiraConnection.js';
 export { SlackConnection } from './SlackConnection.js';
+export { SlackInstallState } from './SlackInstallState.js';
 export { NotionConnection } from './NotionConnection.js';
 export { GitHubWebhookDelivery } from './GitHubWebhookDelivery.js';
 export { RepositorySnapshot } from './RepositorySnapshot.js';

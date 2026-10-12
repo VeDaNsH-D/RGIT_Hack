@@ -55,6 +55,13 @@ export const config = {
       enabled: Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
     },
   },
+  slackApp: {
+    clientId: process.env.SLACK_CLIENT_ID || '',
+    clientSecret: process.env.SLACK_CLIENT_SECRET || '',
+    redirectUri: process.env.SLACK_REDIRECT_URI || `${process.env.API_BASE_URL || 'http://localhost:8000'}/api/connections/slack/callback`,
+    scopes: process.env.SLACK_SCOPES || 'channels:read,channels:history,groups:read,groups:history',
+    enabled: Boolean(process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET),
+  },
   // GitHub App repository integration. Values are validated lazily by
   // src/modules/ingestion/providers/github/githubAppAuth.js so a missing or
   // malformed key disables GitHub ingestion without blocking server startup.
