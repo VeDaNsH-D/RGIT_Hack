@@ -1,3 +1,4 @@
+import projectChatRouter from './routes/projectChat.js';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -68,6 +69,7 @@ app.use('/api/projects', notionRouter);
 app.use('/api', invitationsRouter);
 app.use('/api/projects', repositoryKnowledgeRouter);
 app.use('/api/projects', workTreeRouter);
+app.use('/api/projects', projectChatRouter);
 // notesRouter and tasksRouter each define both a /projects/:id/... path and
 // a flat /notes/:id or /tasks/:id path, so they're mounted at /api rather
 // than /api/projects.

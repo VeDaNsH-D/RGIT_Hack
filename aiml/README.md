@@ -245,3 +245,7 @@ Run the test suite deterministically from the repository root (all Groq API call
 ```bash
 python -m pytest aiml/tests -v
 ```
+
+### Project chatbot
+
+`POST /api/v1/project-chat` generates a plain-text answer over retrieved sources supplied by the authorized Node backend. It uses the existing Groq configuration, validates citations, and treats retrieved content as untrusted data. The website calls the authenticated backend's project chat API; it does not supply arbitrary project evidence directly. Deploy this endpoint alongside the Node chat route before using the deployed chatbot.

@@ -190,3 +190,16 @@ def generate_developer_handoff_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected internal error generating developer handoff.",
         ) from err
+
+from app.project_chat import ProjectChatRequest, ProjectChatResponse, answer_project_chat
+
+@app.post('/api/v1/project-chat', response_model=ProjectChatResponse, summary='Answer a question using retrieved project evidence')
+def project_chat_endpoint(payload: ProjectChatRequest, service: GroqContextService = Depends(get_context_service)):
+    try:
+        return answer_project_chat(service, payload)
+    except MissingApiKeyError as error:
+        raise HTTPException(status_code=503, detail='AI provider is not configured.') from error
+    except GroqTimeoutError as error:
+        raise HTTPException(status_code=504, detail='AI provider timed out.') from error
+    except (ModelOutputError, GroqProviderError) as error:
+        raise HTTPException(status_code=502, detail='Could not produce a grounded answer.') from error

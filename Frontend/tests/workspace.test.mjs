@@ -533,3 +533,14 @@ test('Notion offers browser authorization when OAuth is configured', () => {
   assert.match(html, /Authorize with Notion/)
   assert.match(html, /Use an integration token instead/)
 })
+
+
+test('project chat renders cited evidence as text and exposes accessible question controls', async () => {
+  const { ProjectChatView } = await server.ssrLoadModule('/src/workspace/ProjectChat.jsx')
+  const html = renderToString(React.createElement(ProjectChatView, { question: '', onQuestion() {}, turns: [{ id: 'c1', question: 'Retry policy?', answer: 'Retry three times [S1].', citations: [{ id: 'S1', title: 'Team decision', provider: 'slack', text: '<script>unsafe()</script>', url: 'https://example.test/source' }] }] }))
+  assert.match(html, /Retry three times/)
+  assert.match(html, /Team decision/)
+  assert.match(html, /&lt;script&gt;/)
+  assert.doesNotMatch(html, /<script>/)
+  assert.match(html, /Ask a question about this project/)
+})
