@@ -32,6 +32,7 @@ export const SOURCE_PROVIDERS = Object.freeze({
   GITHUB: 'github',
   DOCUMENT: 'document',
   NOTION: 'notion',
+  JIRA: 'jira',
 });
 
 /**
