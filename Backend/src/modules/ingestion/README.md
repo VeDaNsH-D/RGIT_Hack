@@ -7,10 +7,11 @@
 
 ## 1. Module Purpose
 
-This module is responsible for ingesting raw data from external project artifacts (GitHub, uploaded documents), normalizing it into unified `SourceRecordCandidate` objects, and preparing it for persistence.
+This module is responsible for ingesting raw data from external project artifacts (GitHub, Notion, uploaded documents), normalizing it into unified `SourceRecordCandidate` objects, and preparing it for persistence.
 
 Supported initial sources:
 - **GitHub**: Repository metadata, issues, pull requests, and commits.
+- **Notion**: Authorized pages, recursive block trees, and database records.
 - **Documents**: Uploaded files in `.pdf`, `.docx`, and `.txt` formats.
 
 ---
@@ -22,8 +23,8 @@ All ingested items are transformed into normalized `SourceRecordCandidate` objec
 ```javascript
 {
   projectId: string,         // Relay internal project ID
-  provider: "github" | "document",
-  recordType: "repository" | "issue" | "pull_request" | "commit" | "document",
+  provider: "github" | "notion" | "document",
+  recordType: "repository" | "issue" | "pull_request" | "commit" | "document" | "note" | "decision",
   externalId: string,        // Provider-unique or repository-qualified identifier
   title: string,             // Human-readable title
   content: string,           // Normalized text body for AI analysis
