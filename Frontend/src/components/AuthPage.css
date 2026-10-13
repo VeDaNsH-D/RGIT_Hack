@@ -569,3 +569,43 @@
 .auth-page .google-signin-unavailable { font-size: 10px; color: #a28a7b; line-height: 1.5; margin: 9px 0 0; }
 .auth-page .auth-divider { display: flex; align-items: center; gap: 10px; color: #b2a399; font-size: 10px; margin: 20px 0; }
 .auth-page .auth-divider > span { height: 1px; background: #ede5df; flex: 1; }
+
+/* Desktop: fit the whole auth screen inside the viewport */
+@media (min-width:1001px) {
+  .auth-page { height:100svh; min-height:0; padding:0; overflow:hidden }
+  .auth-page .page-shell { display:flex; flex-direction:column; height:calc(100svh - 24px); min-height:0; margin:12px auto }
+  .auth-page header { height:clamp(56px,9vh,96px); flex-shrink:0 }
+  .auth-page footer { flex-shrink:0; padding:clamp(8px,1.8vh,18px) 0 }
+  .auth-page .signup-layout { flex:1; min-height:0; padding:clamp(8px,2vh,28px) 0; gap:14px }
+  .auth-page .hero-copy { min-height:0 }
+  .auth-page .eyebrow { margin-bottom:clamp(8px,2vh,24px) }
+  .auth-page h1 { font-size:clamp(32px,min(4.1vw,6.4vh),61px); margin-bottom:clamp(10px,2.2vh,26px) }
+  .auth-page .hero-description { font-size:clamp(12px,1.9vh,15px); line-height:1.7 }
+  .auth-page .continuity-section { margin-top:clamp(10px,3vh,36px) }
+  .auth-page .continuity-branch { height:clamp(110px,22vh,227px); width:clamp(52px,10vh,96px) }
+  .auth-page .continuity-section .feature { margin-top:clamp(0px,2.5vh,30px) }
+  .auth-page .feature p { margin-bottom:clamp(6px,1.4vh,16px); line-height:1.6 }
+  .auth-page .workflow { min-height:0 }
+  .auth-page .form-panel { max-height:100%; overflow-y:auto; padding-top:clamp(14px,3vh,34px); scrollbar-width:thin }
+  .auth-page .form-panel h2 { margin:clamp(8px,1.8vh,18px) 0 clamp(4px,.9vh,10px) }
+  .auth-page .form-intro { margin-bottom:clamp(10px,2.2vh,26px) }
+  .auth-page .field { margin-bottom:clamp(8px,1.8vh,19px) }
+  .auth-page .field label { margin-bottom:clamp(4px,.9vh,8px) }
+  .auth-page .field input { height:clamp(34px,5vh,44px) }
+  .auth-page .password-toggle { top:50%; transform:translateY(-50%) }
+  .auth-page .password-help { margin:clamp(-8px,-.8vh,-4px) 0 clamp(8px,2vh,20px); line-height:1.5 }
+  .auth-page .primary-button { min-height:clamp(38px,5.2vh,47px); padding:8px }
+  .auth-page .google-signin-button { min-height:clamp(36px,4.8vh,43px) }
+  .auth-page .auth-divider { margin:clamp(8px,1.8vh,18px) 0 }
+  .auth-page .account-switch { margin:clamp(8px,1.8vh,20px) 0 }
+  .auth-page .terms { margin-bottom:clamp(8px,1.8vh,24px); line-height:1.6 }
+  .auth-page .form-bottom { padding:clamp(8px,1.5vh,15px) 10px }
+}
+@media (min-width:1001px) and (max-height:860px) {
+  .auth-page .form-bottom { display:none }
+  .auth-page .form-panel { padding-bottom:clamp(4px,1vh,10px) }
+}
+@media (min-width:1001px) and (max-height:700px) {
+  .auth-page .form-intro, .auth-page .password-help { display:none }
+  .auth-page .terms { font-size:9px }
+}

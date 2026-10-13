@@ -7,32 +7,66 @@ import './projectChat.css'
 const LABELS = { not_analyzed: 'Not analyzed', analyzing: 'Analyzing…', completed: 'Analysis complete', partial: 'Partial analysis', failed: 'Analysis failed' }
 const BADGES = { completed: 'ws-badge-completed', partial: 'ws-badge-pending', analyzing: 'ws-badge-pending', failed: 'ws-badge-critical' }
 
+const SUGGESTIONS = [
+  ['✦', 'Summarize this project'],
+  ['⚑', 'What are the launch blockers?'],
+  ['◇', 'What did we decide recently?'],
+  ['⌘', 'What is the tech stack?'],
+  ['☰', 'What is open and who owns it?'],
+  ['→', 'What should we focus on next?'],
+]
+
+function renderInline(text, citationMap, turnId, onSelectCitation, highlightedSourceId, keyPrefix) {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[S\d+\])/g).map((part, index) => {
+    if (!part) return null
+    const key = `${keyPrefix}-${index}`
+    const cite = part.match(/^\[(S\d+)\]$/)
+    if (cite) {
+      const sourceId = cite[1]
+      const source = citationMap.get(sourceId)
+      if (source) {
+        return <button key={key} type="button" className={`project-chat-citation-pill ${highlightedSourceId === sourceId ? 'active' : ''}`} title={`View evidence [${sourceId}]: ${source.title}`} aria-label={`View evidence [${sourceId}]: ${source.title}`} onClick={() => onSelectCitation?.(turnId, sourceId)}>{`[${sourceId}]`}</button>
+      }
+    }
+    if (/^\*\*[^*]+\*\*$/.test(part)) return <strong key={key}>{renderInline(part.slice(2, -2), citationMap, turnId, onSelectCitation, highlightedSourceId, key)}</strong>
+    if (/^`[^`]+`$/.test(part)) return <code key={key}>{part.slice(1, -1)}</code>
+    return part
+  })
+}
+
+// Renders the assistant's light markdown (paragraphs, lists, headings, bold, code) plus [S#] citation pills.
 function renderAnswerText(answer, citations = [], turnId, onSelectCitation, highlightedSourceId) {
   if (!answer) return null
   const citationMap = new Map((citations || []).map(c => [c.id, c]))
-  const parts = answer.split(/(\[S\d+\])/g)
-  return parts.map((part, index) => {
-    const match = part.match(/^\[(S\d+)\]$/)
-    if (match) {
-      const sourceId = match[1]
-      const source = citationMap.get(sourceId)
-      if (source) {
-        const isHighlighted = highlightedSourceId === sourceId
-        return (
-          <button
-            key={index}
-            type="button"
-            className={`project-chat-citation-pill ${isHighlighted ? 'active' : ''}`}
-            title={`View evidence [${sourceId}]: ${source.title}`}
-            aria-label={`View evidence [${sourceId}]: ${source.title}`}
-            onClick={() => onSelectCitation?.(turnId, sourceId)}
-          >
-            {`[${sourceId}]`}
-          </button>
-        )
-      }
+  const inline = (text, key) => renderInline(text, citationMap, turnId, onSelectCitation, highlightedSourceId, key)
+  const blocks = []
+  let list = null
+  let paragraph = []
+  const flushParagraph = () => { if (paragraph.length) { blocks.push({ type: 'p', text: paragraph.join(' ') }); paragraph = [] } }
+  const flushList = () => { if (list) { blocks.push(list); list = null } }
+  for (const raw of answer.replace(/\r/g, '').split('\n')) {
+    const line = raw.trim()
+    const heading = line.match(/^#{1,6}\s+(.*)$/)
+    const bullet = line.match(/^[-*•]\s+(.*)$/)
+    const numbered = line.match(/^\d+[.)]\s+(.*)$/)
+    if (!line) { flushParagraph(); flushList(); continue }
+    if (heading) { flushParagraph(); flushList(); blocks.push({ type: 'h', text: heading[1] }); continue }
+    if (bullet || numbered) {
+      flushParagraph()
+      const type = bullet ? 'ul' : 'ol'
+      if (list?.type !== type) { flushList(); list = { type, items: [] } }
+      list.items.push((bullet || numbered)[1])
+      continue
     }
-    return part
+    flushList()
+    paragraph.push(line)
+  }
+  flushParagraph(); flushList()
+  return blocks.map((block, index) => {
+    if (block.type === 'h') return <h4 key={index}>{inline(block.text, `h${index}`)}</h4>
+    if (block.type === 'ul') return <ul key={index}>{block.items.map((item, i) => <li key={i}>{inline(item, `u${index}-${i}`)}</li>)}</ul>
+    if (block.type === 'ol') return <ol key={index}>{block.items.map((item, i) => <li key={i}>{inline(item, `o${index}-${i}`)}</li>)}</ol>
+    return <p key={index}>{inline(block.text, `p${index}`)}</p>
   })
 }
 
@@ -56,6 +90,11 @@ export function ProjectChatView({
   onRetry,
 }) {
   const [highlightedSource, setHighlightedSource] = useState(null)
+  const transcriptRef = useRef(null)
+  useEffect(() => {
+    const el = transcriptRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [turns.length, busy, loading])
   const [openSources, setOpenSources] = useState({})
 
   function handleSelectCitation(turnId, sourceId) {
@@ -75,12 +114,13 @@ export function ProjectChatView({
   }
 
   return <section className="ws-panel project-chat" aria-labelledby="project-chat-title">
-    <div className="ws-section-heading"><div><span className="ws-eyebrow">PROJECT KNOWLEDGE</span><h2 id="project-chat-title">Ask your project</h2><p>Answers grounded in your imported sources, documents, and current work.</p></div><button className="ws-text-button" onClick={onClear} disabled={busy || loading || !turns.length}>Clear my chat</button></div>
+    <div className="ws-section-heading"><div><span className="ws-eyebrow">PROJECT KNOWLEDGE</span><h2 id="project-chat-title">Ask your project</h2><p>Answers grounded in your imported sources, documents, and current work.</p></div><div className="project-chat-head-actions">
     {(knowledgeStatus.length > 0 || repositories.length > 0) && <details className="project-chat-knowledge">
       <summary>
         <span>Available project evidence</span>
         {onRefreshKnowledge && <button type="button" className="ws-text-button project-chat-refresh-btn" onClick={e => { e.preventDefault(); e.stopPropagation(); onRefreshKnowledge() }} disabled={analyzingIds.length > 0}>Refresh status</button>}
       </summary>
+      <div className="project-chat-knowledge-body">
       {analysisError && <p className="ws-inline-error" role="alert">{analysisError}</p>}
       {repositories.length > 0 && <div className="project-chat-repos">
         {repositories.map(item => {
@@ -105,16 +145,25 @@ export function ProjectChatView({
         })}
       </div>}
       {knowledgeStatus.length > 0 && <ul>{knowledgeStatus.map((message, index) => <li key={index}>{message}</li>)}</ul>}
+    </div>
     </details>}
-    <div className="project-chat-transcript" aria-live="polite" aria-busy={busy || loading}>
-      {loading ? <p>Loading your conversation…</p> : !turns.length ? <div className="project-chat-empty"><strong>Your project’s context, one question away.</strong><p>Try “What are the launch blockers?” or “What did we decide about payments?”</p></div> : turns.map(turn => {
+    <button className="ws-text-button" onClick={onClear} disabled={busy || loading || !turns.length}>Clear my chat</button></div></div>
+    <div className="project-chat-transcript" ref={transcriptRef} aria-live="polite" aria-busy={busy || loading}>
+      {loading ? <p>Loading your conversation…</p> : !turns.length ? <div className="project-chat-empty">
+        <span className="project-chat-empty-mark" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 19 19 5M10 5h9v9"/></svg></span>
+        <h3>What would you like to know?</h3>
+        <p>Ask about decisions, blockers, tasks, or code. Every answer is backed by your project’s own sources.</p>
+        <div className="project-chat-suggestions">
+          {SUGGESTIONS.map(([icon, label]) => <button type="button" key={label} onClick={() => { onQuestion(label); document.getElementById('project-chat-question')?.focus() }}><span aria-hidden="true">{icon}</span>{label}</button>)}
+        </div>
+      </div> : turns.map(turn => {
         const isDetailsOpen = openSources[turn.id]
         const isTurnHighlighted = highlightedSource?.turnId === turn.id
         return <div className="project-chat-turn" key={turn.id}>
           <div className="project-chat-question"><small>You</small><p>{turn.question}</p></div>
           <div className="project-chat-answer">
             <small>Project assistant</small>
-            <p>{renderAnswerText(turn.answer, turn.citations, turn.id, handleSelectCitation, isTurnHighlighted ? highlightedSource.sourceId : null)}</p>
+            <div className="project-chat-md">{renderAnswerText(turn.answer, turn.citations, turn.id, handleSelectCitation, isTurnHighlighted ? highlightedSource.sourceId : null)}</div>
             {turn.citations?.length > 0 && <details open={isDetailsOpen} onToggle={e => { const isOpen = e.currentTarget.open; setOpenSources(prev => ({ ...prev, [turn.id]: isOpen })) }}>
               <summary>Sources ({turn.citations.length})</summary>
               {turn.citations.map(source => {
@@ -133,10 +182,17 @@ export function ProjectChatView({
           </div>
         </div>
       })}
-      {busy && <p className="project-chat-thinking">{statusNotice || 'Finding relevant context and preparing an answer…'}</p>}
+      {busy && <p className="project-chat-thinking"><span className="project-chat-dots"><i/><i/><i/></span>{statusNotice || 'Finding relevant context and preparing an answer…'}</p>}
     </div>
     {error && <div className="ws-error" role="alert">{error} <button className="ws-text-button" onClick={onRetry} disabled={busy}>Retry</button></div>}
-    <form onSubmit={onSubmit} className="project-chat-form"><label htmlFor="project-chat-question">Ask a question about this project</label><textarea id="project-chat-question" value={question} onChange={event => onQuestion(event.target.value)} maxLength={2000} rows={2} placeholder="What should we focus on next?" disabled={busy || loading}/><div><small>Your conversation is private to your account. Answers don’t change project data.</small><button className="ws-button ws-button-primary" disabled={busy || loading || !question.trim()}>{busy ? 'Answering…' : 'Ask project →'}</button></div></form>
+    <form onSubmit={onSubmit} className="project-chat-form">
+      <label className="project-chat-sr" htmlFor="project-chat-question">Ask a question about this project</label>
+      <div className="project-chat-composer">
+        <textarea id="project-chat-question" value={question} onChange={event => onQuestion(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!busy && !loading && question.trim()) onSubmit(event) } }} maxLength={2000} rows={1} placeholder="Ask anything about this project…" disabled={busy || loading}/>
+        <button className="project-chat-send" aria-label={busy ? 'Answering…' : 'Send question'} disabled={busy || loading || !question.trim()}>{busy ? <span className="project-chat-spinner"/> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>}</button>
+      </div>
+      <small>Your conversation is private to your account. Answers don’t change project data.</small>
+    </form>
   </section>
 }
 

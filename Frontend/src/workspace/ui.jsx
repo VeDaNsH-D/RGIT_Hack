@@ -8,6 +8,7 @@ export function Icon({ name, size = 20 }) {
     tasks: <><rect x="4" y="3" width="16" height="18" rx="2"/><path d="m8 9 2 2 5-5m-7 10h8"/></>,
     handoffs: <><path d="M4 7h15m-4-4 4 4-4 4M20 17H5m4-4-4 4 4 4"/></>,
     arrow: <path d="M5 12h14m-5-5 5 5-5 5"/>,
+    edit: <><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></>,
     plus: <path d="M12 5v14M5 12h14"/>,
     search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></>,
     logout: <><path d="M9 4H4v16h5M9 12h12m-5-5 5 5-5 5"/></>,
@@ -40,8 +41,8 @@ export function Badge({ value }) { return <span className={`ws-badge ws-badge-${
 export function EmptyState({ title, description, action, onAction }) {
   return <div className="ws-empty"><span className="ws-empty-icon"><Icon name="projects" size={28}/></span><h3>{title}</h3><p>{description}</p>{action && <button className="ws-button ws-button-primary" onClick={onAction}><Icon name="plus" size={16}/>{action}</button>}</div>
 }
-export function PageHeading({ eyebrow, title, description, action, onAction, children }) {
-  return <div className="ws-page-heading"><div><span className="ws-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div><div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>{children}{action && <button className="ws-button ws-button-primary" onClick={onAction}><Icon name="plus" size={17}/>{action}</button>}</div></div>
+export function PageHeading({ eyebrow, title, description, action, actionIcon = 'plus', onAction, children }) {
+  return <div className="ws-page-heading"><div><span className="ws-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div><div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>{children}{action && <button className="ws-button ws-button-primary" onClick={onAction}><Icon name={actionIcon} size={17}/>{action}</button>}</div></div>
 }
 
 export function ProjectCard({ project }) {

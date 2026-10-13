@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import WorkspaceProvider from './WorkspaceProvider'
@@ -6,24 +7,39 @@ import { Icon } from './ui'
 import NotificationBell from './NotificationBell'
 import './workspace.css'
 
+function ProfileMenu({ name, onSignOut }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const close = event => { if (!ref.current?.contains(event.target)) setOpen(false) }
+    const esc = event => { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc) }
+  }, [open])
+  return <div className="ws-profile" ref={ref}>
+    <button className="ws-user-avatar ws-profile-button" title={name} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>{name.charAt(0).toUpperCase()}</button>
+    {open && <div className="ws-profile-menu" role="menu">
+      <span className="ws-profile-card"><span className="ws-user-avatar ws-profile-large">{name.charAt(0).toUpperCase()}</span><strong>{name}</strong></span>
+      <Link role="menuitem" to="/settings" onClick={() => setOpen(false)}>Settings</Link>
+      <hr />
+      <button role="menuitem" onClick={onSignOut}>Sign Out</button>
+    </div>}
+  </div>
+}
+
 function Shell() {
   const { session, signOut } = useAuth()
   const { loading, error, reload, projects } = useWorkspace()
-  const { pathname } = useLocation()
-  const section = pathname.split('/')[1]
   const name = session.user.name || 'Teammate'
-  return <div className="ws-app">
-    <aside className="ws-sidebar">
+  return <div className="ws-app ws-app-top">
+    <header className="ws-topnav">
       <Link className="ws-brand" to="/dashboard"><span>↗</span>Over2u<span className="ws-brand-dot">.</span></Link>
-      <div className="ws-workspace-name"><span className="ws-workspace-avatar">{name.charAt(0).toUpperCase()}</span><div><strong>Your workspace</strong><span>Make work flow.</span></div></div>
-      <span className="ws-nav-label">WORKSPACE</span>
-      <nav aria-label="Workspace navigation">{['dashboard', 'projects', 'tasks', 'handoffs', 'emails', 'calls', 'connections'].map(route => <NavLink className={({ isActive }) => `ws-nav-link ${isActive ? 'active' : ''}`} to={`/${route}`} key={route}><Icon name={route}/><span>{route === 'dashboard' ? 'Overview' : route.charAt(0).toUpperCase() + route.slice(1)}</span>{route === 'projects' && projects.length > 0 && <small>{projects.length}</small>}</NavLink>)}</nav>
-
-      <div className="ws-sidebar-note"><span>✳</span><h3>Good work carries on.</h3><p>Keep the next person in the loop, before you pass the baton.</p><Link to="/handoffs">Explore handoffs <Icon name="arrow" size={16}/></Link></div>
-      <div className="ws-sidebar-bottom"><Link to="/">← Back to website</Link><button onClick={signOut}><Icon name="logout" size={17}/>Sign out</button></div>
-    </aside>
+      <nav aria-label="Workspace navigation">{['dashboard', 'projects', 'emails', 'connections'].map(route => <NavLink className={({ isActive }) => `ws-nav-link ${isActive ? 'active' : ''}`} to={`/${route}`} key={route}><Icon name={route}/><span>{route === 'dashboard' ? 'Overview' : route.charAt(0).toUpperCase() + route.slice(1)}</span>{route === 'projects' && projects.length > 0 && <small>{projects.length}</small>}</NavLink>)}</nav>
+      <div className="ws-topnav-actions"><NotificationBell/><ProfileMenu name={name} onSignOut={signOut}/></div>
+    </header>
     <div className="ws-main">
-      <header className="ws-topbar"><span>Workspace <span className="ws-breadcrumb-slash">/</span> <strong>{section === 'dashboard' ? 'Overview' : section.charAt(0).toUpperCase() + section.slice(1)}</strong></span><div><span className="ws-topbar-status"><i/>Connected workspace</span><NotificationBell/><span className="ws-user-avatar" title={name}>{name.charAt(0).toUpperCase()}</span></div></header>
       <main className="ws-content">
         {loading ? <div className="ws-loading" role="status"><span className="ws-spinner"/>Bringing your workspace together…</div> : error ? <div className="ws-error-panel" role="alert"><h2>Let’s reconnect.</h2><p>{error}</p><button className="ws-button ws-button-primary" onClick={() => reload()}>Try again</button></div> : <>{projects.some(project => project.loadError) && <div className="ws-warning" role="status">Some project details couldn’t load. <button onClick={() => reload()}>Retry</button></div>}<Outlet/></>}
       </main>

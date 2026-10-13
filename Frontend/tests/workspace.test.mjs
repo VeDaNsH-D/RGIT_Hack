@@ -112,7 +112,7 @@ test('dashboard, project list, tasks, and handoffs render live data and route li
   assert.match(render(pages.ProjectsPage, '/projects'), /Website launch/)
   assert.match(render(pages.TasksPage, '/tasks'), /Review launch copy/)
   assert.match(render(pages.HandoffsPage, '/handoffs'), /href="\/handoffs\/handoff-one"/)
-  const detail = render(pages.ProjectDetailPage, '/projects/project-one', '/projects/:projectId')
+  const detail = render(pages.ProjectDetailPage, '/projects/project-one?section=team', '/projects/:projectId')
   assert.match(detail, /Sam Lee/)
   assert.match(detail, /Add teammate/)
 })

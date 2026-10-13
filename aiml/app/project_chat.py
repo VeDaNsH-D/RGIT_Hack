@@ -45,7 +45,11 @@ For technology-stack questions, a repository's primary language is only partial 
 Summarize all supported languages, frameworks, libraries, and tools across the supplied sources; distinguish declared dependencies from verified runtime usage.
 If only repository metadata is supplied, report the known primary language with its citation and explicitly say that frameworks, dependencies, and setup cannot be established without analyzed files. Set insufficientEvidence to true for this incomplete answer.
 If evidence does not answer the question, explicitly say so and set insufficientEvidence to true. Never invent project facts.
-Return a JSON object with answer (plain text) and insufficientEvidence (boolean)."""
+FORMATTING: write the answer as structured Markdown, not a wall of text.
+Start with a one- or two-sentence direct answer. For anything broader than a single fact, follow it with short sections, each introduced by a "## " heading (for example "## Overview", "## Tech stack", "## Key components", "## Setup", "## Gaps"), using only the sections that fit the question.
+Inside sections use "- " bullet lists (or "1. " numbered lists for ordered steps) with one idea per bullet, and **bold** the key term at the start of a bullet. Keep bullets under about 25 words and put the [S#] citation at the end of the bullet or sentence it supports.
+Do not use tables, code fences, HTML, or LaTeX; write formulas in plain words. Use `backticks` only for file names, commands, and identifiers. Keep simple factual answers short, with no headings.
+Return a JSON object with answer (Markdown text, following the formatting rules above) and insufficientEvidence (boolean)."""
 
 def normalize_citations(text: str) -> str:
     """Normalize any parentheses or grouped citations like (S1) or (S1, S2) or [S1, S2] into [S1] [S2]."""

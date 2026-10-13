@@ -34,3 +34,65 @@ button.wt-node { cursor: pointer; }
 .wt-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 @media(max-width:760px) { .wt-heading { padding: 22px 18px; align-items: start; flex-direction: column; gap: 16px; }.wt-heading h2 { font-size: 22px; }.wt-toolbar,.wt-footer { padding-inline: 14px; gap: 10px; flex-wrap: wrap; }.wt-viewport { height: 520px; }.wt-details { padding: 18px; } }
 @media(prefers-reduced-motion:reduce) { .wt-wire-pulse { animation: none; stroke-dasharray: none; opacity: .35; } }
+
+/* Sand theme: light surfaces, warm orange accents */
+.wt-panel { border: 1px solid var(--ws-border, #ede8e2); background: #fff; color: #2b2420; box-shadow: none; }
+.wt-heading { background: linear-gradient(110deg, #fff8ef, #ffeadb); }
+.wt-eyebrow { color: #b0694a; }
+.wt-heading p { color: #8a7a6f; }
+.wt-live { border-color: #b7d3b9; color: #4f8559; background: #eaf5ec; }
+.wt-live i { background: #4f8559; box-shadow: 0 0 6px #4f855966; }
+.wt-live.offline { color: #b86a2a; border-color: #ecc79f; background: #fff3e4; }
+.wt-live.offline i { background: #d9953f; }
+.wt-panel button:not(.wt-node), .wt-panel select { border: 1px solid #e8d8cd; background: #fff; color: #5a4a40; }
+.wt-panel button:hover:not(.wt-node) { background: #fff0e8; border-color: #f1a37c; color: #d33b14; }
+.wt-panel button:focus-visible, .wt-panel select:focus-visible, .wt-viewport:focus-visible { outline-color: #ff8a5c; }
+.wt-toolbar { background: #fffaf6; border-color: var(--ws-border, #ede8e2); color: #a08c80; }
+.wt-viewport { scrollbar-color: #e3cdbf transparent; background-color: #faf6f1; background-image: radial-gradient(#d9c3b36b .9px, transparent .9px); background-size: 18px 18px; }
+.wt-wire { stroke: #d8b9a4; stroke-opacity: .9; }
+.wt-wire-pulse { stroke: #ff6a33; filter: drop-shadow(0 0 4px #ff6a3366); }
+.wt-node { border: 1px solid color-mix(in srgb, var(--node-color) 35%, #f1e4da); background: #fff; color: #2b2420; box-shadow: 0 6px 16px -10px #6c403655; }
+.wt-node.selected, button.wt-node:hover { border-color: var(--node-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-color) 18%, transparent), 0 10px 22px -10px color-mix(in srgb, var(--node-color) 45%, transparent); }
+.wt-node-tag { background: color-mix(in srgb, var(--node-color) 11%, #fff); border: 1px solid color-mix(in srgb, var(--node-color) 22%, #fff); color: color-mix(in srgb, var(--node-color) 80%, #3a1a0c); }
+.wt-node-tag i { box-shadow: none; }
+.wt-node small { color: #8a7a6f; }
+.wt-node time { color: #b0a095; }
+.wt-node.failed { --node-color: #d9442f !important; }
+.wt-port { background: #fff; border: 2px solid #d8b9a4; }
+.wt-empty { color: #a08c80; }
+.wt-error { background: #fff0ec; color: #b4361f; }
+.wt-details { background: #fffaf6; border-top: 1px solid var(--ws-border, #ede8e2); }
+.wt-details p { color: #6f5f55; }
+.wt-details small { color: #a08c80; }
+.wt-footer { color: #a08c80; border-top: 1px solid var(--ws-border, #ede8e2); }
+
+/* Event details */
+.wt-details { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 28px; align-items: start; padding: 22px 28px; }
+.wt-details-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.wt-details-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; background: color-mix(in srgb, var(--node-color) 12%, #fff); color: color-mix(in srgb, var(--node-color) 80%, #3a1a0c); }
+.wt-details-chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--node-color); }
+.wt-details-status { font-size: 11px; padding: 3px 9px; border-radius: 999px; background: #eaf5ec; color: #4f8559; text-transform: capitalize; }
+.wt-details-status.bad { background: #fff0ec; color: #b4361f; }
+.wt-details-when { font-size: 11px; color: #a08c80; }
+.wt-details h3 { font-size: 20px; margin: 4px 0 4px; }
+.wt-details .wt-details-desc { margin: 0 0 6px; font-size: 13px; font-weight: 500; color: #4a3d35; }
+.wt-details .wt-details-summary { margin: 0 0 16px; font-size: 13px; color: #8a7a6f; line-height: 1.6; max-width: 640px; }
+.wt-details-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin: 0; }
+.wt-details-grid > div { padding: 10px 12px; background: #fff; border: 1px solid var(--ws-border, #ede8e2); border-radius: 10px; min-width: 0; }
+.wt-details-grid dt { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: #a08c80; margin-bottom: 4px; }
+.wt-details-grid dd { margin: 0; font-size: 13px; color: #2b2420; overflow-wrap: anywhere; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-transform: none; }
+.wt-details-grid dd.mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.wt-panel .wt-copy { padding: 2px 8px; font-size: 10px; }
+.wt-details-side { display: grid; gap: 12px; position: relative; padding-top: 4px; }
+.wt-panel button.wt-details-close { position: absolute; right: 0; top: -6px; width: 28px; height: 28px; padding: 0; border-radius: 50%; font-size: 16px; line-height: 1; }
+.wt-details-open { justify-self: start; margin-top: 30px; padding: 9px 14px; border-radius: 8px; background: #ff3c0a; color: #fff; font-size: 12px; font-weight: 500; }
+.wt-details-open:hover { background: #e53205; }
+.wt-details-nav { display: grid; gap: 8px; }
+.wt-panel .wt-details-nav button { display: grid; gap: 2px; text-align: left; padding: 9px 12px; border-radius: 10px; }
+.wt-details-nav small { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: #a08c80; }
+.wt-details-nav span { font-size: 12px; color: #4a3d35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-details-nav button:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 900px) { .wt-details { grid-template-columns: 1fr; } .wt-details-open { margin-top: 0; } .wt-panel button.wt-details-close { top: -2px; } }
+.wt-wire { stroke: #5b463a; stroke-opacity: .85; stroke-width: 1.8; }
+.wt-wire-pulse { stroke: #ff4a12; stroke-width: 2.6; filter: drop-shadow(0 0 3px #ff4a1255); }
+.wt-port { background: #fff; border: 2px solid #5b463a; }
