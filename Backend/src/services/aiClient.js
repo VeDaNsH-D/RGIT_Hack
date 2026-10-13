@@ -203,7 +203,7 @@ export class AiServiceClient {
    */
   /**
    * Repository-aware developer handoff (aiml POST /api/v1/developer-handoff/generate). The payload is the
-   * same ContextPackRequest contract; the response is { case_id, summary, sections: [{ key, claims: [...] }] }.
+   * same ContextPackRequest contract; the response is the structured engineering state { case_id, summary, current_state, how_it_works, implementation_paths, outstanding_work, blockers, risks, unknowns, recommendations, documented_vs_implemented, start_here }.
    */
   async generateDeveloperHandoff(payload, callOptions = {}) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -230,7 +230,7 @@ export class AiServiceClient {
       const status = response.status;
       throw new AiServiceError(`AI service rejected request (${status}): ${sanitizeMessage(body?.detail || response.statusText || `HTTP ${status}`)}`, { code: AI_CLIENT_ERROR_CODES.HTTP_ERROR, status: status >= 400 && status < 600 ? status : 502, endpoint });
     }
-    if (!body || typeof body !== 'object' || typeof body.summary !== 'string' || !body.summary.trim() || !Array.isArray(body.sections)) {
+    if (!body || typeof body !== 'object' || typeof body.summary !== 'string' || !body.summary.trim() || !(Array.isArray(body.recommendations) || Array.isArray(body.current_state) || Array.isArray(body.sections))) {
       throw new AiServiceError('AI service returned a malformed developer handoff.', { code: AI_CLIENT_ERROR_CODES.MALFORMED_RESPONSE, status: 502, endpoint });
     }
     return body;

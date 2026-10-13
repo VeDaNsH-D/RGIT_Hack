@@ -326,3 +326,31 @@
 .ws-jira-link input { height: 39px; width: 140px; border: 1px solid #e7ddd4; border-radius: 7px; padding: 0 12px; font-size: 13px; text-transform: uppercase; background: #fff; }
 .ws-jira-link input:focus-visible { outline: 2px solid #ff9b7099; outline-offset: 2px; }
 .ws-jira-link small { flex-basis: 100%; margin: 0; }
+
+/* Engineering handoff preview */
+.ws-brief { border: 1px solid var(--ws-border); border-radius: 12px; padding: 18px 20px; background: #fffdfa; margin-bottom: 18px; }
+.ws-brief h3 { margin-top: 0; }
+.ws-brief h4 { margin: 18px 0 8px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: #c04d26; }
+.ws-brief > p { font-size: 13px; line-height: 1.65; color: #3d322a; margin: 0; }
+.ws-actions { margin: 0; padding-left: 20px; display: grid; gap: 12px; }
+.ws-action { font-size: 12px; line-height: 1.6; color: #3d322a; }
+.ws-action p { margin: 3px 0 0; font-size: 11.5px; color: #6b5d52; }
+.ws-tag { display: inline-flex; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: #f5f2ed; color: #8b7f72; margin-right: 6px; white-space: nowrap; vertical-align: 1px; }
+.ws-tag-fact { background: #edf4ed; color: #4f7a4f; } .ws-tag-inference { background: #fff4e5; color: #a8641f; } .ws-tag-unknown { background: #f1eeea; color: #7a6f66; } .ws-tag-alert { background: #fff0ec; color: #c54229; }
+.ws-refs { font-size: 9px; margin-left: 3px; color: #a08c7b; } .ws-refs a { color: #a08c7b; text-decoration: none; } .ws-refs a:hover { text-decoration: underline; }
+.ws-verification { margin: 0; display: grid; gap: 8px; } .ws-verification div { display: grid; grid-template-columns: 130px 1fr; gap: 12px; font-size: 11.5px; line-height: 1.55; }
+.ws-verification dt { font-weight: 700; color: #3d322a; } .ws-verification dd { margin: 0; color: #6b5d52; }
+.ws-code-line { margin: 3px 0 0; font-size: 11.5px; } .ws-report code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: #f5f2ed; padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+.ws-group { margin: 26px 0 4px; padding-top: 14px; border-top: 1px solid var(--ws-border); }
+.ws-intro { margin: 0 0 10px; font-size: 11.5px; font-style: italic; }
+.ws-detail { margin: 3px 0 0; font-size: 11.5px; line-height: 1.55; color: #3d322a; overflow-wrap: anywhere; }
+.ws-alert-text { color: #c54229; }
+.ws-findings { margin-top: 14px; }
+.ws-subsystem, .ws-step { break-inside: avoid; margin-bottom: 14px; }
+.ws-steps { margin: 4px 0 4px 4px; padding-left: 22px; font-size: 11.5px; line-height: 1.55; color: #3d322a; display: grid; gap: 3px; }
+.ws-onboarding { gap: 12px; padding-left: 20px; }
+.ws-functions { margin: 3px 0 3px; padding-left: 20px; font-size: 11.5px; line-height: 1.55; list-style: disc; overflow-wrap: anywhere; }
+.ws-status-row { display: grid; grid-template-columns: 130px 1fr; gap: 12px; font-size: 11.5px; line-height: 1.55; }
+.ws-walkthrough { display: grid; gap: 4px; }
+.ws-source-index { margin: 0; padding-left: 26px; display: grid; gap: 6px; font-size: 11px; line-height: 1.5; color: #6b5d52; }
+@media (max-width: 760px) { .ws-status-row { grid-template-columns: 1fr; gap: 2px; } .ws-verification div { grid-template-columns: 1fr; gap: 2px; } }

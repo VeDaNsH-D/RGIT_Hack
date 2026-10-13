@@ -6,6 +6,8 @@
 import { categorize, languageOf } from './repoFilters.js';
 
 const line = (text, index) => text.slice(0, index).split('\n').length;
+/** The declaration line itself (trimmed, bounded), so an explanation can cite a symbol's real signature. */
+const signature = (text, index) => text.slice(index, (text.indexOf('\n', index) + 1 || text.length + 1) - 1).trim().replace(/\s*[{:]\s*$/, '').slice(0, 120);
 const dedupe = (items, key) => { const seen = new Set(); return items.filter((i) => { const k = key(i); if (seen.has(k)) return false; seen.add(k); return true; }); };
 const MAX = { symbols: 15, routes: 60, models: 40, env: 60, deps: 80 };
 
@@ -75,13 +77,13 @@ export function extractSymbols(path, text) {
   const out = [];
   const lang = languageOf(path);
   if (lang === 'JavaScript' || lang === 'TypeScript') {
-    for (const m of text.matchAll(/^export\s+(?:default\s+)?(?:async\s+)?(function\*?|class)\s+(\w+)/gm)) out.push({ name: m[2], kind: m[1].startsWith('function') ? 'function' : 'class', file: path, line: line(text, m.index) });
-    for (const m of text.matchAll(/^export\s+const\s+(\w+)\s*=/gm)) out.push({ name: m[1], kind: 'const', file: path, line: line(text, m.index) });
-    if (!out.length) for (const m of text.matchAll(/^(?:async\s+)?function\s+(\w+)/gm)) out.push({ name: m[1], kind: 'function', file: path, line: line(text, m.index) });
+    for (const m of text.matchAll(/^export\s+(?:default\s+)?(?:async\s+)?(function\*?|class)\s+(\w+)/gm)) out.push({ name: m[2], kind: m[1].startsWith('function') ? 'function' : 'class', file: path, line: line(text, m.index), signature: signature(text, m.index) });
+    for (const m of text.matchAll(/^export\s+const\s+(\w+)\s*=/gm)) out.push({ name: m[1], kind: 'const', file: path, line: line(text, m.index), signature: signature(text, m.index) });
+    if (!out.length) for (const m of text.matchAll(/^(?:async\s+)?function\s+(\w+)/gm)) out.push({ name: m[1], kind: 'function', file: path, line: line(text, m.index), signature: signature(text, m.index) });
   } else if (lang === 'Python') {
-    for (const m of text.matchAll(/^(?:async\s+)?(def|class)\s+(\w+)/gm)) if (!m[2].startsWith('_')) out.push({ name: m[2], kind: m[1] === 'def' ? 'function' : 'class', file: path, line: line(text, m.index) });
+    for (const m of text.matchAll(/^(?:async\s+)?(def|class)\s+(\w+)/gm)) if (!m[2].startsWith('_')) out.push({ name: m[2], kind: m[1] === 'def' ? 'function' : 'class', file: path, line: line(text, m.index), signature: signature(text, m.index) });
   } else if (lang === 'Go') {
-    for (const m of text.matchAll(/^func\s+(?:\([^)]*\)\s*)?([A-Z]\w*)/gm)) out.push({ name: m[1], kind: 'function', file: path, line: line(text, m.index) });
+    for (const m of text.matchAll(/^func\s+(?:\([^)]*\)\s*)?([A-Z]\w*)/gm)) out.push({ name: m[1], kind: 'function', file: path, line: line(text, m.index), signature: signature(text, m.index) });
   }
   return out.slice(0, MAX.symbols);
 }

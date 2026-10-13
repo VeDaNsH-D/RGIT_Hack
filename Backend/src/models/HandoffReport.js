@@ -11,7 +11,14 @@ const handoffReportSchema = new Schema(
     projectName: { type: String, required: true },
     generatedAt: { type: Date, required: true },
     summary: { type: String, required: true },
-    // [{ key, title, origin: 'deterministic'|'ai', items: [{ text, kind, evidence: [{ id, label, url }] }] }]
+    complexity: { type: String, enum: ['small', 'medium', 'large'], default: undefined },
+    // First-page engineering brief: { summary, currentState: [item], doFirst: [item], attention: [item] }. Absent on reports created before v5.
+    brief: { type: Schema.Types.Mixed, default: undefined },
+    // Deterministic verification status: tests discovered/executed, runtime, requirements, work tracking, completion, coverage.
+    verification: { type: Schema.Types.Mixed, default: undefined },
+    // Compact numbered source list; items carry `refs` (numbers) into it.
+    sourceIndex: { type: [Schema.Types.Mixed], default: [] },
+    // [{ key, title, origin: 'deterministic'|'ai', items: [{ text, kind, refs, evidence: [{ id, label, url }], ...type-specific fields }] }]
     sections: { type: [Schema.Types.Mixed], required: true },
     // [{ fullName, commitSha, analyzedAt, status, coverage, freshness }]
     repositories: { type: [Schema.Types.Mixed], default: [] },

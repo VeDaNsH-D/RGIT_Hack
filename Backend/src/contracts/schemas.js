@@ -309,3 +309,34 @@ export const notificationEventSchema = z
     dedupeKey: z.string().min(1).max(500).optional(),
   })
   .strict();
+
+// --- Onboarding Schemas ---------------------------------------------------
+
+export const createOnboardingSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(254),
+    role: z.enum(['member', 'viewer']).default('member'),
+    selectedDocumentIds: z.array(objectId).optional().default([]),
+    generateAiContext: z.boolean().optional().default(true),
+    sendInvitation: z.boolean().optional().default(true),
+  })
+  .strict();
+
+export const updateOnboardingSchema = z
+  .object({
+    role: z.enum(['member', 'viewer']).optional(),
+    selectedDocumentIds: z.array(objectId).optional(),
+    status: z.enum(['pending', 'preparing', 'ready', 'in_progress', 'completed']).optional(),
+    notes: z.string().max(5000).optional(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).length > 0, 'No fields to update');
+
+export const reviewOnboardingSchema = z
+  .object({
+    section: z.string().trim().min(1).max(100).optional(),
+    sections: z.array(z.string().trim().min(1).max(100)).optional(),
+    documentId: objectId.optional(),
+  })
+  .strict()
+  .refine((data) => data.section || (data.sections && data.sections.length > 0) || data.documentId, 'Specify a section or documentId to review');

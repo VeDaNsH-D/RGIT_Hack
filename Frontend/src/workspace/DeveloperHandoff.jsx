@@ -22,7 +22,7 @@ function RepositoryAnalysisRow({ item, analyzing, canAct, onAnalyze }) {
       {snap.mode === 'incremental' && <span>{`Since last analysis: ${changeSummary(snap.changes)}`}</span>}
     </div> : <p className="ws-muted">{status === 'analyzing' ? 'Reading the repository…' : 'Not analyzed yet. Analysis reads the repository’s files so handoffs can explain its architecture.'}</p>}
     {notes.length > 0 && <ul className="ws-analysis-notes">{notes.map(note => <li key={note}>{note}</li>)}</ul>}
-    {snap && snap.status === 'partial' && <p className="ws-muted">Not every file was analyzed, so the knowledge base is incomplete.</p>}
+    {snap && snap.status === 'partial' && <p className="ws-muted">{`Not every file was analyzed, so the knowledge base is incomplete. ${analysis.retryable ? `${analysis.retryable} file(s) can be retried; Refresh will fetch only those and anything that changed.` : 'Refresh re-checks only changed files; files over the size limit, binary files and files containing credentials are not retried.'}`}</p>}
     {analysis.freshness?.state === 'stale' && <p className="ws-muted">{analysis.freshness.reasons.join(' ')}</p>}
     {analysis.status === 'failed' && analysis.error && <p className="ws-inline-error" role="alert">{analysis.error.message}{snap ? ' The previous analysis is still available.' : ''}</p>}
     {canAct && <button type="button" className="ws-button" onClick={onAnalyze} disabled={status === 'analyzing'}>{status === 'analyzing' ? 'Analyzing…' : snap ? 'Refresh analysis' : 'Analyze repository'}</button>}
@@ -92,8 +92,11 @@ export default function DeveloperHandoffSection({ projectId, canAct }) {
     if (analyzingIds.includes(item.connectionId)) return
     setAnalyzingIds(ids => [...ids, item.connectionId])
     setError('')
+    setNotice('')
     try {
-      await analyzeRepository(projectId, item.connectionId, Boolean(item.analysis.snapshot))
+      // Never force from the UI: the server decides what is new, changed or retryable and skips everything else.
+      const result = await analyzeRepository(projectId, item.connectionId, false)
+      if (result?.analysis?.upToDate) setNotice(`${item.repository.fullName} has no new commits${result.analysis.retryable ? '' : ' and nothing left that could be retried'}, so nothing was re-analyzed.`)
     } catch (failure) {
       if (failure.data?.error !== 'analysis_in_progress') setError(failure.message)
     } finally {

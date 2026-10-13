@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { createServer } from 'vite'
 
-let treeLayout, WorkTreeCanvas, McpAuthorizePage, NotificationBell, notificationLinks, InvitationPage, oauth, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout, DeveloperHandoffView, analysisHelpers, ReportBody, AiProjectContextView, workflow, AiDraftPanel, RepositoryActivityView, ConnectedRepositoriesView, GitHubRepositoryPicker, ProjectDocumentsView, documentHelpers, documentsApi, ConnectedJiraProjectsView, isJiraKey
+let treeLayout, WorkTreeCanvas, McpAuthorizePage, NotificationBell, notificationLinks, InvitationPage, oauth, ConnectionsPage, ConnectionsView, server, api, sessions, AuthContext, WorkspaceContext, pages, HandoffDetailPage, WorkspaceLayout, DeveloperHandoffView, analysisHelpers, ReportBody, AiProjectContextView, workflow, AiDraftPanel, RepositoryActivityView, ConnectedRepositoriesView, GitHubRepositoryPicker, ProjectDocumentsView, documentHelpers, documentsApi, ConnectedJiraProjectsView, isJiraKey, ConnectedNotionPagesView
 const storage = new Map()
 const originalWindow = globalThis.window
 const originalStorage = globalThis.sessionStorage
@@ -54,6 +54,7 @@ before(async () => {
   ;({ AiDraftPanel } = await server.ssrLoadModule('/src/workspace/AiDraftPanel.jsx'))
   ;({ GitHubRepositoryPicker } = await server.ssrLoadModule('/src/workspace/ProjectIntegrations.jsx'))
   ;({ default: WorkspaceLayout } = await server.ssrLoadModule('/src/workspace/WorkspaceLayout.jsx'))
+  ;({ ConnectedNotionPagesView } = await server.ssrLoadModule('/src/workspace/ConnectedNotionPages.jsx'))
 })
 after(async () => {
   await server?.close()
@@ -534,7 +535,6 @@ test('Notion offers browser authorization when OAuth is configured', () => {
   assert.match(html, /Use an integration token instead/)
 })
 
-
 test('project chat renders cited evidence as text and exposes accessible question controls', async () => {
   const { ProjectChatView } = await server.ssrLoadModule('/src/workspace/ProjectChat.jsx')
   const html = renderToString(React.createElement(ProjectChatView, { question: '', onQuestion() {}, turns: [{ id: 'c1', question: 'Retry policy?', answer: 'Retry three times [S1].', citations: [{ id: 'S1', title: 'Team decision', provider: 'slack', text: '<script>unsafe()</script>', url: 'https://example.test/source' }] }] }))
@@ -543,4 +543,118 @@ test('project chat renders cited evidence as text and exposes accessible questio
   assert.match(html, /&lt;script&gt;/)
   assert.doesNotMatch(html, /<script>/)
   assert.match(html, /Ask a question about this project/)
+  const statusHtml = renderToString(React.createElement(ProjectChatView, { question: '', onQuestion() {}, knowledgeStatus: ['team/repo: partial analysis, commit abc1234.', '2 files too large.'] }))
+  assert.match(statusHtml, /Available project evidence/)
+  assert.match(statusHtml, /abc1234/)
+  assert.match(statusHtml, /2 files too large/)
+})
+
+
+test('partial analysis explains what Refresh will and will not retry', () => {
+  const repo = retryable => ({ connectionId: 'c1', repository: { fullName: 'acme/relay' }, analysis: { status: 'partial', retryable, freshness: { state: 'current' }, snapshot: { commitSha: 'a'.repeat(40), branch: 'main', status: 'partial', mode: 'incremental', analyzedAt: '2026-01-02T10:00:00Z', coverage: { analyzed: 66, eligible: 75, percent: 88, tooLarge: 9, limits: {} }, changes: { added: [], modified: [], deleted: [], renamed: [] } } } })
+  const render = r => renderToString(React.createElement(DeveloperHandoffView, { state: 'ready', repositories: [r], canAct: true }))
+  assert.match(render(repo(0)), /Refresh re-checks only changed files; files over the size limit, binary files and files containing credentials are not retried/)
+  assert.match(render(repo(3)), /3 file\(s\) can be retried; Refresh will fetch only those and anything that changed/)
+})
+
+
+const briefReport = () => ({
+  projectId: 'p1', projectName: 'SNS PROJECT', generatedAt: '2026-10-12T20:06:00Z', complexity: 'small', summary: 'A Python AM/FM demo.',
+  repositories: [{ fullName: 'acme/am-fm', branch: 'main', commitSha: '8607ab2afcfc0be132913f9cb2c7e81dc45d7ce6', status: 'partial', coverage: { analyzed: 66, eligible: 75, percent: 88 }, freshness: 'current' }],
+  verification: { coverage: [{ repository: 'acme/am-fm', gaps: ['9 file(s) over the size limit'] }] },
+  brief: {
+    summary: 'A Python AM/FM demo.',
+    currentState: [{ text: 'main.py defines am_modulate and am_demodulate.', kind: 'fact', refs: [1] }],
+    status: [{ label: 'Tracked work', text: '0 open PR(s). An empty tracker describes the trackers only.' }, { label: 'Verification', text: 'No test files found, none executed by Relay; completion not established.' }],
+    doFirst: [{ type: 'recommendation', n: 1, text: 'Parameterize the cutoff in am_demodulate', priority: 'P2', basis: 'suggested', why: 'It is hard-coded.', doneWhen: 'am_demodulate accepts a cutoff argument', prerequisites: ['numpy installed'], files: ['main.py'], symbols: ['am_demodulate'], refs: [1], kind: 'inference' }],
+    findings: { counts: { conflicts: 1 }, text: '1 documentation conflict, 1 confirmed blocker. Each is explained once under Known Risks, Unknowns, and Verification Status.' },
+  },
+  sections: [
+    { key: 'walkthrough', title: 'Architecture and Technical Walkthrough', origin: 'ai', items: [
+      { text: 'Scipy filters the envelope.', type: 'overview', kind: 'inference', refs: [1] },
+      { text: 'Modulate and recover', type: 'subsystem', kind: 'fact', purpose: 'Shows AM on a carrier.', entry: 'main.py', flow: 'main.py calls am_modulate then am_demodulate.', steps: ['am_modulate scales the carrier.', 'am_demodulate recovers the envelope.'],
+        functions: [{ name: 'am_modulate', file: 'main.py', line: 12, role: 'Scales the carrier by the message.' }], calls: [{ from: 'update', to: 'am_modulate', line: 40 }], inputs: ['fm slider'], outputs: ['plots'], dependencies: ['numpy'], limits: ['FM is not implemented.'], files: ['main.py'], symbols: ['am_modulate'], refs: [1] }] },
+    { key: 'first_30', title: 'Your First 30 Minutes', origin: 'ai', intro: 'A suggested order for a new owner, not a measured estimate of how long each step takes.', items: [{ type: 'step', text: 'Trace the primary workflow', detail: 'Follow the first path from main.py.', reads: [{ file: 'main.py', why: 'defines am_modulate' }], kind: 'inference', refs: [1] }] },
+    { key: 'documented_vs_implemented', title: 'Documentation vs code', group: 'Known Risks, Unknowns, and Verification Status', origin: 'ai', items: [{ type: 'comparison', status: 'conflicts', text: 'Tokens expire in 15 minutes: code differs', kind: 'fact', refs: [2], resolvedLabel: 'Do first #1' }] },
+    { key: 'blockers_risks', title: 'Blockers and risks', group: 'Known Risks, Unknowns, and Verification Status', origin: 'ai', items: [{ text: 'Retry queue PR is blocked.', kind: 'fact', label: 'confirmed', refs: [1] }, { text: 'Hard-coded cutoff may distort other signals.', kind: 'inference', label: 'inferred risk', refs: [1] }] },
+    { key: 'unknowns', title: 'Unknowns', group: 'Known Risks, Unknowns, and Verification Status', origin: 'ai', items: [{ text: 'No run instructions exist.', kind: 'unknown', refs: [] }] },
+    { key: 'verification', title: 'Verification status', group: 'Known Risks, Unknowns, and Verification Status', origin: 'deterministic', items: [{ type: 'status', label: 'Tests', text: 'No test files or scripts found; none were executed' }, { type: 'status', label: 'Completion', text: 'Completion is not established: no tests were executed.' }] },
+    { key: 'open_items', title: 'Open pull requests and issues', group: 'Open Work and Recent Changes', origin: 'deterministic', items: [{ text: 'PR #3: Add retry queue', kind: 'fact', inline: true, refs: [], evidence: [{ id: 'pr3', type: 'pull_request', label: 'acme/am-fm PR #3', url: 'https://github.com/acme/am-fm/pull/3' }] }] },
+  ],
+  sourceIndex: [
+    { n: 1, id: 'file:1:main.py', type: 'repository_file', label: 'acme/am-fm/main.py@8607ab2', url: 'https://github.com/acme/am-fm/blob/8607ab2/main.py' },
+    { n: 2, id: 'doc:d1:0', type: 'document', label: 'Document "PRD" > Auth, p. 2', url: null, document: { documentId: 'd1', chunkId: 'd1:0', filename: 'prd.pdf' } },
+  ],
+  limitations: ['Automated validation corrected the AI output before it was stored: 2 completion/execution claim(s) no evidence supports.'],
+})
+
+test('engineering handoff preview: summary, verified state, actions, walkthrough, onboarding, risks and verification in order', () => {
+  const report = briefReport()
+  const html = renderToString(React.createElement(ReportBody, { report, onOpenDocument() {} }))
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, "'").replace(/&gt;/g, '>').replace(/\s+/g, ' ')
+  const order = ['Executive summary', 'Current verified state', 'Do first', 'Architecture and Technical Walkthrough', 'Your First 30 Minutes', 'class="ws-group">Known Risks, Unknowns, and Verification Status', 'Documentation vs code', 'Verification status', 'Open Work and Recent Changes', 'Sources', 'Limitations and data quality']
+  let last = -1
+  for (const heading of order) { const at = html.indexOf(heading); assert.ok(at > last, `${heading} follows the previous heading`); last = at }
+  assert.equal(html.split('class="ws-group"').length - 1, 2, 'one heading per group')
+  for (const t of ['Verified fact', 'Inference', 'Unknown', 'Conflict', 'Confirmed', 'Inferred risk', 'P2 suggested']) assert.ok(text.includes(t), t)
+  assert.match(text, /Why: It is hard-coded\./); assert.match(text, /Done when: am_demodulate accepts a cutoff argument/); assert.match(text, /Needs first: numpy installed/)
+  assert.match(text, /Purpose: Shows AM on a carrier\./); assert.match(text, /Entry point: main\.py/); assert.match(text, /Execution flow: am_modulate scales the carrier/)
+  assert.match(text, /am_modulate \(main\.py:12\) Scales the carrier by the message\./); assert.match(text, /update -> am_modulate \(L40\)/); assert.match(text, /Limitations: FM is not implemented\./)
+  assert.match(text, /not a measured estimate/); assert.match(text, /main\.py defines am_modulate/)
+  assert.match(text, /Tracked work 0 open PR\(s\)/); assert.match(text, /Needs attention: 1 documentation conflict/); assert.match(text, /Addressed by: Do first #1/)
+  assert.match(text, /Tests No test files or scripts found; none were executed/); assert.match(text, /Completion Completion is not established/); assert.match(text, /not analyzed: 9 file\(s\) over the size limit/)
+  assert.match(html, /<sup class="ws-refs">\[<span><a href="#src-1">1<\/a><\/span>\]<\/sup>/); assert.match(html, /<li id="src-2" value="2">/)
+  assert.match(html, /<a href="https:\/\/github.com\/acme\/am-fm\/pull\/3"[^>]*>PR #3: Add retry queue<\/a>/, 'deterministic items link inline')
+  assert.match(html, /<button[^>]*>Document &quot;PRD&quot; &gt; Auth, p\. 2<\/button>/); assert.match(html, /ref d1:0/); assert.doesNotMatch(html, /href="[^"]*prd\.pdf/)
+  assert.match(html, /href="https:\/\/github.com\/acme\/am-fm\/blob\/8607ab2\/main\.py"/)
+})
+
+test('engineering handoff preview shows every statement of the stored report exactly once (single source of truth with the PDF)', () => {
+  const report = briefReport()
+  const text = renderToString(React.createElement(ReportBody, { report })).replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, ' ')
+  const items = [...report.brief.currentState, ...report.brief.doFirst, ...report.sections.flatMap(s => s.items)]
+  for (const item of items) { const shown = item.text || item.detail; assert.equal(text.split(shown).length - 1, 1, `appears once: ${shown}`) }
+})
+
+test('reports stored before the walkthrough layout still render their attention list and verification block', () => {
+  const old = briefReport()
+  old.brief = { ...old.brief, findings: undefined, status: undefined, attention: [{ text: 'No run instructions exist.', kind: 'unknown', refs: [] }] }
+  old.sections = old.sections.filter(s => s.key === 'open_items')
+  old.verification = { ...old.verification, tests: { discovered: { fileCount: 0, scripts: [], frameworks: [] }, executed: { detail: 'No test results are available.' } }, runtime: { detail: 'Not verified.' }, requirements: { detail: 'None provided.' }, workTracking: { detail: 'Nothing open.' }, completion: { detail: 'Completion is not established.' } }
+  const text = renderToString(React.createElement(ReportBody, { report: old })).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+  assert.match(text, /Needs attention/); assert.match(text, /No run instructions exist\./); assert.match(text, /Verification status/); assert.match(text, /Tests executed No test results are available\./)
+})
+
+test('reports created before the engineering layout still render with the earlier layout', () => {
+  const legacy = { projectName: 'Old', generatedAt: '2026-01-02T10:00:00Z', limitations: [], repositories: [], sections: [{ key: 'architecture', title: 'Repository architecture', items: [{ text: 'Old style claim', kind: 'fact', evidence: [] }] }] }
+  const html = renderToString(React.createElement(ReportBody, { report: legacy }))
+  assert.match(html, /Repository architecture/); assert.match(html, /Old style claim/); assert.doesNotMatch(html, /Verification status/)
+})
+
+const notionView = props => renderToString(React.createElement(MemoryRouter, null, React.createElement(ConnectedNotionPagesView, { state: 'ready', links: [], canManage: true, canSync: true, notionConnected: true, inputVal: '', onInputChange() {}, onLink() {}, onSync() {}, onAskRemove() {}, onCancel() {}, onRemove() {}, ...props })))
+
+test('notion pages: empty state with link form, or connect prompt when not connected', () => {
+  assert.match(notionView(), /No Notion pages or databases linked yet/); assert.match(notionView(), /Link Notion page/)
+  const disconnected = notionView({ notionConnected: false })
+  assert.match(disconnected, /Connect Notion/); assert.doesNotMatch(disconnected, /Link Notion page/)
+  assert.doesNotMatch(notionView({ canManage: false }), /Link Notion page/)
+})
+
+test('notion pages: linked rows show status, remaining tasks, sync now and unlink controls', () => {
+  const ok = {
+    id: 'n1',
+    title: 'Product Roadmap',
+    url: 'https://notion.so/roadmap',
+    sync: {
+      status: 'completed',
+      lastSuccessAt: '2026-10-10T10:00:00Z',
+      remainingCount: 3,
+      completedCount: 2,
+      remainingItems: ['Design auth flow', 'Database migration', 'Write documentation'],
+      completedItems: ['Initial setup', 'Setup Vite'],
+    },
+  }
+  const html = notionView({ links: [ok] })
+  assert.match(html, /Product Roadmap/); assert.match(html, />Synced</); assert.match(html, /3.*remaining/); assert.match(html, /View remaining \(3\)/); assert.match(html, /Sync now/); assert.match(html, />Unlink</)
+  assert.match(notionView({ links: [ok], confirmingId: 'n1' }), /Unlink this Notion resource\?/)
 })

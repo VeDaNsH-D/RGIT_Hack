@@ -3,8 +3,9 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
-import { WhatsAppConnection, JiraConnection, SlackConnection, NotionConnection } from '../models/index.js';
+import { WhatsAppConnection, JiraConnection, SlackConnection, NotionConnection, SourceConnection } from '../models/index.js';
 import { JiraConnector } from '../integrations/jira/index.js';
+import { syncJiraLink } from '../services/jiraProjectSync.js';
 import { SlackClient } from '../modules/ingestion/providers/slack/slackClient.js';
 import { SlackConnector } from '../modules/ingestion/providers/slack/slackConnector.js';
 import { NotionClient } from '../modules/ingestion/providers/notion/notionClient.js';
@@ -369,6 +370,58 @@ router.delete('/jira', requireAuth, needUser, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+router.get('/jira/projects', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const conn = await JiraConnection.findOne({ userId: req.user.id, active: true });
+    if (!conn) {
+      return res.set('Cache-Control', 'no-store').json({ connected: false, projects: [] });
+    }
+
+    let connector;
+    if (conn.authType === 'oauth' || conn.cloudId) {
+      const accessToken = await getValidJiraAccessToken(conn);
+      connector = new JiraConnector({
+        cloudId: conn.cloudId,
+        accessToken,
+        siteUrl: conn.siteUrl || conn.host,
+      });
+    } else {
+      connector = new JiraConnector({
+        host: conn.host,
+        email: conn.email,
+        apiToken: conn.apiToken,
+        siteUrl: conn.siteUrl || conn.host,
+      });
+    }
+
+    const rawProjects = await connector.getProjects();
+    const projects = (rawProjects || []).map((p) => ({
+      id: p.id,
+      key: p.key,
+      name: p.name,
+      projectTypeKey: p.projectTypeKey,
+    }));
+
+    if (!conn.projectKey && projects.length > 0) {
+      conn.projectKey = projects[0].key;
+      await conn.save();
+    }
+
+    return res.set('Cache-Control', 'no-store').json({
+      connected: true,
+      siteName: conn.siteName || conn.host,
+      siteUrl: conn.siteUrl || conn.host,
+      projects,
+    });
+  } catch (err) {
+    return res.status(400).json({
+      error: 'jira_projects_failed',
+      message: err.message || 'Failed to fetch Jira projects.',
+      projects: [],
+    });
+  }
+});
+
 router.post('/jira/sync', requireAuth, needUser, async (req, res, next) => {
   try {
     const conn = await JiraConnection.findOne({ userId: req.user.id, active: true });
@@ -382,23 +435,50 @@ router.post('/jira/sync', requireAuth, needUser, async (req, res, next) => {
       connector = new JiraConnector({
         cloudId: conn.cloudId,
         accessToken,
+        siteUrl: conn.siteUrl || conn.host,
       });
     } else {
       connector = new JiraConnector({
         host: conn.host,
         email: conn.email,
         apiToken: conn.apiToken,
+        siteUrl: conn.siteUrl || conn.host,
       });
     }
 
+    // Auto-detect project key if not yet set
+    let projectKey = conn.projectKey;
+    if (!projectKey) {
+      try {
+        const projects = await connector.getProjects();
+        if (projects?.length) {
+          projectKey = projects[0].key;
+          conn.projectKey = projectKey;
+        }
+      } catch (err) {
+        // proceed
+      }
+    }
+
+    // Also sync all existing Jira project links connected by this user across Relay projects
+    const links = await SourceConnection.find({ connectedBy: req.user.id, provider: 'jira' });
+    for (const link of links) {
+      try {
+        await syncJiraLink(link);
+      } catch (linkErr) {
+        console.warn(`[jira-sync] failed to sync link ${link._id}:`, linkErr.message);
+      }
+    }
+
     const syncResult = await connector.sync({
-      projectKey: conn.projectKey || undefined,
+      projectKey: projectKey || undefined,
       maxPages: 3,
       perPage: 25,
     });
 
+    const count = syncResult.recordsProcessed ?? syncResult.records?.length ?? 0;
     conn.lastSyncAt = new Date();
-    conn.syncedIssueCount = syncResult.recordsCount || 0;
+    conn.syncedIssueCount = count;
     await conn.save();
 
     return res.status(200).json({
@@ -657,6 +737,83 @@ router.post('/notion/sync', requireAuth, needUser, async (req, res, next) => {
       ok: true,
       syncedPageCount: conn.syncedPageCount,
       lastSyncAt: conn.lastSyncAt,
+    });
+  } catch (err) { next(err); }
+});
+
+router.get('/notion/pages', requireAuth, needUser, async (req, res, next) => {
+  try {
+    const conn = await NotionConnection.findOne({ userId: req.user.id, active: true });
+    const hasEnvKey = Boolean(process.env.NOTION_API_KEY || process.env.NOTION_TOKEN);
+
+    if (!conn && !hasEnvKey) {
+      return res.set('Cache-Control', 'no-store').json({
+        connected: false,
+        pages: [],
+        databases: [],
+        resources: [],
+      });
+    }
+
+    const runSearch = async (apiKey) => {
+      const client = new NotionClient({ apiKey });
+      return client.search({ pageSize: 50 });
+    };
+
+    let searchResult;
+    try {
+      if (conn) {
+        searchResult = await withNotionToken(conn, runSearch);
+      } else {
+        searchResult = await runSearch(process.env.NOTION_API_KEY || process.env.NOTION_TOKEN);
+      }
+    } catch (searchErr) {
+      // If OAuth token or API token search fails, report cleanly
+      return res.status(400).json({
+        error: 'notion_search_failed',
+        message: searchErr.message || 'Could not fetch Notion pages.',
+        pages: [],
+        databases: [],
+        resources: [],
+      });
+    }
+
+    const resources = (searchResult?.results || []).map((item) => {
+      let title = '';
+      if (item.properties) {
+        for (const prop of Object.values(item.properties)) {
+          if (prop?.type === 'title' && prop.title?.[0]?.plain_text) {
+            title = prop.title.map((t) => t.plain_text).join('').trim();
+            break;
+          }
+        }
+      }
+      if (!title && Array.isArray(item.title) && item.title.length > 0) {
+        title = item.title.map((t) => t.plain_text).join('').trim();
+      }
+      if (!title) {
+        title = item.object === 'database' ? 'Untitled database' : 'Untitled page';
+      }
+
+      return {
+        id: item.id,
+        object: item.object, // 'page' or 'database'
+        title,
+        url: item.url || `https://www.notion.so/${item.id.replace(/-/g, '')}`,
+        icon: item.icon?.emoji || item.icon?.external?.url || null,
+        lastEditedTime: item.last_edited_time,
+      };
+    });
+
+    const pages = resources.filter((r) => r.object === 'page');
+    const databases = resources.filter((r) => r.object === 'database');
+
+    return res.set('Cache-Control', 'no-store').json({
+      connected: true,
+      workspaceName: conn?.workspaceName || 'Notion Workspace',
+      pages,
+      databases,
+      resources,
     });
   } catch (err) { next(err); }
 });

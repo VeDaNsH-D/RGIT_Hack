@@ -31,7 +31,7 @@ export class DraftError extends Error {
   }
 }
 
-export const LIMITS = Object.freeze({ openPrs: 30, openIssues: 40, recentClosedPrs: 15, commits: 30, notes: 20, tasks: 60, jiraOpen: 20, jiraDone: 5, slack: 15, contentChars: 1200, totalChars: 120_000 });
+export const LIMITS = Object.freeze({ openPrs: 30, openIssues: 40, recentClosedPrs: 15, commits: 30, notes: 20, tasks: 60, jiraOpen: 20, jiraDone: 5, slack: 15, notion: 15, contentChars: 1200, totalChars: 120_000 });
 const PM = 'metadata.providerMetadata';
 const STALE_AFTER_MS = 7 * 24 * 3600 * 1000;
 
@@ -51,6 +51,7 @@ export function labelFor(r) {
   const repo = p.repositoryFullName || (r.provider === 'manual' ? 'note' : r.provider);
   if (r.provider === 'jira') return `Jira ${p.key || r.externalId}`;
   if (r.provider === 'slack') return `Slack ${p.channelName ? `#${p.channelName}` : 'message'}${r.metadata?.sourceCreatedAt ? ` ${new Date(r.metadata.sourceCreatedAt).toISOString().slice(0, 10)}` : ''}`;
+  if (r.provider === 'notion') return `Notion: ${r.title}`;
   if (r.type === 'pull_request') return `${repo} PR #${p.number}`;
   if (r.type === 'issue') return `${repo} issue #${p.number}`;
   if (r.type === 'commit') return `${repo} commit ${String(p.sha || '').slice(0, 7)}`;
@@ -59,7 +60,7 @@ export function labelFor(r) {
 }
 
 /** Per-record-type content caps: commits and PR/issue bodies are mostly noise for synthesis; titles carry the signal. */
-const contentCapFor = (r, contentChars) => (r.provider === 'slack' || r.provider === 'jira' ? Math.min(contentChars, 300) : r.type === 'commit' ? 0 : r.type === 'issue' || r.type === 'pull_request' ? Math.min(contentChars, 260) : contentChars);
+const contentCapFor = (r, contentChars) => (r.provider === 'slack' || r.provider === 'jira' ? Math.min(contentChars, 300) : r.provider === 'notion' ? Math.min(contentChars, 400) : r.type === 'commit' ? 0 : r.type === 'issue' || r.type === 'pull_request' ? Math.min(contentChars, 260) : contentChars);
 
 /** Strips template/markup noise and whitespace, then keeps whole leading sentences up to `max` characters. */
 export function condense(text, max) {
@@ -73,13 +74,13 @@ export function condense(text, max) {
 
 // Share of the record budget each category may use first; whatever is left over is then shared by what was skipped,
 // so a flood of PRs can never push out all issues, notes or commits.
-const QUOTA = { repository: 0.05, pull_request: 0.2, issue: 0.2, jira: 0.17, slack: 0.12, note: 0.08, closed_pr: 0.06, commit: 0.12 };
+const QUOTA = { repository: 0.05, pull_request: 0.18, issue: 0.18, jira: 0.15, notion: 0.12, slack: 0.10, note: 0.07, closed_pr: 0.05, commit: 0.10 };
 
 /** Chat and tickets routinely contain pasted credentials; strip them (and the usual key=value secrets) before any model sees them. */
 export function scrubSecrets(text) {
   return redactSecrets(text).replace(/\b(pass(?:word|wd)?|secret|api[_-]?key|token|private[_-]?key)\b(\s*(?:is|[:=])\s*)(\S{4,})/gi, '$1$2[REDACTED]');
 }
-const categoryOf = (r, closedPrIds) => (r.provider === 'jira' ? 'jira' : r.provider === 'slack' ? 'slack' : r.provider === 'manual' ? 'note' : r.type === 'repository' ? 'repository' : r.type === 'commit' ? 'commit' : r.type === 'issue' ? 'issue' : closedPrIds.has(String(r._id)) ? 'closed_pr' : 'pull_request');
+const categoryOf = (r, closedPrIds) => (r.provider === 'jira' ? 'jira' : r.provider === 'slack' ? 'slack' : r.provider === 'notion' ? 'notion' : r.provider === 'manual' ? 'note' : r.type === 'repository' ? 'repository' : r.type === 'commit' ? 'commit' : r.type === 'issue' ? 'issue' : closedPrIds.has(String(r._id)) ? 'closed_pr' : 'pull_request');
 
 /** Lexical relevance of a record to the project's working vocabulary (name, description, repository components, ...). */
 function rankByRelevance(records, vocabulary, keep) {
@@ -93,19 +94,20 @@ function rankByRelevance(records, vocabulary, keep) {
   return scored.sort((a, b) => b.score - a.score).slice(0, keep).map((x) => x.r);
 }
 
-export async function buildHandoffContext(project, { requireActivity = true, extraLimitations = [], budgetChars = LIMITS.totalChars, includePreviousHandoffs = false, scale = 1, contentChars = LIMITS.contentChars, includeDocuments = true, documentBudgetChars = 24_000, queryHints = [], documentModels, limits = LIMITS } = {}) {
+export async function buildHandoffContext(project, { requireActivity = true, extraLimitations = [], budgetChars = LIMITS.totalChars, includePreviousHandoffs = false, scale = 1, contentChars = LIMITS.contentChars, includeDocuments = true, documentBudgetChars = 24_000, queryHints = [], documentModels, limits = LIMITS, contextNotes = null } = {}) {
   const projectId = project._id;
   const cap = (n) => Math.max(2, Math.floor(n * scale));
-  const allConnections = await SourceConnection.find({ projectId, provider: { $in: ['github', 'slack', 'jira'] } }).lean();
+  const allConnections = await SourceConnection.find({ projectId, provider: { $in: ['github', 'slack', 'jira', 'notion'] } }).lean();
   const connections = allConnections.filter((c) => c.provider === 'github');
   const slackLinks = allConnections.filter((c) => c.provider === 'slack');
   const jiraLinks = allConnections.filter((c) => c.provider === 'jira');
+  const notionLinks = allConnections.filter((c) => c.provider === 'notion');
   const syncs = connections.map((c) => ({ repository: c.config?.fullName || 'repository', sync: serializeSync(c.config?.sync) }));
   const vocabulary = new Set([...tokenize(project.name), ...tokenize(project.description), ...queryHints.flatMap((h) => [...tokenize(h)])]);
   // Pull a few more than we keep so the most relevant (not merely the most recent) survive the cap.
   const pool = (n) => cap(n) * 2;
 
-  const [repos, openPrsAll, openIssuesAll, notes, closedPrsAll, commits, tasksAll, jiraOpenAll, jiraDone, slackAll] = await Promise.all([
+  const [repos, openPrsAll, openIssuesAll, notes, closedPrsAll, commits, tasksAll, jiraOpenAll, jiraDone, slackAll, notionAll] = await Promise.all([
     recent(projectId, { provider: 'github', type: 'repository' }, 10),
     recent(projectId, { provider: 'github', type: 'pull_request', [`${PM}.state`]: 'open' }, pool(limits.openPrs)),
     recent(projectId, { provider: 'github', type: 'issue', [`${PM}.state`]: 'open' }, pool(limits.openIssues)),
@@ -116,10 +118,12 @@ export async function buildHandoffContext(project, { requireActivity = true, ext
     jiraLinks.length ? recent(projectId, { provider: 'jira', 'metadata.isActive': true }, pool(limits.jiraOpen)) : [],
     jiraLinks.length ? recent(projectId, { provider: 'jira', 'metadata.isActive': false }, cap(limits.jiraDone)) : [],
     slackLinks.length ? recent(projectId, { provider: 'slack' }, pool(limits.slack) * 2) : [],
+    notionLinks.length ? recent(projectId, { provider: 'notion' }, pool(limits.notion || 15)) : [],
   ]);
   const jiraOpen = rankByRelevance(jiraOpenAll, vocabulary, cap(limits.jiraOpen));
   // Slack: skip join/leave/bot noise and one-liners, then keep the messages most related to the project's vocabulary.
   const slackMessages = rankByRelevance(slackAll.filter((m) => !m.metadata?.providerMetadata?.subtype && String(m.content || '').trim().length >= 40), vocabulary, cap(limits.slack));
+  const notionPages = rankByRelevance(notionAll, vocabulary, cap(limits.notion || 15));
   const openPrs = rankByRelevance(openPrsAll, vocabulary, cap(limits.openPrs));
   const openIssues = rankByRelevance(openIssuesAll, vocabulary, cap(limits.openIssues));
   const closedPrs = rankByRelevance(closedPrsAll, vocabulary, cap(limits.recentClosedPrs));
@@ -127,7 +131,7 @@ export async function buildHandoffContext(project, { requireActivity = true, ext
   const tasks = [...tasksAll].sort((a, b) => (a.status === 'completed') - (b.status === 'completed'));
 
   // Priority order; the character budget drops the least important records first.
-  const ordered = [...repos, ...openPrs, ...openIssues, ...jiraOpen, ...slackMessages, ...notes, ...closedPrs, ...jiraDone, ...commits];
+  const ordered = [...repos, ...openPrs, ...openIssues, ...jiraOpen, ...notionPages, ...slackMessages, ...notes, ...closedPrs, ...jiraDone, ...commits];
   const closedIds = new Set(closedPrs.map((r) => String(r._id)));
   const remaining = Object.fromEntries(Object.entries(QUOTA).map(([k, f]) => [k, Math.floor(budgetChars * f)]));
   let poolLeft = budgetChars;
@@ -136,7 +140,7 @@ export async function buildHandoffContext(project, { requireActivity = true, ext
   const seen = new Set();
   const skipped = [];
   const take = (r, fromQuota) => {
-    const content = (r.provider === 'slack' || r.provider === 'jira') ? scrubSecrets(condense(r.content, contentCapFor(r, contentChars))) : condense(r.content, contentCapFor(r, contentChars));
+    const content = (r.provider === 'slack' || r.provider === 'jira' || r.provider === 'notion') ? scrubSecrets(condense(r.content, contentCapFor(r, contentChars))) : condense(r.content, contentCapFor(r, contentChars));
     const cost = content.length + (r.title || '').length + 60;
     const cat = categoryOf(r, closedIds);
     if (cost > poolLeft || (fromQuota && cost > remaining[cat])) return false;
@@ -182,10 +186,11 @@ export async function buildHandoffContext(project, { requireActivity = true, ext
     if (sync.truncated) limitations.push(`${repository}: history was truncated by sync limits.`);
   }
 
-  // Slack channels and Jira projects linked to this project: report what they contributed and whether they are current.
+  // Slack channels, Jira projects and Notion pages linked to this project: report what they contributed and whether they are current.
   const integrations = [
     ...slackLinks.map((l) => ({ provider: 'slack', label: `Slack #${l.config?.channelName || l.config?.channelId}`, sync: l.config?.sync || {}, count: slackAll.filter((m) => m.metadata?.providerMetadata?.channelId === l.config?.channelId).length })),
     ...jiraLinks.map((l) => ({ provider: 'jira', label: `Jira project ${l.config?.projectKey}`, sync: l.config?.sync || {}, count: jiraOpenAll.length + jiraDone.length })),
+    ...notionLinks.map((l) => ({ provider: 'notion', label: `Notion ${l.config?.title || 'page'}`, sync: l.config?.sync || {}, count: notionAll.length })),
   ];
   for (const i of integrations) {
     const at = i.sync.lastSuccessAt;
@@ -196,22 +201,23 @@ export async function buildHandoffContext(project, { requireActivity = true, ext
   }
   if (slackLinks.length) limitations.push('Slack content is informal discussion: treat it as context, not as confirmed decisions or status.');
 
-  const trackedRecords = selected.filter((r) => r.provider === 'jira' || r.provider === 'slack').length;
+  const trackedRecords = selected.filter((r) => r.provider === 'jira' || r.provider === 'slack' || r.provider === 'notion').length;
   if (requireActivity && githubRecords === 0 && trackedRecords === 0 && notes.length === 0 && tasks.length === 0 && docs.chunkCount === 0) {
     throw new DraftError(connections.length ? 409 : 422, connections.length ? 'not_synced' : 'insufficient_context', connections.length
       ? 'Synchronize a connected repository before drafting a handoff.' : 'There is no project context to draft from yet. Connect a repository, add tasks, or add notes first.');
   }
 
+  const factsNote = typeof contextNotes === 'function' ? contextNotes({ documents: { included: docs.included, notIndexed: docs.notIndexed } }) : (contextNotes || '');
   const evidence = new Map(evidenceList);
   const freshness = limitations.length ? `\n\n[Relay data limitations] ${limitations.join(' ')}` : '';
   const pack = mapToContextPackRequest({
-    project: { _id: project._id, name: project.name, description: `${project.description || ''}${freshness}`.trim() },
+    project: { _id: project._id, name: project.name, description: `${project.description || ''}${factsNote ? `\n\n${factsNote}` : ''}${freshness}`.trim() },
     tasks,
     documents: [],
     sourceRecords: selected,
   });
   addJiraKeyLinks(pack.sources);
-  return { pack, evidence, limitations, activity: { openPrs: openPrsAll, openIssues: openIssuesAll, closedPrs: closedPrsAll, commits, jiraOpen: jiraOpenAll }, integrations, documents: { included: docs.included, notIndexed: docs.notIndexed }, counts: { github: githubRecords, jira: selected.filter((r) => r.provider === 'jira').length, slack: selected.filter((r) => r.provider === 'slack').length, notes: notes.length, tasks: tasks.length, documents: docs.included.length, documentExcerpts: docs.chunkCount } };
+  return { pack, evidence, limitations, activity: { openPrs: openPrsAll, openIssues: openIssuesAll, closedPrs: closedPrsAll, commits, jiraOpen: jiraOpenAll }, integrations, documents: { included: docs.included, notIndexed: docs.notIndexed }, counts: { github: githubRecords, jira: selected.filter((r) => r.provider === 'jira').length, slack: selected.filter((r) => r.provider === 'slack').length, notion: selected.filter((r) => r.provider === 'notion').length, notes: notes.length, tasks: tasks.length, documents: docs.included.length, documentExcerpts: docs.chunkCount } };
 }
 
 const ref = (ids, evidence) => {

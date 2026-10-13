@@ -247,7 +247,20 @@ export async function getValidJiraAccessToken(connection) {
     connection.accessToken = refreshed.accessToken;
     if (refreshed.refreshToken) connection.refreshToken = refreshed.refreshToken;
     connection.tokenExpiresAt = new Date(Date.now() + refreshed.expiresIn * 1000);
-    await connection.save();
+    if (typeof connection.save === 'function') {
+      await connection.save();
+    } else if (connection._id) {
+      await JiraConnection.updateOne(
+        { _id: connection._id },
+        {
+          $set: {
+            accessToken: connection.accessToken,
+            refreshToken: connection.refreshToken,
+            tokenExpiresAt: connection.tokenExpiresAt,
+          },
+        }
+      );
+    }
     return connection.accessToken;
   } catch (err) {
     console.warn('[jira-oauth] Token refresh failed, falling back to existing token:', err.message);

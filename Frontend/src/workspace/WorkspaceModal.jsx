@@ -6,9 +6,33 @@ import { useWorkspace } from './WorkspaceContext'
 import ProjectIntegrations from './ProjectIntegrations'
 import { linkGitHubRepository, startGitHubInstall } from '../api/connections'
 import { clearProjectDraft, loadProjectDraft, saveProjectDraft } from './projectDraft'
+import OnboardingModal from './OnboardingModal'
 
 const titles = { repository: 'Add a GitHub repository.', project: 'A new place for good work.', task: 'Make the next step clear.', handoff: 'Pass the context forward.', member: 'Bring your team together.', editProject: 'Refine your project.', editTask: 'Refine the next step.' }
-export default function WorkspaceModal({ kind, projectId, initialTask, resumeDraft = false, excludeRepositoryIds = [], onClose }) {
+
+export default function WorkspaceModal(props) {
+  if (props.kind === 'member') {
+    return <MemberWorkspaceModal {...props} />
+  }
+  return <StandardWorkspaceModal {...props} />
+}
+
+function MemberWorkspaceModal({ projectId, onClose }) {
+  const { projects, reload } = useWorkspace()
+  const project = projects.find(item => item.id === projectId) || projects[0]
+  return (
+    <OnboardingModal
+      projectId={projectId || project?.id}
+      projectName={project?.name}
+      onClose={onClose}
+      onCreated={async () => {
+        await reload()
+      }}
+    />
+  )
+}
+
+function StandardWorkspaceModal({ kind, projectId, initialTask, resumeDraft = false, excludeRepositoryIds = [], onClose }) {
   const dialog = useRef(null)
   const { projects, reload } = useWorkspace()
   const { session } = useAuth()
