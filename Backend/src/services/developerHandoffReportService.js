@@ -4,7 +4,6 @@ import { RepositoryFile } from '../models/RepositoryFile.js';
 import { RepositorySnapshot } from '../models/RepositorySnapshot.js';
 import { SourceConnection } from '../models/SourceConnection.js';
 import { SourceRecord } from '../models/SourceRecord.js';
-import { Document } from '../models/Document.js';
 import { Task } from '../models/Task.js';
 import { config } from '../config.js';
 import { AiServiceError, generateDeveloperHandoff as callAi } from './aiClient.js';
@@ -132,12 +131,11 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
 
   // Exact (uncapped) tracker counts: the facts the report may state about open work.
   const pid = project._id;
-  const [openPullRequests, openIssues, openJiraCount, openTasks, indexedDocs, jiraLinked] = await Promise.all([
+  const [openPullRequests, openIssues, openJiraCount, openTasks, jiraLinked] = await Promise.all([
     SourceRecord.countDocuments({ projectId: pid, provider: 'github', type: 'pull_request', 'metadata.providerMetadata.state': 'open' }),
     SourceRecord.countDocuments({ projectId: pid, provider: 'github', type: 'issue', 'metadata.providerMetadata.state': 'open' }),
     SourceRecord.countDocuments({ projectId: pid, provider: 'jira', 'metadata.isActive': true }),
     Task.countDocuments({ projectId: pid, status: 'open' }),
-    Document.find({ projectId: pid, status: 'indexed' }).select('title').lean(),
     SourceConnection.exists({ projectId: pid, provider: 'jira' }),
   ]);
 
@@ -156,7 +154,7 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
     const queryHints = loaded.flatMap(({ snapshot }) => [...(snapshot.knowledge.components || []).map((c) => c.name), ...(snapshot.knowledge.overview?.frameworks || []), snapshot.fullName]);
     const context = await buildHandoffContext(project, { requireActivity: false, extraLimitations: factor < 1 ? [...extraLimitations, 'The context was reduced to fit the AI provider’s request-size limit, so some details may be missing.'] : extraLimitations, budgetChars: Math.floor(budget * 0.3), includePreviousHandoffs: true, includeDocuments: true, documentBudgetChars: Math.floor(budget * 0.25), queryHints, limits: REPORT_ACTIVITY_LIMITS, scale: factor, contentChars: clamp(Math.floor(budget * 0.015), 200, 1200),
       contextNotes: ({ documents }) => {
-        const v = buildVerification({ snapshots, freshnessByRepo, syncByRepo, openTasks, documents: { included: indexedDocs.map((d) => ({ title: d.title })), notIndexed: documents.notIndexed }, openWork: { openPullRequests, openIssues, openJira: jiraLinked ? openJiraCount : null } });
+        const v = buildVerification({ snapshots, freshnessByRepo, syncByRepo, openTasks, documents: { included: documents.included.map((d) => ({ title: d.title })), notIndexed: documents.notIndexed }, openWork: { openPullRequests, openIssues, openJira: jiraLinked ? openJiraCount : null } });
         return verificationNotes(v, complexity, snapshots.map((s) => `${s.fullName}: ${s.coverage.analyzed} files analyzed`).join('; '));
       } });
     const { pack, evidence, limitations, counts, documents, activity, integrations } = context;
@@ -186,7 +184,7 @@ export async function generateDeveloperHandoffReport(project, user, { generate =
   const { ai, evidence, limitations, counts, documents, activity, integrations, pack: sentPack } = result;
   if (reducedTo) limitations.push(`The AI request was reduced to ${Math.round(reducedTo * 100)}% of the normal context to fit the provider’s limit.`);
 
-  const verification = buildVerification({ snapshots, freshnessByRepo, syncByRepo, openTasks, documents: { included: indexedDocs.map((d) => ({ title: d.title })), notIndexed: documents.notIndexed }, openWork: { openPullRequests, openIssues, openJira: jiraLinked ? openJiraCount : null }, integrations });
+  const verification = buildVerification({ snapshots, freshnessByRepo, syncByRepo, openTasks, documents: { included: documents.included.map((d) => ({ title: d.title })), notIndexed: documents.notIndexed }, openWork: { openPullRequests, openIssues, openJira: jiraLinked ? openJiraCount : null }, integrations });
   const primary = snapshots[0];
   const fallbackSummary = `${primary.fullName}${primary.knowledge.overview?.languages?.[0] ? ` is a ${primary.knowledge.overview.languages[0].language} repository` : ''}${primary.knowledge.overview?.purposeFromReadme ? `: ${primary.knowledge.overview.purposeFromReadme.replace(/\s+/g, ' ').slice(0, 200)}` : ''}.`;
   const docText = new Map(sentPack.sources.filter((x) => x.provider === 'document').map((x) => [x.id, x.content]));
