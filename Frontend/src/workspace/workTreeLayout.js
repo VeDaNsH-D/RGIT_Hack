@@ -1,10 +1,13 @@
 export const TREE_NODE_WIDTH = 246
 export const TREE_NODE_HEIGHT = 112
+// Warm palette so lanes sit naturally in the app's sand-and-orange theme.
+const WARM_LANES = ['#ef5a24', '#c9822b', '#b9532f', '#8f6a4a', '#d9953f', '#a8472a']
+
 export function layoutWorkTree(project, nodes, lanes) {
-  const active = lanes.filter(lane => nodes.some(node => node.category === lane.id))
-  const columns = active.length ? active : [{ id: 'project', label: 'Project', color: '#d7b4ff' }]
+  const active = lanes.filter(lane => nodes.some(node => node.category === lane.id)).map((lane, index) => ({ ...lane, color: WARM_LANES[index % WARM_LANES.length] }))
+  const columns = active.length ? active : [{ id: 'project', label: 'Project', color: WARM_LANES[0] }]
   const width = Math.max(640, columns.length * 316 + 100)
-  const root = { id: 'project-root', x: (width - 280) / 2, y: 35, width: 280, height: 112, label: project.name, kind: 'root', occurredAt: project.createdAt, color: '#c99cf5' }
+  const root = { id: 'project-root', x: (width - 280) / 2, y: 35, width: 280, height: 112, label: project.name, kind: 'root', occurredAt: project.createdAt, color: '#ef5a24' }
   const placed = [], edges = []
   for (const [index, lane] of columns.entries()) {
     const x = 66 + index * 316

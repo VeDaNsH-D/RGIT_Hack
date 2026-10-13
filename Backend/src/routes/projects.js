@@ -19,6 +19,7 @@ import { RepositorySnapshot } from '../models/RepositorySnapshot.js';
 import { RepositoryFile } from '../models/RepositoryFile.js';
 import { SyncError, syncConnection } from '../services/githubSyncEngine.js';
 import { ACTIVITY_KINDS, listActivity, repositoryStats } from '../services/githubActivityService.js';
+import { serializeTaskGithub } from '../services/githubIssueSync.js';
 import { RepositoryError, linkRepository, resolveAccessibleRepository, serializeConnection } from '../services/githubRepositoryService.js';
 import { SourceConnection } from '../models/SourceConnection.js';
 import { SlackConnection } from '../models/SlackConnection.js';
@@ -642,6 +643,7 @@ router.get('/:id/context', requireAuth, attachProject(), requireRole('viewer'), 
         deadline: t.deadline,
         overdue: t.status === 'open' && Boolean(t.deadline) && new Date(t.deadline) < now,
         origin: t.origin,
+        github: serializeTaskGithub(t.github),
       })),
       documents: documents.map((d) => ({
         id: String(d._id),

@@ -112,7 +112,7 @@ test('dashboard, project list, tasks, and handoffs render live data and route li
   assert.match(render(pages.ProjectsPage, '/projects'), /Website launch/)
   assert.match(render(pages.TasksPage, '/tasks'), /Review launch copy/)
   assert.match(render(pages.HandoffsPage, '/handoffs'), /href="\/handoffs\/handoff-one"/)
-  const detail = render(pages.ProjectDetailPage, '/projects/project-one', '/projects/:projectId')
+  const detail = render(pages.ProjectDetailPage, '/projects/project-one?section=team', '/projects/:projectId')
   assert.match(detail, /Sam Lee/)
   assert.match(detail, /Add teammate/)
 })
@@ -543,6 +543,10 @@ test('project chat renders cited evidence as text and exposes accessible questio
   assert.match(html, /&lt;script&gt;/)
   assert.doesNotMatch(html, /<script>/)
   assert.match(html, /Ask a question about this project/)
+  const statusHtml = renderToString(React.createElement(ProjectChatView, { question: '', onQuestion() {}, knowledgeStatus: ['team/repo: partial analysis, commit abc1234.', '2 files too large.'] }))
+  assert.match(statusHtml, /Available project evidence/)
+  assert.match(statusHtml, /abc1234/)
+  assert.match(statusHtml, /2 files too large/)
 })
 
 

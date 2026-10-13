@@ -38,5 +38,13 @@ class Settings:
         except ValueError:
             return 30.0
 
+    @property
+    def groq_max_output_tokens(self) -> int:
+        """Completion budget. Groq counts it against tokens-per-minute, so keep it modest on low-limit tiers."""
+        try:
+            return max(1024, int(os.getenv("GROQ_MAX_OUTPUT_TOKENS", "4096")))
+        except ValueError:
+            return 4096
+
 
 settings = Settings()

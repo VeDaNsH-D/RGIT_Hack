@@ -7,6 +7,7 @@ import WorkspaceLayout from './workspace/WorkspaceLayout'
 import { DashboardPage, ProjectsPage, ProjectDetailPage, TasksPage, HandoffsPage } from './workspace/WorkspacePages'
 import ConnectionsPage from './workspace/ConnectionsPage'
 import HandoffDetailPage from './workspace/HandoffDetailPage'
+import SettingsPage from './workspace/SettingsPage'
 import EmailsPage from './workspace/EmailsPage'
 import InvitationPage from './pages/InvitationPage'
 import McpAuthorizePage from './workspace/McpAuthorizePage'
@@ -69,6 +70,7 @@ export default function App() {
           <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
           <Route path="/projects/:projectId/onboarding" element={<MemberOnboardingPage />} />
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/emails" element={<EmailsPage />} />
           <Route path="/handoffs" element={<HandoffsPage />} />
           <Route path="/handoffs/:handoffId" element={<HandoffDetailPage />} />

@@ -1,32 +1,35 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import BrandIcon from './BrandIcon'
 import './ClosingSection.css'
+
+const contactEmail = 'hello@over2u.app'
 
 const footerColumns = [
   { title: 'Product', links: [
     { label: 'About Us', href: '#hero-title' },
     { label: 'Features', href: '#features' },
-    { label: 'Blogs' },
+    { label: 'Handoffs' },
     { label: 'Reviews', href: '#testimonials-title' },
-    { label: 'Pricings' },
+    { label: 'Pricing' },
   ] },
   { title: 'Company', links: [
-    { label: 'Case Studies' },
     { label: 'Integrations', href: '#connect-title' },
-    { label: 'Careers' },
-    { label: 'Contact Us', href: 'mailto:info@cygnus.com' },
+    { label: 'Project Chat' },
+    { label: 'Live Calls' },
+    { label: 'Contact Us', href: `mailto:${contactEmail}` },
     { label: 'FAQ', href: '#faq' },
   ] },
   { title: 'Resources', links: [
-    { label: 'Changelog' },
-    { label: 'Cookies Policy' },
-    { label: 'Coming Soon' },
+    { label: 'Documentation' },
+    { label: 'Sign In', href: '/signin' },
+    { label: 'Get Started', href: '/signup' },
     { label: 'Error 404', href: '/404' },
   ] },
   { title: 'Utilities', links: [
     { label: 'Privacy Policy' },
     { label: 'Terms & Conditions' },
-    { label: 'Licensing' },
+    { label: 'Cookies Policy' },
   ] },
 ]
 
@@ -68,11 +71,11 @@ export default function ClosingSection() {
         <footer className="site-footer">
           <div className="footer-main">
             <div className="footer-brand-column">
-              <Link className="footer-brand" to="/#hero-title"><span className="cygnus-symbol" aria-hidden="true" />Cygnus</Link>
-              <p>Cygnus is the AI-native invoicing platform<br className="footer-desktop-break" /> built for global finance teams.</p>
+              <Link className="footer-brand" to="/#hero-title"><BrandIcon />Over2u</Link>
+              <p>Over2u keeps every project moving with clear,<br className="footer-desktop-break" /> trackable handoffs across your whole team.</p>
               <div className="footer-contact">
                 <span>Connect With Us</span>
-                <div><a href="tel:+17045550127">(704) 555-0127</a><span aria-hidden="true">|</span><a href="mailto:info@cygnus.com">info@cygnus.com</a></div>
+                <div><a href={`mailto:${contactEmail}`}>{contactEmail}</a></div>
               </div>
             </div>
             {footerColumns.map(({ title, links }) => (
@@ -88,10 +91,10 @@ export default function ClosingSection() {
             ))}
           </div>
           <div className="footer-bottom">
-            <p>©2026 Cygnus, All Right Reserved</p>
-            <p>Made with love from new zealand</p>
+            <p>©2026 Over2u, All Rights Reserved</p>
+            <p>Built for seamless project handoffs</p>
             <nav aria-label="Social media">
-              {['Twitter', 'Youtube', 'Instagram'].map(name => <button key={name} onClick={() => openPanel(name)}>{name}</button>)}
+              {['GitHub', 'LinkedIn', 'X'].map(name => <button key={name} onClick={() => openPanel(name)}>{name}</button>)}
             </nav>
           </div>
         </footer>
@@ -100,7 +103,7 @@ export default function ClosingSection() {
         <button className="closing-dialog-close" aria-label="Close dialog" onClick={() => dialog.current.close()}>×</button>
         <h2 id="closing-dialog-title">{panel}</h2>
         <p>{panel === 'Book a Demo' ? 'Tell us about your team and what you’d like to explore. Email us to arrange a demo.' : `Contact our team for information about ${panel.toLowerCase()}.`}</p>
-        <a className="closing-button closing-button-primary" href={`mailto:info@cygnus.com?subject=${encodeURIComponent(panel)}`}>{panel === 'Book a Demo' ? 'Request a demo' : 'Contact us'} <span aria-hidden="true">→</span></a>
+        <a className="closing-button closing-button-primary" href={`mailto:${contactEmail}?subject=${encodeURIComponent(panel)}`}>{panel === 'Book a Demo' ? 'Request a demo' : 'Contact us'} <span aria-hidden="true">→</span></a>
       </dialog>
     </div>
   )

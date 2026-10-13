@@ -6,7 +6,7 @@ import { Badge, Icon } from './ui';
 import OnboardingModal from './OnboardingModal';
 import './onboarding.css';
 
-export default function ProjectOnboardingSection({ projectId, projectName, isOwner }) {
+export default function ProjectOnboardingSection({ projectId, projectName, isOwner, refreshKey = 0 }) {
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -31,7 +31,7 @@ export default function ProjectOnboardingSection({ projectId, projectName, isOwn
       });
 
     return () => controller.abort();
-  }, [projectId, isOwner]);
+  }, [projectId, isOwner, refreshKey]);
 
   async function handleRegenerate(onboardingId) {
     if (busyId) return;

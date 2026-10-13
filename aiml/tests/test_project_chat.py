@@ -54,3 +54,15 @@ def test_missing_rag_key_never_falls_back_to_general_key(monkeypatch):
             answer_project_chat(rag, request())
     finally:
         get_project_chat_service.cache_clear()
+
+@pytest.mark.parametrize('status,expected', [(429, 'groq_rate_limited'), (401, 'groq_invalid_key'), (403, 'groq_access_denied'), (400, 'groq_request_rejected'), (500, 'groq_unavailable')])
+def test_provider_errors_are_classified_without_secrets(status, expected):
+    from app.project_chat import provider_failure
+    from app.service import GroqProviderError
+    cause = Exception('secret-provider-response')
+    cause.status_code = status
+    error = GroqProviderError('raw provider failure')
+    error.__cause__ = cause
+    _, detail = provider_failure(error)
+    assert detail['code'] == expected
+    assert 'secret-provider-response' not in str(detail)

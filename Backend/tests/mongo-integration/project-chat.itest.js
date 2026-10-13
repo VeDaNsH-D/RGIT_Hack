@@ -71,6 +71,25 @@ test('repository evidence uses only the published manifest and deletion removes 
   const result = await retrieveProjectChat({ _id: projectId, name: 'Payments' }, 'retry queue implementation', []);
   assert.ok(result.sources.some(source => source.provider === 'github'));
   assert.doesNotMatch(JSON.stringify(result), /obsolete code/);
+  await RepositorySnapshot.updateOne({ _id: snapshot._id }, { $set: {
+    knowledge: {
+      overview: { purposeFromReadme: 'Scout finds available meeting rooms.', languages: [{ language: 'JavaScript', files: 3 }], frameworks: ['React'] },
+      dependencies: [{ file: 'package.json', top: ['react', 'vite'] }],
+    },
+    fileManifest: [...snapshot.fileManifest, { path: 'package.json', blobSha: 'manifest-current' }],
+  } });
+  await RepositoryFile.create({ projectId, repositoryId: 99, path: 'package.json', blobSha: 'manifest-current', size: 40, content: '{"dependencies":{"react":"19","vite":"8"}}' });
+  const stack = await retrieveProjectChat({ _id: projectId, name: 'Scout', description: 'Refining the project' }, 'what technologies were used to build the project', []);
+  assert.ok(stack.sources.some(source => source.provider === 'github' && source.text.includes('React')));
+  assert.ok(stack.sources.some(source => source.url.endsWith('/package.json') && source.text.includes('vite')));
+  assert.doesNotMatch(JSON.stringify(stack), /obsolete code/);
+  const overview = await retrieveProjectChat({ _id: projectId, name: 'Scout', description: 'Refining the project' }, 'what is this project about tell me in brief', []);
+  assert.match(overview.sources[0].text, /meeting rooms/);
+  const chatStatus = await (await call(`/projects/${projectId}/chat`)).json();
+  assert.ok(chatStatus.knowledgeStatus.some(message => message.includes(snapshot.commitSha.slice(0, 7))));
+  const unrelated = await retrieveProjectChat({ _id: outsider._id, name: 'Unrelated' }, 'what technologies were used to build the project', []);
+  assert.ok(unrelated.sources.every(source => source.provider === 'project'));
+  assert.doesNotMatch(JSON.stringify(unrelated), /React|vite|meeting rooms/);
   assert.equal((await call(`/projects/${projectId}`, 'DELETE')).status, 200);
   const { ProjectChatTurn } = await import('../../src/models/ProjectChatTurn.js');
   assert.equal(await ProjectChatTurn.countDocuments({ projectId }), 0);

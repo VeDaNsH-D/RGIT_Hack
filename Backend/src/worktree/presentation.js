@@ -33,7 +33,7 @@ export function presentActivity(event) {
   const label = labels[action] || action.toLowerCase().replace(/_/g, ' ').replace(/^./, char => char.toUpperCase());
   const description = cleanText(payload.title || payload.taskTitle || payload.name || payload.repository || payload.githubRepository || payload.githubRepositoryRemoved || payload.tool || payload.status);
   const details = {};
-  for (const field of ['repository','branch','sha','tool','keyName','status','runId']) if (typeof payload[field] === 'string') details[field] = cleanText(payload[field], 120);
+  for (const field of ['repository','branch','sha','tool','keyName','status','runId','priority','dueDate','fromStatus','toStatus','filename','fileName','message','provider']) if (typeof payload[field] === 'string') details[field] = cleanText(payload[field], 120);
   if (Number.isSafeInteger(payload.commitCount)) details.commits = payload.commitCount;
   return { id: `activity:${event._id}`, category: eventLane(action), action, label, description, actor: cleanText(event.actorId?.name) || (event.actorType === 'system' ? 'Integration' : 'Project member'), occurredAt: new Date(event.occurredAt).toISOString(), entityId: String(event.targetId || ''), kind: action.endsWith('_RECEIVED') ? 'trigger' : 'action', status: /FAILED|BLOCKED/.test(action) || payload.status === 'failed' ? 'failed' : /PARTIAL/.test(action) || payload.status === 'partial' ? 'partial' : /STARTED/.test(action) ? 'running' : 'completed', details };
 }

@@ -58,6 +58,23 @@ def _clean_json_text(text: str) -> str:
     return stripped
 
 
+_TPM_LIMIT = re.compile(r"Limit (\d+), Requested (\d+)")
+_MIN_OUTPUT_TOKENS = 1024
+
+
+def _fit_output_budget(message: str, max_tokens: int) -> Optional[int]:
+    """Groq counts the reserved completion budget toward tokens-per-minute. When it rejects a request as
+    too large ("Limit L, Requested R"), return a smaller budget that fits, or None if that isn't possible."""
+    match = _TPM_LIMIT.search(message)
+    if not match:
+        return None
+    limit, requested = int(match.group(1)), int(match.group(2))
+    if requested <= limit:
+        return None
+    reduced = max_tokens - (requested - limit) - 64  # small safety margin
+    return reduced if reduced >= _MIN_OUTPUT_TOKENS else None
+
+
 class GroqContextService:
     """Service orchestrating Groq chat completions and structured evidence extraction."""
 
@@ -89,10 +106,12 @@ class GroqContextService:
         self._client = Groq(api_key=self.api_key, timeout=self.timeout)
         return self._client
 
-    def _chat_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 8192) -> Dict[str, Any]:
+    def _chat_json(self, system_prompt: str, user_prompt: str, max_tokens: Optional[int] = None) -> Dict[str, Any]:
         """Run one JSON-mode chat completion (one retry on transient failures) and parse the object."""
         client = self.client
         completion = None
+        max_tokens = min(max_tokens or settings.groq_max_output_tokens, 8192)
+        shrunk = False
         for attempt in range(2):
             try:
                 completion = client.chat.completions.create(
@@ -115,6 +134,10 @@ class GroqContextService:
                     continue
                 raise GroqTimeoutError("Groq API request timed out.") from err
             except (APIConnectionError, RateLimitError) as err:
+                reduced = None if shrunk else _fit_output_budget(str(err), max_tokens)
+                if reduced:
+                    shrunk, max_tokens = True, reduced
+                    continue
                 if attempt == 0:
                     import time
                     time.sleep(0.5)
@@ -122,6 +145,10 @@ class GroqContextService:
                 clean_msg = str(err).replace(self.api_key or "", "[REDACTED]")
                 raise GroqProviderError(f"Groq API connection or rate limit failure: {clean_msg}") from err
             except APIError as err:
+                reduced = None if shrunk else _fit_output_budget(str(err), max_tokens)
+                if reduced:
+                    shrunk, max_tokens = True, reduced
+                    continue
                 if attempt == 0:
                     import time
                     time.sleep(0.5)
