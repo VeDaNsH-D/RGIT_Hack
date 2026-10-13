@@ -69,11 +69,12 @@ export default function CallsPage() {
   const [deepgramActive, setDeepgramActive] = useState(false);
   const deepgramSocketRef = useRef(null);
   const speechRecognitionRef = useRef(null);
+  const animIdRef = useRef(null);
+  const lastDeepgramTimeRef = useRef(0);
 
   // 1. Lobby Green Room Camera & Audio Meter Setup
   useEffect(() => {
     let stream = null;
-    let animId = null;
 
     if (!inCall) {
       navigator.mediaDevices?.getUserMedia({ video: true, audio: true })
@@ -101,7 +102,7 @@ export default function CallsPage() {
               for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
               const avg = sum / dataArray.length;
               setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
-              animId = requestAnimationFrame(updateMeter);
+              animIdRef.current = requestAnimationFrame(updateMeter);
             };
             updateMeter();
           } catch (e) {
@@ -114,9 +115,13 @@ export default function CallsPage() {
     }
 
     return () => {
-      if (animId) cancelAnimationFrame(animId);
+      if (animIdRef.current) {
+        cancelAnimationFrame(animIdRef.current);
+        animIdRef.current = null;
+      }
       if (audioContextRef.current) {
         audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
       }
       if (stream) {
         stream.getTracks().forEach(t => t.stop());
@@ -158,14 +163,20 @@ export default function CallsPage() {
     }
 
     try {
+      if (speechRecognitionRef.current) {
+        try { speechRecognitionRef.current.stop(); } catch {}
+      }
+
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
       recognition.onresult = (event) => {
-        // If Deepgram is streaming live, let it take precedence
-        if (deepgramActive) return;
+        // If Deepgram has streamed live audio transcripts within the last 3.5s, let Deepgram take precedence
+        if (Date.now() - lastDeepgramTimeRef.current < 3500) {
+          return;
+        }
 
         let interim = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -194,7 +205,7 @@ export default function CallsPage() {
 
       recognition.onerror = (e) => {
         if (e.error !== 'no-speech') {
-          console.warn('Speech recognition warning:', e.error);
+          console.warn('Speech recognition status:', e.error);
         }
       };
 
@@ -210,14 +221,46 @@ export default function CallsPage() {
     } catch (err) {
       console.warn('Failed starting speech recognition:', err);
     }
-  }, [inCall, captionsEnabled, session, deepgramActive]);
+  }, [inCall, captionsEnabled, session]);
 
   // 3. Audio Recording & Deepgram Real-Time Streaming (with Groq Whisper Backup)
   const startAudioRecorder = useCallback(async (audioTrack) => {
     try {
-      const stream = new MediaStream([audioTrack.getMediaStreamTrack()]);
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      let stream = null;
+      if (audioTrack && typeof audioTrack.getMediaStreamTrack === 'function') {
+        const msTrack = audioTrack.getMediaStreamTrack();
+        if (msTrack && msTrack.readyState !== 'ended') {
+          stream = new MediaStream([msTrack]);
+        }
+      }
+
+      if (!stream) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (mediaErr) {
+          console.warn('Could not acquire direct microphone audio stream:', mediaErr.message);
+        }
+      }
+
+      if (!stream) {
+        console.warn('No active audio stream found for transcription.');
+        return;
+      }
+
+      let mimeType = '';
+      if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+          mimeType = 'audio/webm';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       const chunks = [];
+      const pendingAudioQueue = [];
 
       // Determine Deepgram API key (client-side override or backend fetch)
       let dgKey = import.meta.env.VITE_DEEPGRAM_API_KEY || '';
@@ -232,12 +275,19 @@ export default function CallsPage() {
       if (dgKey) {
         try {
           socket = new WebSocket(
-            'wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&interim_results=true',
+            'wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&punctuate=true&interim_results=true',
             ['token', dgKey]
           );
 
           socket.onopen = () => {
             setDeepgramActive(true);
+            // Flush buffered initial chunks (including critical WebM container header)
+            while (pendingAudioQueue.length > 0) {
+              const chunk = pendingAudioQueue.shift();
+              if (socket.readyState === WebSocket.OPEN) {
+                socket.send(chunk);
+              }
+            }
           };
 
           socket.onmessage = (event) => {
@@ -245,6 +295,7 @@ export default function CallsPage() {
               const data = JSON.parse(event.data);
               const transcript = data.channel?.alternatives?.[0]?.transcript;
               if (transcript && transcript.trim()) {
+                lastDeepgramTimeRef.current = Date.now();
                 const speakerName = session?.user?.name || 'You';
                 const text = transcript.trim();
                 if (data.is_final) {
@@ -262,10 +313,13 @@ export default function CallsPage() {
                   setLiveCaptionText(`${speakerName}: ${text}`);
                 }
               }
-            } catch {}
+            } catch (err) {
+              console.warn('[Deepgram] Parse message error:', err);
+            }
           };
 
-          socket.onerror = () => {
+          socket.onerror = (wsErr) => {
+            console.warn('[Deepgram] WebSocket stream warning, falling back to Web Speech:', wsErr);
             setDeepgramActive(false);
           };
 
@@ -280,10 +334,12 @@ export default function CallsPage() {
       }
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
+        if (e.data && e.data.size > 0) {
           chunks.push(e.data);
           if (socket && socket.readyState === WebSocket.OPEN) {
             socket.send(e.data);
+          } else if (socket && socket.readyState === WebSocket.CONNECTING) {
+            pendingAudioQueue.push(e.data);
           }
         }
       };
@@ -296,23 +352,28 @@ export default function CallsPage() {
         setDeepgramActive(false);
 
         if (chunks.length > 0) {
-          const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+          const audioBlob = new Blob(chunks, { type: mimeType || 'audio/webm' });
           try {
             // Send to Deepgram / Groq Whisper endpoint
             const res = await transcribeAudio(audioBlob);
             if (res?.text?.trim()) {
-              setTranscripts(prev => [
-                ...prev,
-                {
-                  id: Date.now(),
-                  speaker: session?.user?.name || 'Audio Track',
-                  text: res.text.trim(),
-                  time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                },
-              ]);
+              setTranscripts(prev => {
+                const snippet = res.text.trim().toLowerCase().slice(0, 30);
+                const exists = prev.some(t => t.text.toLowerCase().includes(snippet));
+                if (exists) return prev;
+                return [
+                  ...prev,
+                  {
+                    id: Date.now(),
+                    speaker: session?.user?.name || 'Host',
+                    text: res.text.trim(),
+                    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  },
+                ];
+              });
             }
           } catch (err) {
-            console.warn('Transcription fallback failed:', err.message);
+            console.warn('Transcription post-call fallback failed:', err.message);
           }
         }
       };
@@ -336,11 +397,24 @@ export default function CallsPage() {
     setLiveCaptionText('');
     setSummaryData(null);
 
-    // Stop lobby green room stream before creating Agora tracks
+    // Stop lobby green room stream and release AudioContext before creating Agora tracks
+    if (animIdRef.current) {
+      cancelAnimationFrame(animIdRef.current);
+      animIdRef.current = null;
+    }
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close().catch(() => {});
+      } catch {}
+      audioContextRef.current = null;
+    }
     if (lobbyStream) {
       lobbyStream.getTracks().forEach(t => t.stop());
       setLobbyStream(null);
     }
+
+    // Brief hardware yield to allow OS audio driver to fully release the microphone device
+    await new Promise(r => setTimeout(r, 120));
 
     try {
       // 1. Obtain Tokens from Backend
@@ -395,36 +469,38 @@ export default function CallsPage() {
       try {
         if (rtmToken) {
           const rtmManager = rtmRef.current;
+          const handleRtmMessage = (msgText, senderId) => {
+            if (!msgText) return;
+            setChatMessages(prev => [
+              ...prev,
+              {
+                id: Date.now() + Math.random(),
+                sender: senderId || 'Teammate',
+                text: msgText,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              },
+            ]);
+          };
+
           await rtmManager.login({
             appId,
             userId: String(uid),
             token: rtmToken,
+          }, {
+            onMessage: handleRtmMessage,
           });
 
           await rtmManager.joinChannel(targetChannel, {
-            onMessage: (msg, senderId) => {
-              setChatMessages(prev => [
-                ...prev,
-                {
-                  id: Date.now() + Math.random(),
-                  sender: senderId,
-                  text: msg,
-                  time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                },
-              ]);
-            },
+            onMessage: handleRtmMessage,
           });
         }
       } catch (rtmErr) {
-        console.warn('Agora RTM in-call messaging unavailable or not enabled in Agora console:', rtmErr.message);
+        console.warn('Agora RTM in-call messaging warning:', rtmErr.message);
       }
-
 
       // 4. Start Live Captions & Recording
       startSpeechRecognition();
-      if (rtcManager.localAudioTrack) {
-        startAudioRecorder(rtcManager.localAudioTrack);
-      }
+      startAudioRecorder(rtcManager.localAudioTrack);
 
       setChannelName(targetChannel);
       setInCall(true);
@@ -483,6 +559,9 @@ export default function CallsPage() {
     setMicEnabled(next);
     if (inCall) {
       await rtcRef.current.setAudioEnabled(next);
+      if (next && (!mediaRecorder || mediaRecorder.state === 'inactive')) {
+        startAudioRecorder(rtcRef.current.localAudioTrack);
+      }
     }
   };
 
@@ -537,24 +616,26 @@ export default function CallsPage() {
     const text = chatInput.trim();
     if (!text || !inCall) return;
 
-    try {
-      if (rtmRef.current?.isLoggedIn) {
-        await rtmRef.current.sendMessage(text);
-      }
-      setChatMessages(prev => [
-        ...prev,
-        {
-          id: Date.now(),
-          sender: session?.user?.name || 'You',
-          text,
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        },
-      ]);
-      setChatInput('');
-    } catch (err) {
-      console.warn('Failed sending chat message:', err);
-    }
+    // Immediately display in local chat
+    setChatMessages(prev => [
+      ...prev,
+      {
+        id: Date.now(),
+        sender: session?.user?.name || 'You',
+        text,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ]);
+    setChatInput('');
 
+    // Publish to all participants via Agora RTM
+    if (rtmRef.current?.isLoggedIn) {
+      try {
+        await rtmRef.current.sendMessage(channelName, text);
+      } catch (err) {
+        console.warn('Failed sending chat message via RTM:', err.message);
+      }
+    }
   };
 
   // 6. Generate Meeting Summary with Groq (Whisper + LLM)
