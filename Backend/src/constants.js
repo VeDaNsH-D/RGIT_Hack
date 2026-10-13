@@ -11,10 +11,16 @@ export const HANDOFF_STATES = [
   'SUBMITTED',
   'CLARIFICATION_REQUESTED',
   'ACKNOWLEDGED',
+  'REJECTED',
   'CANCELLED',
 ];
 export const HANDOFF_OPEN_STATES = ['DRAFT', 'EDITING', 'SUBMITTED', 'CLARIFICATION_REQUESTED'];
-export const HANDOFF_TERMINAL_STATES = ['ACKNOWLEDGED', 'CANCELLED'];
+export const HANDOFF_TERMINAL_STATES = ['ACKNOWLEDGED', 'REJECTED', 'CANCELLED'];
+
+export const TEAM_ROLES = ['leader', 'member'];
+export const TEAM_MEMBERSHIP_STATUSES = ['active', 'removed'];
+// individual: legacy person-to-person transfer; intra_team: same owning team; inter_team: a different team.
+export const HANDOFF_TRANSFER_TYPES = ['individual', 'intra_team', 'inter_team'];
 
 export const HANDOFF_ITEM_TYPES = [
   'completed',
@@ -49,6 +55,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   'HANDOFF_SUBMITTED',
   'HANDOFF_ACKNOWLEDGED',
   'HANDOFF_NEEDS_CLARIFICATION',
+  'HANDOFF_REJECTED',
   'HANDOFF_CLARIFICATION_ANSWERED',
   'HANDOFF_ACK_OVERDUE',
   'TASK_OVERDUE',

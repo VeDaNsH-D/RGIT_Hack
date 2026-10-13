@@ -11,7 +11,8 @@ const labels = {
   INVITATION_SENT: 'Invitation sent', INVITATION_ACCEPTED: 'Teammate joined', INVITATION_REVOKED: 'Invitation cancelled',
   TASK_CREATED: 'Task created', TASK_UPDATED: 'Task updated', TASK_OVERDUE: 'Task overdue',
   HANDOFF_CREATED: 'Handoff drafted', HANDOFF_UPDATED: 'Handoff updated', HANDOFF_SUBMITTED: 'Handoff submitted', HANDOFF_ACKNOWLEDGED: 'Ownership transferred',
-  HANDOFF_CLARIFICATION_REQUESTED: 'Clarification requested', HANDOFF_CLARIFICATION_RESPONDED: 'Clarification answered', HANDOFF_CANCELLED: 'Handoff cancelled',
+  HANDOFF_CLARIFICATION_REQUESTED: 'Clarification requested', HANDOFF_REJECTED: 'Handoff rejected', HANDOFF_CONTEXT_SNAPSHOT: 'Handoff context captured', OWNERSHIP_TRANSFERRED: 'Ownership transferred',
+  TEAM_CREATED: 'Team created', TEAM_UPDATED: 'Team updated', TEAM_MEMBER_ADDED: 'Team member added', TEAM_MEMBER_REMOVED: 'Team member removed', TEAM_MEMBER_ROLE_CHANGED: 'Team role changed', TEAM_OWNERSHIP_SET: 'Owning team set', TEAM_LINKED: 'Team added to project', TEAM_UNLINKED: 'Team removed from project', HANDOFF_CLARIFICATION_RESPONDED: 'Clarification answered', HANDOFF_CANCELLED: 'Handoff cancelled',
   NOTE_CREATED: 'Note added', NOTE_UPDATED: 'Note updated', NOTE_DELETED: 'Note removed',
   DOCUMENT_UPLOADED: 'Document uploaded', DOCUMENT_REINDEXED: 'Document reindexed', NOTION_PAGE_SYNCED: 'Notion page synced', NOTION_DISCONNECTED: 'Notion disconnected',
   EMAIL_CONVERSATION_IMPORTED: 'Conversation imported', EMAIL_WORKFLOW_PROPOSED: 'Workflow suggestions ready', EMAIL_WORKFLOW_CHANGE_APPLIED: 'Workflow change applied', EMAIL_PROPOSAL_DISMISSED: 'Suggestion dismissed',
@@ -20,7 +21,7 @@ const labels = {
 };
 export const cleanText = (value, max = 160) => typeof value === 'string' ? value.replace(/[\u0000-\u001f]/g, ' ').slice(0, max) : '';
 export function eventLane(action) {
-  if (/INVITATION|MEMBER|TEAMMATE/.test(action)) return 'team';
+  if (/INVITATION|MEMBER|TEAMMATE|^TEAM_/.test(action)) return 'team';
   if (/GITHUB|REPOSITORY|COMMIT|PUSH/.test(action)) return 'development';
   if (/^TASK_/.test(action)) return 'tasks';
   if (/^HANDOFF_/.test(action)) return 'handoffs';

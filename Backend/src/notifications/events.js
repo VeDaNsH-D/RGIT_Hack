@@ -10,6 +10,7 @@ export const NOTIFICATION_EVENT_TYPES = Object.freeze({
   HANDOFF_ACCEPTED: 'HANDOFF_ACCEPTED',
   HANDOFF_ACKNOWLEDGED: 'HANDOFF_ACKNOWLEDGED',
   HANDOFF_NEEDS_CLARIFICATION: 'HANDOFF_NEEDS_CLARIFICATION',
+  HANDOFF_REJECTED: 'HANDOFF_REJECTED',
   HANDOFF_CLARIFICATION_ANSWERED: 'HANDOFF_CLARIFICATION_ANSWERED',
   HANDOFF_ACK_OVERDUE: 'HANDOFF_ACK_OVERDUE',
   TASK_OVERDUE: 'TASK_OVERDUE',
@@ -22,6 +23,7 @@ export const NOTIFICATION_EVENT_TYPES = Object.freeze({
  * - HANDOFF_SUBMITTED: Incoming Owner (must review and accept/clarify)
  * - HANDOFF_ACCEPTED / HANDOFF_ACKNOWLEDGED: Outgoing Owner (notified that handoff was accepted and ownership transferred)
  * - HANDOFF_NEEDS_CLARIFICATION: Outgoing Owner (notified that clarifications were requested)
+ * - HANDOFF_REJECTED: Outgoing Owner (notified that the recipient declined the transfer)
  * - HANDOFF_CLARIFICATION_ANSWERED: Incoming Owner (notified that clarifications have been answered)
  * - HANDOFF_ACK_OVERDUE: Incoming Owner (alerted that handoff acknowledgment deadline has passed)
  * - TASK_OVERDUE: Task Owner (alerted that task milestone deadline has passed)
@@ -33,6 +35,7 @@ export const EVENT_RECIPIENT_ROLES = Object.freeze({
   [NOTIFICATION_EVENT_TYPES.HANDOFF_ACCEPTED]: 'OUTGOING_OWNER',
   [NOTIFICATION_EVENT_TYPES.HANDOFF_ACKNOWLEDGED]: 'OUTGOING_OWNER',
   [NOTIFICATION_EVENT_TYPES.HANDOFF_NEEDS_CLARIFICATION]: 'OUTGOING_OWNER',
+  [NOTIFICATION_EVENT_TYPES.HANDOFF_REJECTED]: 'OUTGOING_OWNER',
   [NOTIFICATION_EVENT_TYPES.HANDOFF_CLARIFICATION_ANSWERED]: 'INCOMING_OWNER',
   [NOTIFICATION_EVENT_TYPES.HANDOFF_ACK_OVERDUE]: 'INCOMING_OWNER',
   [NOTIFICATION_EVENT_TYPES.TASK_OVERDUE]: 'TASK_OWNER',
@@ -71,6 +74,10 @@ export const EVENT_SPECIFIC_FIELDS = Object.freeze({
   [NOTIFICATION_EVENT_TYPES.HANDOFF_NEEDS_CLARIFICATION]: {
     required: ['requestedByUserId', 'clarificationNote'],
     optional: ['unresolvedItems'],
+  },
+  [NOTIFICATION_EVENT_TYPES.HANDOFF_REJECTED]: {
+    required: ['rejectedByUserId', 'rejectionReason'],
+    optional: [],
   },
   [NOTIFICATION_EVENT_TYPES.HANDOFF_CLARIFICATION_ANSWERED]: {
     required: ['answeredByUserId'],

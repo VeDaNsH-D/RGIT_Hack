@@ -7,6 +7,7 @@ import ProjectIntegrations from './ProjectIntegrations'
 import { linkGitHubRepository, startGitHubInstall } from '../api/connections'
 import { clearProjectDraft, loadProjectDraft, saveProjectDraft } from './projectDraft'
 import OnboardingModal from './OnboardingModal'
+import HandoffDestination from './HandoffDestination'
 import { NO_ISSUE, defaultRepositoryChoice, filterRepositories, githubRepositoryPayload, repositoryFieldReady, safeGithubUrl } from './taskGithub'
 
 const titles = { repository: 'Add a GitHub repository.', project: 'A new place for good work.', task: 'Make the next step clear.', handoff: 'Pass the context forward.', member: 'Bring your team together.', editProject: 'Refine your project.', editTask: 'Refine the next step.' }
@@ -62,6 +63,9 @@ function StandardWorkspaceModal({ kind, projectId, initialTask, resumeDraft = fa
   const eligible = projects.filter(project => kind === 'handoff' ? project.ownerId === session.user.id && !project.handoffs.some(h => h.isOpen) : ['task', 'editTask'].includes(kind) ? project.myRole !== 'viewer' : true)
   const [selected, setSelected] = useState(projectId || eligible[0]?.id || '')
   const [recipient, setRecipient] = useState('')
+  const [teamId, setTeamId] = useState('')
+  const [reason, setReason] = useState('')
+  const [instructions, setInstructions] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -81,7 +85,6 @@ function StandardWorkspaceModal({ kind, projectId, initialTask, resumeDraft = fa
   const repoValue = repoChoice.projectId === selected ? repoChoice.value : defaultRepositoryChoice(repoView.repositories)
   const project = projects.find(item => item.id === selected)
   const members = project?.context?.members || []
-  const recipients = members.filter(member => member.userId !== session.user.id)
 
   useEffect(() => {
     const node = dialog.current
@@ -166,7 +169,7 @@ function StandardWorkspaceModal({ kind, projectId, initialTask, resumeDraft = fa
       } else if (kind === 'member') {
         await request(`/projects/${selected}/invitations`, { method: 'POST', body: { email: fields.email.trim(), role: fields.role } })
       } else {
-        const { handoff } = await request(`/projects/${selected}/handoffs`, { method: 'POST', body: { toUserId: recipient } })
+        const { handoff } = await request(`/projects/${selected}/handoffs`, { method: 'POST', body: { toUserId: recipient, ...(teamId ? { toTeamId: teamId, reason: reason.trim(), instructions: instructions.trim() } : {}) } })
         destination = `/handoffs/${handoff.id}`
       }
       await reload()
@@ -188,20 +191,20 @@ function StandardWorkspaceModal({ kind, projectId, initialTask, resumeDraft = fa
     <h2>{titles[kind]}</h2>
     <form ref={form} onSubmit={submit}>
       {notice && <p className="ws-notice" role="status">{notice}</p>}
-      {!['project', 'editProject', 'member', 'editTask', 'repository'].includes(kind) && <label>Project<select required value={selected} onChange={event => { setSelected(event.target.value); setRecipient('') }}><option value="" disabled>Select a project</option>{eligible.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>}
+      {!['project', 'editProject', 'member', 'editTask', 'repository'].includes(kind) && <label>Project<select required value={selected} onChange={event => { setSelected(event.target.value); setRecipient(''); setTeamId('') }}><option value="" disabled>Select a project</option>{eligible.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>}
       {kind === 'task' && <RepositoryField projectId={selected} view={repoView} value={repoValue} filter={repoFilter} onFilter={setRepoFilter} onChange={value => setRepoChoice({ projectId: selected, value })} onRetry={() => { setRepoData({ projectId: null, status: 'loading', repositories: [], error: repoData.error }); setRepoReload(n => n + 1) }} canConnect={project?.myRole === 'owner'} disabled={busy}/>}
       {['project', 'editProject'].includes(kind) && <><label>Project name<input name="name" required maxLength={200} placeholder="e.g. Website launch" defaultValue={kind === 'editProject' ? project?.name : draft?.name || ''} readOnly={Boolean(partial)}/></label><label>Description<textarea name="description" maxLength={5000} rows={3} placeholder="What are you working toward?" defaultValue={kind === 'editProject' ? project?.description : draft?.description || ''} readOnly={Boolean(partial)}/></label>{kind === 'project' && <ProjectIntegrations value={integrations} onChange={setIntegrations} onConnectGitHub={connectGitHub} busy={busy || Boolean(partial)}/>}</>}
       {['task', 'editTask'].includes(kind) && <><label>Task title<input name="title" required maxLength={300} placeholder="What needs to happen?" defaultValue={initialTask?.title || ''}/></label>{kind === 'task' && <label>Description<textarea name="description" rows={2} maxLength={5000}/></label>}<div className="ws-form-grid"><label>Priority<select name="priority" defaultValue={initialTask?.priority || 'medium'}>{['low', 'medium', 'high', 'critical'].map(value => <option key={value}>{value}</option>)}</select></label><label>Due date<input name="deadline" type="date" defaultValue={initialTask?.deadline?.slice(0, 10) || ''}/></label></div><label>Assigned to<select name="assignee" key={selected} defaultValue={initialTask?.assignee || ''}><option value="">Unassigned</option>{members.map(member => <option value={member.userId} key={member.userId}>{member.name}</option>)}</select></label></>}
       {kind === 'repository' && <ProjectIntegrations value={integrations} onChange={setIntegrations} onConnectGitHub={() => { onClose(); navigate('/connections') }} busy={busy} excludeIds={excludeRepositoryIds}/>}
       {kind === 'member' && <><p className="ws-muted">Send an email invitation to join {project?.name}. They can sign in or create an account before accepting.</p><label>Email<input name="email" type="email" required placeholder="teammate@company.com"/></label><label>Role<select name="role" defaultValue="member"><option value="member">Member — contribute to tasks</option><option value="viewer">Viewer — read project context</option></select></label></>}
-      {kind === 'handoff' && <><label>Next owner<select required value={recipient} onChange={event => setRecipient(event.target.value)}><option value="" disabled>Choose a teammate</option>{recipients.map(member => <option value={member.userId} key={member.userId}>{member.name} · {member.email}</option>)}</select></label><p className="ws-muted">Create a draft, document the context, then review readiness before sending.</p>{!recipients.length && project && <p className="ws-muted">Add a teammate on the <Link to={`/projects/${project.id}`}>project page</Link> first.</p>}</>}
+      {kind === 'handoff' && <><HandoffDestination project={project} currentUserId={session.user.id} teamId={teamId} onTeam={value => { setTeamId(value); setRecipient('') }} recipient={recipient} onRecipient={setRecipient} reason={reason} onReason={setReason} instructions={instructions} onInstructions={setInstructions}/><p className="ws-muted">Create a draft, document the context, then review readiness before sending. Ownership only changes when the recipient accepts.</p></>}
       {kind === 'editProject' && <div className="ws-danger-zone">
         <strong>Delete project</strong>
         <p className="ws-muted">Permanently removes this project, its tasks, handoffs, documents, and linked sources for everyone. This can’t be undone.</p>
         {confirming ? <><label>{`Type “${project?.name}” to confirm`}<input value={confirmText} onChange={event => setConfirmText(event.target.value)} autoComplete="off" disabled={busy}/></label><div className="ws-modal-actions"><button type="button" className="ws-button" onClick={() => { setConfirming(false); setConfirmText('') }} disabled={busy}>Keep project</button><button type="button" className="ws-button ws-button-danger" onClick={deleteProject} disabled={busy || confirmText.trim() !== project?.name}>{busy ? 'Deleting…' : 'Delete permanently'}</button></div></> : <button type="button" className="ws-button ws-button-danger-outline" onClick={() => setConfirming(true)} disabled={busy}>Delete project…</button>}
       </div>}
       {error && <p className="ws-error" role="alert">{error}</p>}
-      {partial ? <div className="ws-modal-actions"><button type="button" className="ws-button" onClick={() => finishPartial(false)} disabled={busy}>Continue to project</button><button type="button" className="ws-button ws-button-primary" onClick={() => finishPartial(true)} disabled={busy}>{busy ? 'Linking…' : 'Retry linking'}</button></div> : <div className="ws-modal-actions"><button type="button" className="ws-button" onClick={close} disabled={busy}>{notice ? 'Done' : 'Cancel'}</button><button className="ws-button ws-button-primary" disabled={busy || Boolean(notice) || (['task', 'handoff'].includes(kind) && !selected) || (kind === 'task' && !repositoryFieldReady({ ...repoView, choice: repoValue })) || (kind === 'handoff' && !recipient) || (kind === 'repository' && !integrations.github)}>{busy ? 'Saving…' : kind === 'repository' ? 'Add repository' : ['editProject', 'editTask'].includes(kind) ? 'Save changes' : kind === 'member' ? 'Send invitation' : `Create ${kind}`}</button></div>}
+      {partial ? <div className="ws-modal-actions"><button type="button" className="ws-button" onClick={() => finishPartial(false)} disabled={busy}>Continue to project</button><button type="button" className="ws-button ws-button-primary" onClick={() => finishPartial(true)} disabled={busy}>{busy ? 'Linking…' : 'Retry linking'}</button></div> : <div className="ws-modal-actions"><button type="button" className="ws-button" onClick={close} disabled={busy}>{notice ? 'Done' : 'Cancel'}</button><button className="ws-button ws-button-primary" disabled={busy || Boolean(notice) || (['task', 'handoff'].includes(kind) && !selected) || (kind === 'task' && !repositoryFieldReady({ ...repoView, choice: repoValue })) || (kind === 'handoff' && (!recipient || (teamId && !reason.trim()))) || (kind === 'repository' && !integrations.github)}>{busy ? 'Saving…' : kind === 'repository' ? 'Add repository' : ['editProject', 'editTask'].includes(kind) ? 'Save changes' : kind === 'member' ? 'Send invitation' : `Create ${kind}`}</button></div>}
     </form>
   </dialog>
 }

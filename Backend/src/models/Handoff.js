@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import {
   HANDOFF_ITEM_TYPES,
   HANDOFF_STATES,
+  HANDOFF_TRANSFER_TYPES,
   CLARIFICATION_TYPES,
   VALIDATION_CHECK_NAMES,
 } from '../constants.js';
@@ -69,6 +70,18 @@ const handoffSchema = new Schema(
     projectId: { type: Schema.Types.ObjectId, ref: 'Project', required: true },
     fromUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     toUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    // Team routing. The receiving team and the named recipient are separate concepts.
+    transferType: { type: String, enum: HANDOFF_TRANSFER_TYPES, required: true, default: 'individual' },
+    fromTeamId: { type: Schema.Types.ObjectId, ref: 'ProjectTeam', default: null },
+    toTeamId: { type: Schema.Types.ObjectId, ref: 'ProjectTeam', default: null },
+    reason: { type: String, default: '', trim: true },
+    instructions: { type: String, default: '', trim: true },
+    // Immutable copy of the context the recipient was asked to review, captured on submit.
+    contextSnapshot: { type: Schema.Types.Mixed, default: null },
+    // Hash + timestamp of every earlier submission so a resubmitted handoff keeps a verifiable version trail.
+    contextSnapshotHistory: { type: [Schema.Types.Mixed], default: [] },
+    rejectedAt: { type: Date, default: null },
+    rejectionReason: { type: String, default: '' },
     state: { type: String, enum: HANDOFF_STATES, required: true, default: 'DRAFT' },
     // Mirrors state but kept as a plain boolean so the partial unique index
     // below can enforce "one open handoff per project" without re-deriving
