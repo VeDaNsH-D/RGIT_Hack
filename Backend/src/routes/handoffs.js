@@ -4,6 +4,7 @@ import {
   updateHandoffSchema,
   exceptionSchema,
   clarificationNoteSchema,
+  rejectHandoffSchema,
 } from '../contracts/schemas.js';
 import { requireAuth } from '../middleware/auth.js';
 import { attachProject, attachHandoffProjectContext, requireRole } from '../middleware/access.js';
@@ -11,6 +12,8 @@ import { Handoff } from '../models/Handoff.js';
 import { Project } from '../models/Project.js';
 import { ProjectMembership } from '../models/ProjectMembership.js';
 import { User } from '../models/User.js';
+import { ProjectTeam } from '../models/ProjectTeam.js';
+import { TeamMembership } from '../models/TeamMembership.js';
 import { withTx } from '../db.js';
 import { logActivity, listActivity } from '../audit/service.js';
 import { emitNotificationEvent } from '../notifications/emitEvent.js';
@@ -19,6 +22,7 @@ import { assertItemSourceRecordsBelongToProject, ItemReferenceError } from '../h
 import { DraftError, generateHandoffDraft } from '../services/handoffDraftService.js';
 import { AiServiceError } from '../services/aiClient.js';
 import { runValidation } from '../handoffs/service.js';
+import { RoutingError, resolveRouting, assertDocumentsInProject, buildContextSnapshot, isContextStale } from '../handoffs/teamRouting.js';
 import { HANDOFF_OPEN_STATES, NON_WAIVABLE_CHECKS } from '../constants.js';
 
 const router = Router();
@@ -29,6 +33,14 @@ function serializeHandoff(h) {
     projectId: String(h.projectId),
     fromUserId: String(h.fromUserId),
     toUserId: String(h.toUserId),
+    transferType: h.transferType || 'individual',
+    fromTeamId: h.fromTeamId ? String(h.fromTeamId) : null,
+    toTeamId: h.toTeamId ? String(h.toTeamId) : null,
+    reason: h.reason || '',
+    instructions: h.instructions || '',
+    contextSnapshot: h.contextSnapshot ?? null,
+    rejectedAt: h.rejectedAt || null,
+    rejectionReason: h.rejectionReason || '',
     state: h.state,
     isOpen: h.isOpen,
     currentStatus: h.currentStatus,
@@ -109,12 +121,27 @@ router.post(
         return res.status(400).json({ error: 'validation_error', message: 'toUserId does not reference an existing user' });
       }
 
+      let routing;
+      try {
+        routing = await resolveRouting(req.project, { toUserId: body.toUserId, toTeamId: body.toTeamId, linkAs: req.user._id });
+        if (routing.linked) {
+          await logActivity({ projectId: req.project._id, actorId: req.user._id, action: 'TEAM_LINKED', targetType: 'ProjectTeam', targetId: routing.toTeamId, payload: { name: routing.linked, via: 'handoff' } });
+          delete routing.linked;
+        }
+      } catch (err) {
+        if (err instanceof RoutingError) return res.status(err.status).json({ error: err.code, message: err.message });
+        throw err;
+      }
+
       let handoff;
       try {
         handoff = await Handoff.create({
           projectId: req.project._id,
           fromUserId: req.user._id,
           toUserId: body.toUserId,
+          ...routing,
+          reason: body.reason || '',
+          instructions: body.instructions || '',
           state: 'DRAFT',
           isOpen: true,
         });
@@ -133,7 +160,7 @@ router.post(
         action: 'HANDOFF_CREATED',
         targetType: 'Handoff',
         targetId: handoff._id,
-        payload: { toUserId: String(body.toUserId) },
+        payload: { toUserId: String(body.toUserId), transferType: routing.transferType, fromTeamId: routing.fromTeamId, toTeamId: routing.toTeamId, reason: body.reason || '' },
       });
 
       res.status(201).json({ handoff: serializeHandoff(handoff) });
@@ -158,8 +185,23 @@ router.get(
   requireAuth,
   attachHandoffProjectContext(),
   requireRole('viewer'),
-  (req, res) => {
-    res.json({ handoff: serializeHandoff(req.handoff) });
+  async (req, res, next) => {
+    try {
+      const teamIds = [req.handoff.fromTeamId, req.handoff.toTeamId].filter(Boolean);
+      const [teams, contextStale] = await Promise.all([
+        teamIds.length ? ProjectTeam.find({ _id: { $in: teamIds } }).select('name').lean() : [],
+        req.handoff.state === 'SUBMITTED' ? isContextStale(req.project, req.handoff) : false,
+      ]);
+      const name = (id) => teams.find((team) => String(team._id) === String(id))?.name || null;
+      res.json({
+        handoff: serializeHandoff(req.handoff),
+        fromTeam: req.handoff.fromTeamId ? { id: String(req.handoff.fromTeamId), name: name(req.handoff.fromTeamId) } : null,
+        toTeam: req.handoff.toTeamId ? { id: String(req.handoff.toTeamId), name: name(req.handoff.toTeamId) } : null,
+        contextStale,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
 );
 
@@ -178,6 +220,7 @@ router.patch('/handoffs/:id', requireAuth, attachHandoffProjectContext(), async 
     if (body.items) {
       await assertItemSourceRecordsBelongToProject(req.project._id, body.items);
     }
+    if (body.documentIds) await assertDocumentsInProject(req.project._id, body.documentIds);
 
     const update = {};
     if (body.currentStatus !== undefined) update.currentStatus = body.currentStatus;
@@ -185,6 +228,8 @@ router.patch('/handoffs/:id', requireAuth, attachHandoffProjectContext(), async 
     if (body.noPendingActionsConfirmed !== undefined) update.noPendingActionsConfirmed = body.noPendingActionsConfirmed;
     if (body.supportingLinks !== undefined) update.supportingLinks = body.supportingLinks;
     if (body.documentIds !== undefined) update.documentIds = body.documentIds;
+    if (body.reason !== undefined) update.reason = body.reason;
+    if (body.instructions !== undefined) update.instructions = body.instructions;
 
     const updated = await Handoff.findOneAndUpdate(
       { _id: req.handoff._id, state: { $in: ['DRAFT', 'EDITING'] } },
@@ -208,6 +253,7 @@ router.patch('/handoffs/:id', requireAuth, attachHandoffProjectContext(), async 
   } catch (err) {
     if (err.name === 'ZodError') return res.status(400).json({ error: 'validation_error', message: err.message });
     if (err instanceof ItemReferenceError) return res.status(400).json({ error: err.code, message: err.message });
+    if (err instanceof RoutingError) return res.status(err.status).json({ error: err.code, message: err.message });
     next(err);
   }
 });
@@ -316,6 +362,18 @@ router.post('/handoffs/:id/submit', requireAuth, attachHandoffProjectContext(), 
     // validation against live DB state server-side.
     const result = await runValidation(req.project, req.handoff);
 
+    // Team-routed handoffs must still point at a valid destination when they are submitted.
+    if (req.handoff.toTeamId) {
+      try {
+        await resolveRouting(req.project, { toUserId: req.handoff.toUserId, toTeamId: req.handoff.toTeamId });
+        if (!req.handoff.reason) throw new RoutingError('A transfer reason is required before submitting a team handoff');
+        await assertDocumentsInProject(req.project._id, (req.handoff.documentIds || []).map(String));
+      } catch (err) {
+        if (err instanceof RoutingError) return res.status(err.status).json({ error: err.code, message: err.message });
+        throw err;
+      }
+    }
+
     let nextState;
     try {
       ({ state: nextState } = applyEvent({
@@ -331,14 +389,23 @@ router.post('/handoffs/:id/submit', requireAuth, attachHandoffProjectContext(), 
 
     const now = new Date();
     const setFields = { lastValidation: { ...result, validatedAt: now }, state: nextState };
+    let snapshot = null;
     if (nextState === 'SUBMITTED') {
       setFields.submittedAt = now;
       setFields.ackReminderSentAt = null;
+      snapshot = await buildContextSnapshot(req.project, req.handoff, result);
+      setFields.contextSnapshot = snapshot;
     }
 
     const updated = await Handoff.findOneAndUpdate(
       { _id: req.handoff._id, state: req.handoff.state },
-      { $set: setFields, $inc: { version: 1 } },
+      {
+        $set: setFields,
+        $inc: { version: 1 },
+        ...(snapshot && req.handoff.contextSnapshot
+          ? { $push: { contextSnapshotHistory: { hash: req.handoff.contextSnapshot.hash, capturedAt: req.handoff.contextSnapshot.capturedAt, handoffVersion: req.handoff.contextSnapshot.handoffVersion } } }
+          : {}),
+      },
       { new: true }
     );
     if (!updated) {
@@ -360,7 +427,15 @@ router.post('/handoffs/:id/submit', requireAuth, attachHandoffProjectContext(), 
         action: 'HANDOFF_SUBMITTED',
         targetType: 'Handoff',
         targetId: updated._id,
-        payload: { score: result.score },
+        payload: { score: result.score, transferType: updated.transferType, toTeamId: updated.toTeamId ? String(updated.toTeamId) : null },
+      });
+      await logActivity({
+        projectId: req.project._id,
+        actorId: req.user._id,
+        action: 'HANDOFF_CONTEXT_SNAPSHOT',
+        targetType: 'Handoff',
+        targetId: updated._id,
+        payload: { hash: snapshot.hash, handoffVersion: snapshot.handoffVersion },
       });
 
       await emitNotificationEvent({
@@ -410,6 +485,18 @@ router.post('/handoffs/:id/acknowledge', requireAuth, attachHandoffProjectContex
     const fromUserId = req.handoff.fromUserId;
     const toUserId = req.handoff.toUserId;
     const projectId = req.project._id;
+    const toTeamId = req.handoff.toTeamId || null;
+
+    // Revalidate the destination at the moment of acceptance: the team may have been deactivated or the
+    // recipient may have left the team/project while the request was waiting.
+    if (toTeamId) {
+      try {
+        await resolveRouting(req.project, { toUserId, toTeamId });
+      } catch (err) {
+        if (err instanceof RoutingError) return res.status(409).json({ error: 'conflict', message: `Cannot accept: ${err.message}` });
+        throw err;
+      }
+    }
 
     let conflict = false;
 
@@ -436,8 +523,15 @@ router.post('/handoffs/:id/acknowledge', requireAuth, attachHandoffProjectContex
           throw new Error('ABORT_ACK_CONFLICT');
         }
 
+        const fromTeamId = project.owningTeamId || null;
         project.ownerId = toUserId;
-        project.ownershipHistory.push({ fromUserId, toUserId, handoffId, changedAt: now });
+        if (toTeamId) project.owningTeamId = toTeamId;
+        project.ownershipHistory.push({
+          fromUserId, toUserId, handoffId, changedAt: now,
+          fromTeamId, toTeamId: toTeamId || fromTeamId,
+          reason: updatedHandoff.reason || '',
+          initiatedBy: fromUserId, acceptedBy: toUserId,
+        });
         await project.save(opts);
 
         // Open tasks deliberately keep their current assignees — nothing
@@ -471,6 +565,14 @@ router.post('/handoffs/:id/acknowledge', requireAuth, attachHandoffProjectContex
       targetType: 'Handoff',
       targetId: handoffId,
       payload: {},
+    });
+    await logActivity({
+      projectId,
+      actorId: req.user._id,
+      action: 'OWNERSHIP_TRANSFERRED',
+      targetType: 'Handoff',
+      targetId: handoffId,
+      payload: { fromUserId: String(fromUserId), toUserId: String(toUserId), toTeamId: toTeamId ? String(toTeamId) : null, transferType: req.handoff.transferType },
     });
 
     await emitNotificationEvent({
@@ -592,7 +694,58 @@ router.post('/handoffs/:id/respond', requireAuth, attachHandoffProjectContext(),
       projectId: req.project._id,
       recipientUserId: updated.toUserId,
       dedupeKey: `handoff-respond-${updated._id}-${updated.version}`,
-      payload: { entityId: String(updated._id), note: body.note },
+      payload: { entityId: String(updated._id), answeredByUserId: String(req.user._id), note: body.note },
+    });
+
+    res.json({ handoff: serializeHandoff(updated) });
+  } catch (err) {
+    if (err.name === 'ZodError') return res.status(400).json({ error: 'validation_error', message: err.message });
+    next(err);
+  }
+});
+
+router.post('/handoffs/:id/reject', requireAuth, attachHandoffProjectContext(), async (req, res, next) => {
+  try {
+    const actorRole = resolveActorRole(req.handoff, req.user._id);
+    if (actorRole !== 'incoming') {
+      return res.status(403).json({ error: 'forbidden', message: 'Only the incoming owner can reject this handoff' });
+    }
+
+    try {
+      applyEvent({ state: req.handoff.state, event: 'REJECT', actorRole });
+    } catch (err) {
+      if (mapLifecycleError(err, res)) return;
+      throw err;
+    }
+
+    const body = rejectHandoffSchema.parse(req.body);
+    const now = new Date();
+
+    // Ownership is untouched on rejection: the project owner, owning team and history stay exactly as they were.
+    const updated = await Handoff.findOneAndUpdate(
+      { _id: req.handoff._id, state: 'SUBMITTED' },
+      { $set: { state: 'REJECTED', isOpen: false, rejectedAt: now, rejectionReason: body.reason }, $inc: { version: 1 } },
+      { new: true }
+    );
+    if (!updated) {
+      return res.status(409).json({ error: 'conflict', message: 'Handoff state changed concurrently' });
+    }
+
+    await logActivity({
+      projectId: req.project._id,
+      actorId: req.user._id,
+      action: 'HANDOFF_REJECTED',
+      targetType: 'Handoff',
+      targetId: updated._id,
+      payload: { reason: body.reason },
+    });
+
+    await emitNotificationEvent({
+      type: 'HANDOFF_REJECTED',
+      projectId: req.project._id,
+      recipientUserId: updated.fromUserId,
+      dedupeKey: `handoff-rejected-${updated._id}`,
+      payload: { entityId: String(updated._id), rejectedByUserId: String(req.user._id), rejectionReason: body.reason },
     });
 
     res.json({ handoff: serializeHandoff(updated) });

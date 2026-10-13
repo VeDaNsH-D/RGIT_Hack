@@ -6,6 +6,8 @@ export { EmailConnection } from './EmailConnection.js';
 export { EmailReview } from './EmailReview.js';
 export { Project } from './Project.js';
 export { ProjectMembership } from './ProjectMembership.js';
+export { ProjectTeam } from './ProjectTeam.js';
+export { TeamMembership } from './TeamMembership.js';
 export { Task } from './Task.js';
 export { SourceConnection } from './SourceConnection.js';
 export { SourceRecord } from './SourceRecord.js';

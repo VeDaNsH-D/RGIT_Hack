@@ -25,10 +25,10 @@ export function AiProjectContextView({ extra = null, summary, mode, existing, re
     {extra}
     {extra && <h3 className="ws-ai-subhead">Ownership handoff</h3>}
     {mode === 'not_owner' && <p className="ws-muted">Only the project owner can start a handoff.</p>}
-    {mode === 'in_progress' && <p className="ws-notice" role="status">{'A handoff is already in progress. '}<Link to={`/handoffs/${existing.id}`}>Open the handoff →</Link></p>}
+    {mode === 'in_progress' && <p className="ws-notice" role="status">{'A handoff is already in progress. '}{existing?.id ? <Link to={`/handoffs/${existing.id}`}>Open the handoff →</Link> : null}</p>}
     {mode === 'no_teammates' && <p className="ws-muted">Add a teammate to this project to choose who receives the handoff.</p>}
     {['ready', 'draft_ready'].includes(mode) && <>
-      {mode === 'draft_ready' && <p className="ws-notice" role="status">{'A draft is ready for review. '}<Link to={`/handoffs/${existing.id}`}>Review the draft →</Link></p>}
+      {mode === 'draft_ready' && <p className="ws-notice" role="status">{'A draft is ready for review. '}{existing?.id ? <Link to={`/handoffs/${existing.id}`}>Review the draft →</Link> : null}</p>}
       {!existing && <label>Hand over to<select value={recipientId} onChange={event => onRecipient(event.target.value)} disabled={Boolean(busy)}><option value="" disabled>Choose a teammate</option>{recipients.map(member => <option value={member.userId} key={member.userId}>{`${member.name} · ${member.email}`}</option>)}</select></label>}
       {error && <p className={error.kind === 'unsynced' || error.kind === 'no_data' ? 'ws-notice' : 'ws-error'} role="alert">{error.message}</p>}
       <div className="ws-ai-actions"><button type="button" className="ws-button ws-button-primary" onClick={onGenerate} disabled={Boolean(busy) || (!existing && !recipientId)}>{label}</button><span className="ws-muted">{existing ? 'Uses your open handoff — no duplicate is created.' : 'Creates a draft handoff, then drafts it from your project sources.'}</span></div>
@@ -48,7 +48,7 @@ export default function AiProjectContext({ project, userId, connections }) {
   const owner = project.ownerId === userId
   const open = project.handoffs.find(handoff => handoff.isOpen)
   const editable = open && open.fromUserId === userId && ['DRAFT', 'EDITING'].includes(open.state)
-  const existing = editable ? open : createdId ? { id: createdId } : null
+  const existing = editable ? open : createdId ? { id: createdId } : open || null
   const recipients = (project.context?.members || []).filter(member => member.userId !== userId)
   const mode = !owner ? 'not_owner' : open && !editable ? 'in_progress' : !existing && !recipients.length ? 'no_teammates' : editable && open.aiDraft ? 'draft_ready' : 'ready'
 
@@ -56,10 +56,11 @@ export default function AiProjectContext({ project, userId, connections }) {
     if (lock.current) return // a second click while a request is running does nothing
     lock.current = true
     setError(null)
-    setBusy(existing ? 'drafting' : 'creating')
+    const canReuse = editable ? open : createdId ? { id: createdId } : null
+    setBusy(canReuse ? 'drafting' : 'creating')
     try {
       const { handoffId } = await generateAiHandoff({
-        existing,
+        existing: canReuse,
         recipientId,
         createHandoff: toUserId => request(`/projects/${project.id}/handoffs`, { method: 'POST', body: { toUserId } }),
         draft: id => { setBusy('drafting'); return draftHandoffWithAi(id) },

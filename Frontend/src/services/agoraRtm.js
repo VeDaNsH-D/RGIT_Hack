@@ -13,6 +13,9 @@ export class AgoraRtmManager {
     this.currentChannel = null;
     this.isLoggedIn = false;
     this.userId = null;
+    this.messageCallbacks = new Set();
+    this.presenceCallbacks = new Set();
+    this.statusCallbacks = new Set();
   }
 
   /**
@@ -23,7 +26,7 @@ export class AgoraRtmManager {
    * @param {string} params.userId User ID
    * @param {string} params.token RTM token from backend
    * @param {object} [callbacks={}]
-   * @param {(event: any) => void} [callbacks.onMessage]
+   * @param {(text: string, sender: string, event: any) => void} [callbacks.onMessage]
    * @param {(event: any) => void} [callbacks.onPresence]
    * @param {(event: any) => void} [callbacks.onStatus]
    */
@@ -40,24 +43,69 @@ export class AgoraRtmManager {
       useStringUserId: true,
     });
 
-    // Register event listeners
     if (typeof callbacks.onMessage === 'function') {
-      this.rtm.addEventListener('message', (event) => {
-        callbacks.onMessage(event);
-      });
+      this.messageCallbacks.add(callbacks.onMessage);
     }
-
     if (typeof callbacks.onPresence === 'function') {
-      this.rtm.addEventListener('presence', (event) => {
-        callbacks.onPresence(event);
-      });
+      this.presenceCallbacks.add(callbacks.onPresence);
+    }
+    if (typeof callbacks.onStatus === 'function') {
+      this.statusCallbacks.add(callbacks.onStatus);
     }
 
-    if (typeof callbacks.onStatus === 'function') {
-      this.rtm.addEventListener('status', (event) => {
-        callbacks.onStatus(event);
-      });
-    }
+    // Register event listeners on the Agora RTM instance
+    this.rtm.addEventListener('message', (event) => {
+      let text = '';
+      if (typeof event.message === 'string') {
+        text = event.message;
+      } else if (event.message instanceof Uint8Array) {
+        try {
+          text = new TextDecoder().decode(event.message);
+        } catch {
+          text = String(event.message);
+        }
+      } else if (event.message && typeof event.message.data === 'string') {
+        text = event.message.data;
+      } else if (typeof event.data === 'string') {
+        text = event.data;
+      } else if (event.message) {
+        try {
+          text = JSON.stringify(event.message);
+        } catch {
+          text = String(event.message);
+        }
+      }
+
+      const sender = event.publisher || event.senderId || event.userId || 'Teammate';
+
+      for (const cb of this.messageCallbacks) {
+        try {
+          cb(text, sender, event);
+        } catch (cbErr) {
+          console.warn('[AgoraRtmManager] message callback error:', cbErr);
+        }
+      }
+    });
+
+    this.rtm.addEventListener('presence', (event) => {
+      for (const cb of this.presenceCallbacks) {
+        try {
+          cb(event);
+        } catch (cbErr) {
+          console.warn('[AgoraRtmManager] presence callback error:', cbErr);
+        }
+      }
+    });
+
+    this.rtm.addEventListener('status', (event) => {
+      for (const cb of this.statusCallbacks) {
+        try {
+          cb(event);
+        } catch (cbErr) {
+          console.warn('[AgoraRtmManager] status callback error:', cbErr);
+        }
+      }
+    });
 
     // Login to RTM network
     await this.rtm.login();
@@ -68,13 +116,24 @@ export class AgoraRtmManager {
    * Subscribes to a chat channel.
    * 
    * @param {string} channelName
+   * @param {object} [callbacks={}]
+   * @param {(text: string, sender: string, event: any) => void} [callbacks.onMessage]
+   * @param {(event: any) => void} [callbacks.onPresence]
    */
-  async joinChannel(channelName) {
+  async joinChannel(channelName, callbacks = {}) {
     if (!this.isLoggedIn || !this.rtm) {
       throw new Error('Must log into Agora RTM before joining a channel.');
     }
 
     this.currentChannel = channelName;
+
+    if (callbacks && typeof callbacks.onMessage === 'function') {
+      this.messageCallbacks.add(callbacks.onMessage);
+    }
+    if (callbacks && typeof callbacks.onPresence === 'function') {
+      this.presenceCallbacks.add(callbacks.onPresence);
+    }
+
     await this.rtm.subscribe(channelName, {
       withMessage: true,
       withPresence: true,
@@ -83,19 +142,32 @@ export class AgoraRtmManager {
 
   /**
    * Publishes a text message to the channel.
+   * Can be invoked as sendMessage(channelName, messageText) or sendMessage(messageText).
    * 
-   * @param {string} channelName
-   * @param {string} messageText
+   * @param {string} channelOrText
+   * @param {string} [maybeText]
    * @returns {Promise<any>}
    */
-  async sendMessage(channelName, messageText) {
+  async sendMessage(channelOrText, maybeText) {
     if (!this.isLoggedIn || !this.rtm) {
       throw new Error('Agora RTM is not connected.');
     }
 
-    const payload = typeof messageText === 'string' ? messageText : JSON.stringify(messageText);
+    let targetChannel = this.currentChannel;
+    let messageText = channelOrText;
 
-    return await this.rtm.publish(channelName, payload, {
+    if (typeof maybeText !== 'undefined') {
+      targetChannel = channelOrText || this.currentChannel;
+      messageText = maybeText;
+    }
+
+    if (!targetChannel) {
+      throw new Error('No target channel specified or joined for RTM message.');
+    }
+
+    const payload = typeof messageText === 'string' ? messageText : JSON.stringify(messageText ?? '');
+
+    return await this.rtm.publish(targetChannel, payload, {
       channelType: 'MESSAGE',
     });
   }
@@ -112,6 +184,8 @@ export class AgoraRtmManager {
       }
       this.currentChannel = null;
     }
+    this.messageCallbacks.clear();
+    this.presenceCallbacks.clear();
   }
 
   /**
@@ -128,6 +202,7 @@ export class AgoraRtmManager {
       }
       this.rtm = null;
       this.isLoggedIn = false;
+      this.statusCallbacks.clear();
     }
   }
 }

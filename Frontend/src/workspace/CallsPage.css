@@ -326,8 +326,19 @@
   object-fit: cover;
 }
 
-.ws-video-tile.local video {
+.ws-video-tile.local:not(.presenting) video {
   transform: scaleX(-1);
+}
+
+.ws-video-tile.presenting {
+  border-color: #3b82f6;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.25);
+  background: #000;
+}
+
+.ws-video-tile.presenting video {
+  transform: none;
+  object-fit: contain;
 }
 
 .ws-tile-avatar {

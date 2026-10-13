@@ -94,21 +94,23 @@ function NotionRow({
       {status !== 'failed' && (
         <div style={{ margin: '10px 0' }}>
           {hasTasks ? (
-            <div style={{ display: 'grid', gap: '6px' }}>
+            <div style={{ display: 'grid', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                 {remainingCount > 0 ? (
                   <span
                     className="ws-badge ws-badge-pending"
-                    style={{ fontSize: '11px', fontWeight: '600', padding: '3px 8px' }}
+                    style={{ fontSize: '11px', fontWeight: '600', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   >
-                    ⏳ {remainingCount} remaining
+                    <Icon name="clock" size={12} />
+                    {remainingCount} remaining
                   </span>
                 ) : (
                   <span
                     className="ws-badge ws-badge-completed"
-                    style={{ fontSize: '11px', fontWeight: '600', padding: '3px 8px' }}
+                    style={{ fontSize: '11px', fontWeight: '600', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                   >
-                    ✓ All tasks completed!
+                    <Icon name="check" size={12} />
+                    All tasks completed
                   </span>
                 )}
 
@@ -133,27 +135,32 @@ function NotionRow({
               {showRemaining && remainingItems.length > 0 && (
                 <div
                   style={{
-                    background: '#fef7f2',
-                    border: '1px solid #fedec9',
+                    background: '#faf9f7',
+                    border: '1px solid var(--ws-border, #e7ddd4)',
                     borderRadius: '8px',
-                    padding: '10px 12px',
+                    padding: '12px 14px',
                     marginTop: '4px',
                   }}
                 >
-                  <strong style={{ fontSize: '11px', textTransform: 'uppercase', color: '#c14e16', letterSpacing: '0.5px' }}>
-                    What is remaining:
-                  </strong>
-                  <ul style={{ margin: '6px 0 0', padding: '0 0 0 16px', fontSize: '12px', color: 'var(--ws-ink)', display: 'grid', gap: '5px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <strong style={{ fontSize: '11px', textTransform: 'uppercase', color: '#8c4217', letterSpacing: '0.5px' }}>
+                      Pending action items
+                    </strong>
+                    <span className="ws-badge ws-badge-pending" style={{ fontSize: '10px', padding: '1px 6px' }}>
+                      {remainingItems.length} open
+                    </span>
+                  </div>
+                  <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: '6px' }}>
                     {remainingItems.map((item, idx) => (
-                      <li key={idx} style={{ lineHeight: '1.4' }}>
-                        <span style={{ color: '#d9531e', marginRight: '4px' }}>⏳</span>
+                      <li key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '12px', lineHeight: '1.4', color: 'var(--ws-ink)' }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#d9531e', marginTop: '6px', flexShrink: 0 }} />
                         <strong>{item}</strong>
                       </li>
                     ))}
                   </ul>
 
                   {completedCount > 0 && (
-                    <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed #fedec9' }}>
+                    <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #e7ddd4' }}>
                       <button
                         type="button"
                         className="ws-text-button"
@@ -163,10 +170,13 @@ function NotionRow({
                         {showCompleted ? 'Hide completed' : `Show ${completedCount} completed tasks`}
                       </button>
                       {showCompleted && (
-                        <ul style={{ margin: '4px 0 0', padding: '0 0 0 16px', fontSize: '11.5px', color: '#7a6a5b', display: 'grid', gap: '3px' }}>
+                        <ul style={{ margin: '6px 0 0', padding: 0, listStyle: 'none', display: 'grid', gap: '4px' }}>
                           {completedItems.map((item, idx) => (
-                            <li key={idx} style={{ textDecoration: 'line-through' }}>
-                              ✓ {item}
+                            <li key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '11.5px', color: '#7a6a5b' }}>
+                              <span style={{ color: '#2e7d32', marginTop: '1px', flexShrink: 0, display: 'inline-flex' }}>
+                                <Icon name="check" size={11} />
+                              </span>
+                              <span style={{ textDecoration: 'line-through' }}>{item}</span>
                             </li>
                           ))}
                         </ul>
@@ -373,7 +383,7 @@ export function ConnectedNotionPagesView({
                     <optgroup label="Databases">
                       {databases.map(db => (
                         <option key={db.id} value={db.id}>
-                          📊 {db.title} (database)
+                          {db.title} [Database]
                         </option>
                       ))}
                     </optgroup>
@@ -382,7 +392,7 @@ export function ConnectedNotionPagesView({
                     <optgroup label="Pages">
                       {pageResources.map(p => (
                         <option key={p.id} value={p.id}>
-                          📄 {p.title} (page)
+                          {p.title} [Page]
                         </option>
                       ))}
                     </optgroup>

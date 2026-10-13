@@ -13,6 +13,8 @@ import { SourceRecord } from '../models/SourceRecord.js';
 import { Conflict } from '../models/Conflict.js';
 import { Handoff } from '../models/Handoff.js';
 import { User } from '../models/User.js';
+import { ProjectTeam } from '../models/ProjectTeam.js';
+import { TeamMembership } from '../models/TeamMembership.js';
 import { purgeRepositoryKnowledge } from '../services/repositoryAnalysisService.js';
 import { HandoffReport } from '../models/HandoffReport.js';
 import { RepositorySnapshot } from '../models/RepositorySnapshot.js';
@@ -67,6 +69,66 @@ router.post('/', requireAuth, async (req, res, next) => {
       role: 'owner',
       invitedBy: req.user._id,
     });
+
+    // Handle initial members if provided
+    let memberUsers = [];
+    if (body.memberEmails?.length) {
+      memberUsers = await User.find({ email: { $in: body.memberEmails } }).lean();
+      for (const mUser of memberUsers) {
+        if (String(mUser._id) !== String(req.user._id)) {
+          await ProjectMembership.findOneAndUpdate(
+            { projectId: project._id, userId: mUser._id },
+            { $set: { role: 'member' }, $setOnInsert: { invitedBy: req.user._id } },
+            { upsert: true }
+          );
+        }
+      }
+    }
+
+    // Automatically create a team in the team directory for this project
+    let teamName = `${project.name} Team`;
+    if (await ProjectTeam.exists({ name: teamName, isActive: true })) {
+      let n = 2;
+      while (await ProjectTeam.exists({ name: `${project.name} Team ${n}`, isActive: true })) n += 1;
+      teamName = `${project.name} Team ${n}`;
+    }
+    const team = await ProjectTeam.create({
+      projectIds: [project._id],
+      name: teamName,
+      description: `Team for ${project.name}`,
+      leaderId: req.user._id,
+      createdBy: req.user._id,
+      isActive: true,
+    });
+    project.owningTeamId = team._id;
+    await project.save();
+
+    await TeamMembership.create({
+      teamId: team._id,
+      userId: req.user._id,
+      role: 'leader',
+      status: 'active',
+    });
+
+    for (const mUser of memberUsers) {
+      if (String(mUser._id) !== String(req.user._id)) {
+        await TeamMembership.findOneAndUpdate(
+          { teamId: team._id, userId: mUser._id },
+          { $set: { status: 'active', role: 'member' } },
+          { upsert: true }
+        );
+      }
+    }
+
+    await logActivity({
+      projectId: project._id,
+      actorId: req.user._id,
+      action: 'TEAM_CREATED',
+      targetType: 'ProjectTeam',
+      targetId: team._id,
+      payload: { name: team.name },
+    });
+
     await logActivity({
       projectId: project._id,
       actorId: req.user._id,
@@ -511,17 +573,35 @@ router.patch('/:id', requireAuth, attachProject(), requireRole('owner'), async (
 router.get('/:id/ownership-history', requireAuth, attachProject(), requireRole('viewer'), async (req, res, next) => {
   try {
     const userIds = new Set();
+    const teamIds = new Set();
     for (const entry of req.project.ownershipHistory) {
-      userIds.add(String(entry.fromUserId));
-      userIds.add(String(entry.toUserId));
+      for (const id of [entry.fromUserId, entry.toUserId, entry.initiatedBy, entry.acceptedBy]) if (id) userIds.add(String(id));
+      for (const id of [entry.fromTeamId, entry.toTeamId]) if (id) teamIds.add(String(id));
     }
-    const users = await User.find({ _id: { $in: [...userIds] } }).select('name email').lean();
+    if (req.project.owningTeamId) teamIds.add(String(req.project.owningTeamId));
+    userIds.add(String(req.project.ownerId));
+    const [users, teams] = await Promise.all([
+      User.find({ _id: { $in: [...userIds] } }).select('name email').lean(),
+      ProjectTeam.find({ _id: { $in: [...teamIds] } }).select('name').lean(),
+    ]);
     const userById = new Map(users.map((u) => [String(u._id), u]));
+    const teamById = new Map(teams.map((t) => [String(t._id), t]));
+    const person = (id) => {
+      const user = userById.get(String(id));
+      return user ? { id: String(id), name: user.name, email: user.email } : { id: String(id), name: 'Unknown user', email: '' };
+    };
+    const team = (id) => (id ? { id: String(id), name: teamById.get(String(id))?.name || 'Removed team' } : null);
 
     res.json({
+      current: { owner: person(req.project.ownerId), team: team(req.project.owningTeamId) },
       ownershipHistory: req.project.ownershipHistory.map((entry) => ({
-        fromUser: userById.get(String(entry.fromUserId)) ? { id: String(entry.fromUserId), name: userById.get(String(entry.fromUserId)).name, email: userById.get(String(entry.fromUserId)).email } : { id: String(entry.fromUserId) },
-        toUser: userById.get(String(entry.toUserId)) ? { id: String(entry.toUserId), name: userById.get(String(entry.toUserId)).name, email: userById.get(String(entry.toUserId)).email } : { id: String(entry.toUserId) },
+        fromUser: person(entry.fromUserId),
+        toUser: person(entry.toUserId),
+        fromTeam: team(entry.fromTeamId),
+        toTeam: team(entry.toTeamId),
+        reason: entry.reason || '',
+        initiatedBy: person(entry.initiatedBy || entry.fromUserId),
+        acceptedBy: person(entry.acceptedBy || entry.toUserId),
         handoffId: String(entry.handoffId),
         changedAt: entry.changedAt,
       })),
@@ -588,6 +668,16 @@ router.post('/:id/members', requireAuth, attachProject(), requireRole('owner'), 
       { $set: { role: body.role }, $setOnInsert: { invitedBy: req.user._id } },
       { upsert: true, new: true }
     );
+    const projectTeam = req.project.owningTeamId
+      ? await ProjectTeam.findById(req.project.owningTeamId)
+      : await ProjectTeam.findOne({ projectIds: req.project._id, isActive: true });
+    if (projectTeam) {
+      await TeamMembership.findOneAndUpdate(
+        { teamId: projectTeam._id, userId: user._id },
+        { $set: { status: 'active' }, $setOnInsert: { role: 'member' } },
+        { upsert: true }
+      );
+    }
     await logActivity({
       projectId: req.project._id,
       actorId: req.user._id,
@@ -706,6 +796,7 @@ function serializeProject(project) {
     name: project.name,
     description: project.description,
     ownerId: String(project.ownerId),
+    owningTeamId: project.owningTeamId ? String(project.owningTeamId) : null,
     isDemo: Boolean(project.isDemo),
   };
 }

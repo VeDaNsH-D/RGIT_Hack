@@ -56,6 +56,15 @@ export function formatWhatsAppMessage(notification) {
         .filter(Boolean)
         .join('\n');
 
+    case NOTIFICATION_EVENT_TYPES.HANDOFF_REJECTED:
+      return [
+        `*Handoff Rejected*`,
+        `Handoff *${entityId}* (Project: ${projectId}) was rejected. Ownership has not changed.`,
+        message ? `Reason: ${sanitizeText(message)}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
     case NOTIFICATION_EVENT_TYPES.HANDOFF_NEEDS_CLARIFICATION:
       return [
         `*Handoff Clarification Requested*`,

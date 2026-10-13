@@ -59,6 +59,7 @@ export const createProjectSchema = z
   .object({
     name: nonEmptyString.max(200),
     description: z.string().trim().max(5000).optional().default(''),
+    memberEmails: z.array(z.string().trim().toLowerCase().email()).optional().default([]),
     // Optional provider links; the server validates every id against the user's own connection.
     integrations: z
       .object({ github: z.object({ repositoryId: z.number().int().positive() }).strict().optional() })
@@ -138,6 +139,70 @@ export const sourceRecordQuerySchema = z
 export const createHandoffSchema = z
   .object({
     toUserId: objectId,
+    // Team routing is optional so the original person-to-person flow keeps working unchanged.
+    toTeamId: objectId.optional(),
+    reason: z.string().trim().min(1).max(1000).optional(),
+    instructions: z.string().trim().max(2000).optional(),
+  })
+  .strict()
+  .refine((value) => !value.toTeamId || value.reason, {
+    message: 'A transfer reason is required when routing to a team',
+    path: ['reason'],
+  });
+
+export const rejectHandoffSchema = z
+  .object({
+    reason: nonEmptyString.max(2000),
+  })
+  .strict();
+
+// --- Teams --------------------------------------------------------------
+
+export const createTeamSchema = z
+  .object({
+    // Optional: when omitted the server numbers the team ("Team 1", "Team 2", ...) within the project.
+    name: nonEmptyString.max(80).optional(),
+    description: z.string().trim().max(500).optional().default(''),
+    leaderId: objectId,
+    memberIds: z.array(objectId).max(100).optional().default([]),
+  })
+  .strict();
+
+export const updateTeamSchema = z
+  .object({
+    name: nonEmptyString.max(80).optional(),
+    description: z.string().trim().max(500).optional(),
+    leaderId: objectId.optional(),
+    isActive: z.boolean().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required');
+
+export const linkTeamSchema = z
+  .object({
+    teamId: objectId,
+  })
+  .strict();
+
+export const teamSearchQuerySchema = z
+  .object({
+    search: z.string().trim().max(80).optional().default(''),
+    projectId: objectId.optional(),
+    directory: z.string().optional(),
+    scope: z.enum(['global', 'discoverable']).optional(),
+  })
+  .strict();
+
+export const addTeamMemberSchema = z
+  .object({
+    userId: objectId,
+    role: z.enum(['leader', 'member']).optional().default('member'),
+  })
+  .strict();
+
+export const updateTeamMemberSchema = z
+  .object({
+    role: z.enum(['leader', 'member']),
   })
   .strict();
 
@@ -160,6 +225,8 @@ export const updateHandoffSchema = z
     noPendingActionsConfirmed: z.boolean().optional(),
     supportingLinks: z.array(httpUrl).max(50).optional(),
     documentIds: z.array(objectId).max(50).optional(),
+    reason: z.string().trim().min(1).max(1000).optional(),
+    instructions: z.string().trim().max(2000).optional(),
   })
   .strict()
   .refine((data) => Object.keys(data).length > 0, 'No fields to update');
