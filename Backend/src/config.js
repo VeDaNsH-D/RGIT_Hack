@@ -131,4 +131,5 @@ export const config = {
   },
   aiServiceUrl: process.env.AI_SERVICE_URL || 'https://rgit-hack-aiml.onrender.com',
   groqApiKey: process.env.GROQ_API_KEY || '',
+  deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
 };

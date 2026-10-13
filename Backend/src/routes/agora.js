@@ -144,6 +144,28 @@ agoraRouter.post('/invite', requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * Endpoint to provide Deepgram credentials / status to authenticated clients
+ * for real-time live streaming transcription over WebSockets.
+ * GET /api/agora/deepgram-token
+ */
+agoraRouter.get('/deepgram-token', requireAuth, (req, res) => {
+  const deepgramApiKey = config.deepgramApiKey || process.env.DEEPGRAM_API_KEY || '';
+  if (!deepgramApiKey) {
+    return res.status(503).json({
+      error: 'deepgram_not_configured',
+      message: 'Deepgram API key is not configured on this server.',
+      configured: false,
+    });
+  }
+
+  return res.json({
+    success: true,
+    configured: true,
+    apiKey: deepgramApiKey,
+  });
+});
+
 import multer from 'multer';
 
 const upload = multer({
@@ -152,17 +174,19 @@ const upload = multer({
 });
 
 /**
- * Transcribe meeting audio recording using Groq Whisper (whisper-large-v3).
+ * Transcribe meeting audio recording using Deepgram Nova-2 (with Groq Whisper fallback).
  * Accepts multipart audio file or JSON with base64 audio.
  * POST /api/agora/transcribe
  */
 agoraRouter.post('/transcribe', requireAuth, upload.single('audio'), async (req, res) => {
   try {
+    const deepgramApiKey = config.deepgramApiKey || process.env.DEEPGRAM_API_KEY;
     const groqApiKey = config.groqApiKey || process.env.GROQ_API_KEY;
-    if (!groqApiKey) {
+
+    if (!deepgramApiKey && !groqApiKey) {
       return res.status(503).json({
-        error: 'groq_not_configured',
-        message: 'Groq API key is not configured for Whisper transcription.',
+        error: 'stt_not_configured',
+        message: 'Neither Deepgram nor Groq API key is configured for transcription.',
       });
     }
 
@@ -187,42 +211,77 @@ agoraRouter.post('/transcribe', requireAuth, upload.single('audio'), async (req,
       });
     }
 
-    const formData = new FormData();
-    const blob = new Blob([audioBuffer], { type: mimeType });
-    formData.append('file', blob, fileName);
-    formData.append('model', 'whisper-large-v3-turbo');
-    formData.append('response_format', 'json');
-    if (req.body?.language) {
-      formData.append('language', req.body.language);
+    // 1. Primary: Deepgram Nova-2 Speech-to-Text
+    if (deepgramApiKey) {
+      try {
+        const lang = req.body?.language || 'en';
+        const dgUrl = `https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&punctuate=true&language=${encodeURIComponent(lang)}`;
+        const dgRes = await fetch(dgUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Token ${deepgramApiKey}`,
+            'Content-Type': mimeType,
+          },
+          body: audioBuffer,
+        });
+
+        if (dgRes.ok) {
+          const dgResult = await dgRes.json();
+          const transcript = dgResult.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
+          return res.json({
+            success: true,
+            text: transcript,
+            model: 'deepgram-nova-2',
+            provider: 'deepgram',
+          });
+        }
+        console.warn('[agora-transcribe] Deepgram API returned status:', dgRes.status, 'Falling back to Groq if configured.');
+      } catch (dgErr) {
+        console.warn('[agora-transcribe] Deepgram request error, attempting fallback:', dgErr.message);
+      }
     }
 
-    const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${groqApiKey}`,
-      },
-      body: formData,
-    });
+    // 2. Fallback: Groq Whisper
+    if (groqApiKey) {
+      const formData = new FormData();
+      const blob = new Blob([audioBuffer], { type: mimeType });
+      formData.append('file', blob, fileName);
+      formData.append('model', 'whisper-large-v3-turbo');
+      formData.append('response_format', 'json');
+      if (req.body?.language) {
+        formData.append('language', req.body.language);
+      }
 
-    if (!groqRes.ok) {
+      const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${groqApiKey}`,
+        },
+        body: formData,
+      });
+
+      if (groqRes.ok) {
+        const result = await groqRes.json();
+        return res.json({
+          success: true,
+          text: result.text || '',
+          model: 'whisper-large-v3-turbo',
+          provider: 'groq',
+        });
+      }
+
       const errText = await groqRes.text().catch(() => '');
       let parsedErr = errText;
       try { parsedErr = JSON.parse(errText); } catch {}
-      console.error('[agora-whisper] Groq transcription error:', parsedErr);
-      return res.status(groqRes.status).json({
-        error: 'transcription_failed',
-        message: parsedErr?.error?.message || 'Whisper transcription failed.',
-      });
+      console.error('[agora-transcribe] Groq transcription error:', parsedErr);
     }
 
-    const result = await groqRes.json();
-    return res.json({
-      success: true,
-      text: result.text || '',
-      model: 'whisper-large-v3-turbo',
+    return res.status(502).json({
+      error: 'transcription_failed',
+      message: 'Failed to transcribe audio via Deepgram or Groq Whisper.',
     });
   } catch (err) {
-    console.error('[agora-whisper] Error:', err);
+    console.error('[agora-transcribe] Error:', err);
     return res.status(500).json({
       error: 'transcription_error',
       message: err.message || 'Internal error transcribing audio.',

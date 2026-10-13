@@ -11,6 +11,13 @@ export async function fetchAgoraConfig(signal) {
 }
 
 /**
+ * Retrieves Deepgram configuration/key from backend for live streaming transcription.
+ */
+export async function fetchDeepgramToken(signal) {
+  return request('/agora/deepgram-token', { signal });
+}
+
+/**
  * Obtains authenticated RTC and RTM session tokens for an Agora call channel.
  *
  * @param {object} params
