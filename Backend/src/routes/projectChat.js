@@ -1,3 +1,4 @@
+import { describeChatFailure } from '../chat/errors.js';
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { requireAuth } from '../middleware/auth.js';
@@ -28,7 +29,11 @@ router.post('/:id/chat', ...guards, limiter, async (req, res, next) => {
       try { response = await fetch(`${base}/api/v1/project-chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: question.trim(), sources: context.sources, history: history.map(row => ({ question: row.question.slice(0, 2000), answer: row.answer.slice(0, 3000) })) }), signal: AbortSignal.timeout(45000) }); }
       catch { return res.status(503).json({ message: 'The AI service is unavailable. Please retry; your question was not saved.' }); }
       const data = await response.json().catch(() => null);
-      if (!response.ok) return res.status(502).json({ message: 'The AI service could not answer. Check its deployment and Groq configuration, then retry.' });
+      if (!response.ok) {
+        const failure = describeChatFailure(response.status, data);
+        console.warn(`[project-chat] AI HTTP ${response.status}: ${failure.error}`);
+        return res.status(failure.status).json({ error: failure.error, message: failure.message });
+      }
       const cited = [...new Set([...String(data?.answer || '').matchAll(/\[(S\d+)\]/g)].map(match => match[1]))];
       const available = new Map(context.sources.map(source => [source.id, source]));
       if (typeof data?.answer !== 'string' || !data.answer.trim() || data.answer.length > 8000 || (!data.insufficientEvidence && !cited.length) || cited.some(id => !available.has(id))) return res.status(502).json({ message: 'The AI returned an answer without valid evidence. Please retry.' });

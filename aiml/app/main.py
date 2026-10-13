@@ -191,15 +191,19 @@ def generate_developer_handoff_endpoint(
             detail="Unexpected internal error generating developer handoff.",
         ) from err
 
-from app.project_chat import ProjectChatRequest, ProjectChatResponse, answer_project_chat, get_project_chat_service
+from app.project_chat import ProjectChatRequest, ProjectChatResponse, answer_project_chat, get_project_chat_service, provider_failure
 
 @app.post('/api/v1/project-chat', response_model=ProjectChatResponse, summary='Answer a question using retrieved project evidence')
 def project_chat_endpoint(payload: ProjectChatRequest, service: GroqContextService = Depends(get_project_chat_service)):
     try:
         return answer_project_chat(service, payload)
     except MissingApiKeyError as error:
-        raise HTTPException(status_code=503, detail='NEW_GROQ_API_KEY is not configured for project chat.') from error
+        raise HTTPException(status_code=503, detail={'code': 'rag_key_missing', 'message': 'NEW_GROQ_API_KEY is missing on the AI service. Configure it and restart/redeploy the AI service.'}) from error
     except GroqTimeoutError as error:
-        raise HTTPException(status_code=504, detail='AI provider timed out.') from error
-    except (ModelOutputError, GroqProviderError) as error:
-        raise HTTPException(status_code=502, detail='Could not produce a grounded answer.') from error
+        raise HTTPException(status_code=504, detail={'code': 'groq_timeout', 'message': 'Groq took too long to answer. Please retry.'}) from error
+    except ModelOutputError as error:
+        raise HTTPException(status_code=502, detail={'code': 'rag_invalid_answer', 'message': 'The AI returned an answer without valid source citations. Please retry.'}) from error
+    except GroqProviderError as error:
+        status_code, detail = provider_failure(error)
+        print(f'[project-chat] provider failure: {detail["code"]}')
+        raise HTTPException(status_code=status_code, detail=detail) from error
