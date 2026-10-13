@@ -65,3 +65,8 @@ h1 span:first-child { padding-left: 7.6cqw; }
 }
 @media (max-width: 400px) { .header { padding: 22px 18px 0; } .header-actions { gap: 10px; } .signup { font-size: 12px; } .hero { margin-inline: 18px; } .bottom { margin-inline: 18px; } .intro { flex-direction: column; align-items: start; gap: 22px; } }
 @media (prefers-reduced-motion: reduce) { .button { transition: none; } }
+
+.brand .brand-mark { width: 2.4cqw; height: 2.4cqw; flex-shrink: 0; }
+.brand { font-weight: 800; }
+.brand .brand-dot { color: #ff3c0a; margin-left: -.15cqw; }
+@media (max-width: 800px) { .brand .brand-mark { width: 30px; height: 30px; } .brand .brand-dot { margin-left: -2px; } }

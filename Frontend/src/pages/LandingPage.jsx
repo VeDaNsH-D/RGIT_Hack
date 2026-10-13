@@ -4,6 +4,7 @@ import { TeamIllustration, GoalIllustration, WorkflowIllustration } from '../com
 import Features from '../components/Features'
 import Integrations from '../components/Integrations'
 import TestimonialsFaq from '../components/TestimonialsFaq'
+import BrandIcon from '../components/BrandIcon'
 import ClosingSection from '../components/ClosingSection'
 import '../App.css'
 
@@ -18,10 +19,10 @@ const details = {
   },
   Pricing: {
     title: 'Start with your team.',
-    body: 'Try Selecto for free. Plan details will be available when Selecto launches.',
+    body: 'Try Over2u for free. Plan details will be available when Over2u launches.',
   },
   Company: {
-    title: 'Selecto is all about the team.',
+    title: 'Over2u is all about the team.',
     body: 'A simpler way to bring people, priorities, and projects together.',
   },
 }
@@ -36,9 +37,9 @@ function Header({ onOpen }) {
 
   return (
     <header className="header">
-      <Link className="brand" to="/" aria-label="Selecto home">
-        <span className="brand-symbol" aria-hidden="true"><span>✳</span></span>
-        <span>selecto</span>
+      <Link className="brand" to="/" aria-label="Over2u home">
+        <BrandIcon />
+        <span>Over2u<span className="brand-dot">.</span></span>
       </Link>
       <nav className="navigation" aria-label="Main navigation">
         {['Product', 'Features'].map(name => (
@@ -66,7 +67,6 @@ function Header({ onOpen }) {
         {['Pricing', 'Company'].map(name => (
           <button className="nav-link" key={name} onClick={() => openPanel(name)}>{name}</button>
         ))}
-        <Link className="nav-link" to="/meet" style={{ color: '#2563eb', fontWeight: 600 }}>📹 Live Call & Chat</Link>
       </nav>
       <div className="header-actions">
         <Link className="signup" to="/signup">Sign up</Link>
@@ -100,16 +100,16 @@ export default function LandingPage() {
           <span>teamwork</span>
         </h1>
       </section>
-      <section className="bottom" aria-label="Organize your team with Selecto">
+      <section className="bottom" aria-label="Organize your team with Over2u">
         <div className="intro">
           <p>
-            Selecto is all about the team.<br />
+            Over2u is all about the team.<br />
             Set goals and prioritize them,<br />
             assign people to tasks, and<br />
             get things done in time.
           </p>
           <Link className="button button-blue button-orange" to="/signup">
-            Try Selecto for free
+            Try Over2u for free
           </Link>
         </div>
         <GoalIllustration />
@@ -123,7 +123,7 @@ export default function LandingPage() {
         <button className="close-modal" aria-label="Close dialog" onClick={() => dialog.current.close()}>×</button>
         {details[panel] ? (
           <>
-            <span className="eyebrow">selecto / {panel.toLowerCase()}</span>
+            <span className="eyebrow">over2u / {panel.toLowerCase()}</span>
             <h2 id="dialog-title">{details[panel].title}</h2>
             <p>{details[panel].body}</p>
             <Link className="button button-blue" to="/signup">Get started</Link>
