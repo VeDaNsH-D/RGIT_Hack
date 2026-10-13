@@ -93,6 +93,9 @@ export const createTaskSchema = z
     assignee: objectId.nullable().optional(),
     deadline: z.string().datetime().nullable().optional(),
     priority: z.enum(TASK_PRIORITIES).optional().default('medium'),
+    // Stable GitHub repository id. Omitted: use the project's only repository (rejected if several).
+    // null: explicitly create a Relay-only task.
+    githubRepositoryId: z.number().int().positive().nullable().optional(),
   })
   .strict();
 

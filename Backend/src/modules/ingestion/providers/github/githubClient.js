@@ -219,8 +219,25 @@ export class GitHubClient {
    * @returns {Promise<{ data: any, headers: Headers, rateLimit: Object, links: Record<string, string> }>}
    */
   async get(endpoint, queryParams = {}) {
+    return this.#request('GET', endpoint, queryParams);
+  }
+
+  /**
+   * Executes a single JSON POST request (e.g. creating an issue). Never retried automatically:
+   * the caller must reconcile uncertain outcomes, because POST is not idempotent.
+   *
+   * @param {string} endpoint - API path.
+   * @param {Record<string, unknown>} body - JSON body.
+   * @returns {Promise<{ data: any, headers: Headers, rateLimit: Object, links: Record<string, string> }>}
+   */
+  async post(endpoint, body) {
+    return this.#request('POST', endpoint, {}, body);
+  }
+
+  async #request(method, endpoint, queryParams = {}, body) {
     const targetUrl = this.#buildUrl(endpoint, queryParams);
     const headers = this.#buildHeaders();
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
     const sanitizedEndpoint = targetUrl.pathname;
 
     let response;
@@ -229,8 +246,9 @@ export class GitHubClient {
 
     try {
       response = await this.fetchFn(targetUrl.toString(), {
-        method: 'GET',
+        method,
         headers,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
         signal: controller.signal,
       });
     } catch (err) {

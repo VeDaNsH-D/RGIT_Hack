@@ -354,3 +354,7 @@
 .ws-walkthrough { display: grid; gap: 4px; }
 .ws-source-index { margin: 0; padding-left: 26px; display: grid; gap: 6px; font-size: 11px; line-height: 1.5; color: #6b5d52; }
 @media (max-width: 760px) { .ws-status-row { grid-template-columns: 1fr; gap: 2px; } .ws-verification div { grid-template-columns: 1fr; gap: 2px; } }
+.ws-repo-field { display: grid; gap: 10px; }
+.ws-task-github { color: #898078; font-size: 10px; line-height: 1.5; }
+.ws-task-github a { color: #ff3c0a; }
+.ws-task-github-failed { color: #b3361a; }
