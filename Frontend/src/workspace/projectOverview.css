@@ -1,0 +1,78 @@
+.project-overview-page{--po-ink:#29231f;--po-muted:#756b63;--po-border:#eae3dc;color:var(--po-ink)}
+.project-overview-page{width:100%;max-width:1120px;margin-inline:auto}
+.project-overview-page .ws-project-head{position:static;margin:0 0 24px;padding:10px 20px 22px;background:transparent;border:0;border-radius:0;box-shadow:none}
+.project-overview-page .ws-ph-crumbs{justify-content:center;margin-bottom:22px;font-size:12px}
+.project-overview-page .ws-ph-main{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
+.project-overview-page .ws-ph-mark{display:none}
+.project-overview-page .ws-ph-title{width:100%;flex:none}
+.project-overview-page .ws-ph-title>div{justify-content:center}
+.project-overview-page .ws-ph-title p{max-width:600px;margin:8px auto 0}
+.project-overview-page .po-header-actions{width:auto;justify-content:center;padding:0;gap:8px;margin-top:4px}
+.project-overview-page .po-header-actions .ws-button{background:transparent;border-color:transparent;box-shadow:none;color:#79675a;padding:8px 12px;font-size:12px}
+.project-overview-page .po-header-actions .ws-button:hover{background:#fff0e5;color:#bc3f16}
+.project-overview-page .ws-ph-title h1{font-size:clamp(24px,2.5vw,36px);letter-spacing:-.045em;white-space:normal;overflow-wrap:anywhere}.project-overview-page .ws-ph-title p{white-space:normal;color:var(--po-muted);font-size:14px;line-height:1.6}.po-header-actions{display:flex;gap:10px;flex-wrap:wrap}
+.project-overview-page .ws-project-layout{display:block;margin:0}.project-overview-page .ws-project-nav{position:static;display:flex;overflow-x:auto;gap:5px;border:0;border-bottom:1px solid var(--po-border);border-radius:0;padding:0;margin-bottom:28px;background:transparent}.project-overview-page .ws-project-nav a{display:flex;align-items:center;gap:9px;white-space:nowrap;padding:14px 18px;min-height:48px;box-sizing:border-box;border-bottom:2px solid transparent;color:#6f655d;font-size:13px;border-radius:8px 8px 0 0}.project-overview-page .ws-project-nav a:hover{background:#fff5ed}.project-overview-page .ws-project-nav a.active{border-bottom-color:#f34b1a;background:#fff3e9;color:#b6320b}
+.project-overview-page :is(button,a,input,select,textarea):focus-visible{outline:3px solid #e74716;outline-offset:4px}.project-overview-page button{min-height:40px}.project-overview-page .ws-project-section>.ws-panel{margin-bottom:20px}.po-kicker{display:block;color:#8d6c59;font-size:10px;letter-spacing:.16em;font-weight:650;margin-bottom:8px}.po-section-intro{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:22px}.po-section-intro h2{font-size:27px;letter-spacing:-.045em;margin:0 0 6px}.po-section-intro p{font-size:14px;color:var(--po-muted);line-height:1.6;margin:0}
+
+.project-overview-page .ws-project-nav{overflow:visible;flex-wrap:wrap}.po-more-nav{position:relative;margin-left:auto}.po-more-nav summary{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none;padding:14px 18px;color:#6f655d;font-size:13px;min-height:46px;box-sizing:border-box}.po-more-nav summary::-webkit-details-marker{display:none}.po-more-nav.active summary{color:#b6320b}.po-more-nav>div{position:absolute;right:0;top:100%;min-width:225px;padding:6px;background:white;border:1px solid #eae3dc;border-radius:12px;box-shadow:0 12px 30px #36271a18;z-index:30}.project-overview-page .po-more-nav a{display:flex;align-items:center;gap:10px;padding:12px;color:#554940;font-size:13px;text-decoration:none;border:0;border-radius:7px}.project-overview-page .po-more-nav a:hover{background:#fff2e8}.po-more-nav summary:focus-visible{outline:3px solid #e74716;outline-offset:3px}
+.po-simple{width:100%;max-width:900px;margin-inline:auto}.po-status-line{display:flex;align-items:center;flex-wrap:wrap;justify-content:center;gap:12px 26px;margin:0 0 24px;color:#756b63;font-size:13px}.po-status-line strong{color:#29231f}.po-status-line button{border:0;background:none;font:inherit;color:inherit;padding:0;cursor:pointer}.po-status-line button:hover{text-decoration:underline}.po-status-line .po-status-warning{color:#bd3d13}
+.po-task-panel{padding:24px;background:white;border:1px solid #eae3dc;border-radius:16px}.po-task-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:14px}.po-task-heading h2{font-size:20px;font-weight:550}.po-task-heading p{font-size:13px;color:#756b63;line-height:1.6;margin-top:6px}.po-task-preview{list-style:none;margin:0;padding:0}.po-task-preview li+li{border-top:1px solid #f0ebe6}.po-task-preview li>button{display:flex;align-items:center;gap:14px;width:100%;padding:18px 0;background:none;border:0;text-align:left;cursor:pointer;color:#29231f}.po-task-preview li>button:hover{background:#fffbf7}.po-task-dot{width:10px;height:10px;border:1px solid #d6c9bf;border-radius:50%;flex-shrink:0}.po-task-preview-title{flex:1;font-size:14px;line-height:1.5;overflow-wrap:anywhere}.po-task-preview-date{color:#756b63;font-size:12px;min-width:80px;text-align:right}.po-task-preview li>button>svg{color:#bca38f;flex-shrink:0}.po-all-tasks{margin-top:12px}.po-simple-empty{display:grid;justify-items:center;gap:9px;padding:28px 16px;color:#756b63}.po-simple-empty strong{font-size:15px;color:#29231f}.po-simple-empty p{font-size:13px;margin:0}
+.po-quick-access{margin-top:28px}.po-quick-access>h2{text-align:center;font-size:12px;font-weight:550;margin:0 0 12px;color:#6d5d51}.po-launchpad{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:transparent;border:0;border-radius:0}.po-launchpad>button{display:flex;align-items:center;gap:12px;justify-content:center;padding:14px 12px;border:0;background:none;text-align:center;cursor:pointer;color:#29231f}.po-launchpad>button+button{border:0}.po-launchpad>button:hover{background:#fff8f1}.po-launchpad-icon{display:grid;place-items:center;flex-shrink:0;color:#ce5426}.po-launchpad>button>span:nth-child(2){min-width:0;flex:0 1 auto}.po-launchpad strong{display:block;font-size:13px;font-weight:550;line-height:1.5}.po-launchpad small{display:block;color:#756b63;font-size:11px;line-height:1.6;margin-top:4px}.po-launchpad>button>svg{color:#b39784;flex-shrink:0}.po-simple-handoff{display:flex;align-items:center;gap:12px;margin-top:20px;padding:12px 16px;background:#fff3e9;border-radius:10px;font-size:13px;color:#845535}.po-simple-handoff>span{flex:1}.po-onboarding-link{display:block;color:#aa481f;padding:16px 0;margin-top:8px;font-size:13px}
+@media(max-width:1150px){.project-overview-page .ws-ph-main{flex-wrap:wrap}.po-header-actions{width:100%;padding-left:70px}.po-launchpad{grid-template-columns:repeat(3,minmax(0,1fr))}.po-launchpad>button+button{border:0}.po-launchpad>button{padding:16px 20px}}
+@media(max-width:600px){.project-overview-page .ws-project-head{padding:18px}.project-overview-page .ws-ph-title>div{flex-wrap:wrap;gap:8px}.po-header-actions{padding:0;gap:8px}.po-header-actions .ws-button{flex:1;font-size:12px}.project-overview-page .ws-project-nav>a,.po-more-nav summary{padding:11px 12px;font-size:12px}.po-more-nav{margin-left:0}.po-task-panel{padding:18px}.po-task-heading h2{font-size:18px}.po-task-heading p{font-size:12px}.po-task-heading .ws-button{font-size:12px;white-space:nowrap;padding:10px}.po-task-preview li>button{flex-wrap:wrap;gap:10px}.po-task-preview-title{min-width:calc(100% - 26px)}.po-task-preview-date{margin-left:auto;min-width:0}.po-task-preview li>button .ws-badge{margin-left:20px}.po-status-line{gap:8px 18px;font-size:12px}.po-simple-handoff{flex-wrap:wrap}}
+.project-overview-page .ws-project-nav a,.project-overview-page .po-header-actions a{text-decoration:none}
+@media(max-width:600px){.po-more-nav{position:static}.po-more-nav>div{right:0;top:calc(100% + 6px)}}
+
+.project-overview-page .ws-project-nav{justify-content:center;gap:6px;margin-bottom:24px;border-bottom:1px solid #e9e1d9}
+.project-overview-page .po-more-nav{margin-left:0}
+.project-overview-page .ws-project-nav>a.active{background:transparent;border-bottom-color:#ff4a19;color:#c44116}
+.project-overview-page .ws-project-nav>a:hover{background:#fff4eb}
+.po-task-panel{box-shadow:0 5px 24px #4b332205;border-color:#e8e0d8;padding:28px}
+.po-task-heading h2{font-size:19px}.po-task-heading p{font-size:12px}
+.po-simple-empty{padding:34px 16px}
+.po-launchpad>button{border-radius:8px;font-size:13px}
+.po-launchpad>button>svg{display:none}
+.po-launchpad strong{font-weight:500;font-size:13px}
+.po-quick-access{margin-top:24px}
+@media(max-width:600px){
+ .project-overview-page .ws-project-head{padding:6px 0 18px}
+ .project-overview-page .ws-ph-title h1{font-size:28px}
+ .project-overview-page .po-header-actions{width:auto;padding:0;justify-content:center}
+ .project-overview-page .po-header-actions .ws-button{flex:none}
+ .project-overview-page .ws-project-nav{gap:0}
+ .project-overview-page .ws-project-nav>a,.project-overview-page .po-more-nav summary{padding:11px 9px;font-size:11px}
+ .po-status-line{gap:8px 16px;margin-bottom:18px}
+ .po-task-panel{padding:20px 18px}
+ .po-task-heading{align-items:flex-start;gap:12px}
+ .po-launchpad{grid-template-columns:1fr}
+ .po-launchpad>button{justify-content:center;padding:12px;min-height:44px}
+ .po-launchpad>button+button{border:0}
+ .po-simple-empty{padding:26px 12px}
+}
+/* A soft circle breathes behind the entire project page. */
+.project-overview-page { position: relative; isolation: isolate; }
+.project-overview-page::before {
+  content: '';
+  position: fixed;
+  left: 50%;
+  top: 48%;
+  width: min(90vw, 1050px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: -1;
+  background: radial-gradient(circle, #ffab453d 0%, #ff751b2b 30%, #ff3c0a17 52%, #ff9c4509 65%, transparent 74%);
+  filter: blur(28px);
+  transform: translate(-50%, -50%) scale(.72);
+  animation: po-page-breathe 7s ease-in-out infinite alternate;
+}
+@keyframes po-page-breathe {
+  from { transform: translate(-50%, -50%) scale(.72); opacity: .45; }
+  to { transform: translate(-50%, -50%) scale(1.2); opacity: .95; }
+}
+@media (max-width: 600px) {
+  .project-overview-page::before { width: 130vw; filter: blur(20px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-overview-page::before { animation: none; transform: translate(-50%, -50%) scale(1); opacity: .55; }
+}
