@@ -262,9 +262,8 @@ router.get(
         .lean();
 
       if (!assignment) {
-        return res.status(404).json({
-          error: 'not_found',
-          message: 'No onboarding assignment found for your account in this project.',
+        return res.json({
+          assignment: null,
         });
       }
 

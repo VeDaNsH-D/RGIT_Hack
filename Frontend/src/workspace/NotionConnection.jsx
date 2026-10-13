@@ -1,7 +1,7 @@
+import IntegrationLogo from './IntegrationLogo'
 import { useEffect, useState } from 'react'
 import { request } from '../api/client'
 import { useWorkspace } from './WorkspaceContext'
-import { Icon } from './ui'
 
 export default function NotionConnection() {
   const { projects, reload } = useWorkspace()
@@ -35,7 +35,7 @@ export default function NotionConnection() {
     return `“${result.title}” synced to your project. Its content is available for project context and handoffs.`
   })
   return <article className="ws-connection-card">
-    <div className="ws-project-card-top"><span className="ws-project-symbol"><Icon name="notion"/></span><span className="ws-badge ws-badge-pending">{data?.connections.length ? 'Connected' : 'Available'}</span></div>
+    <div className="ws-project-card-top"><span className="ws-project-symbol"><IntegrationLogo name="notion"/></span><span className="ws-badge ws-badge-pending">{data?.connections.length ? 'Connected' : 'Available'}</span></div>
     <h3>Notion</h3><p>Import shared Notion pages into your project’s knowledge and handoff context.</p>
     {!owners.length ? <p className="ws-muted">A project owner can connect Notion pages.</p> : <>
       <label className="email-project-select">Project<select disabled={busy} value={projectId} onChange={event => { setProjectId(event.target.value); setData(null); setLoading(true); setError(''); setNotice('') }}>{owners.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>

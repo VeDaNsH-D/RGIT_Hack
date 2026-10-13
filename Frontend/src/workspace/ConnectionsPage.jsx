@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   getGitHubStatus,
@@ -22,10 +22,12 @@ import {
 } from '../api/connections'
 import { formatDate } from './utils'
 import { loadProjectDraft } from './projectDraft'
-import { Icon, PageHeading } from './ui'
+import { PageHeading } from './ui'
 import NotionConnection from './NotionConnection'
 import McpConnection from './McpConnection'
 import './email.css'
+import IntegrationLogo from './IntegrationLogo'
+import './connections.css'
 
 const AI_CATEGORY = { id: 'ai', title: 'AI & MCP', items: [{ id: 'mcp', name: 'Over2u MCP' }] }
 const DEFAULT_CATEGORIES = [
@@ -111,7 +113,7 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
     return (
       <article className="ws-connection-card" aria-labelledby={`connection-${id}`}>
         <div className="ws-project-card-top">
-          <span className="ws-project-symbol"><Icon name={id}/></span>
+          <span className="ws-project-symbol"><IntegrationLogo name={id}/></span>
           <span className={`ws-badge ${connected ? 'ws-badge-completed' : 'ws-badge-pending'}`}>{badge}</span>
         </div>
         <h3 id={`connection-${id}`}>{name}</h3>
@@ -192,7 +194,7 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
     return (
       <article className="ws-connection-card" aria-labelledby={`connection-${id}`}>
         <div className="ws-project-card-top">
-          <span className="ws-project-symbol"><Icon name={id}/></span>
+          <span className="ws-project-symbol"><IntegrationLogo name={id}/></span>
           <span className={`ws-badge ${connected ? 'ws-badge-completed' : 'ws-badge-pending'}`}>{badge}</span>
         </div>
         <h3 id={`connection-${id}`}>{name}</h3>
@@ -260,7 +262,7 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
     return (
       <article className="ws-connection-card" aria-labelledby={`connection-${id}`}>
         <div className="ws-project-card-top">
-          <span className="ws-project-symbol"><Icon name={id}/></span>
+          <span className="ws-project-symbol"><IntegrationLogo name={id}/></span>
           <span className={`ws-badge ${connected ? 'ws-badge-completed' : 'ws-badge-pending'}`}>{badge}</span>
         </div>
         <h3 id={`connection-${id}`}>{name}</h3>
@@ -322,7 +324,7 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
     return (
       <article className="ws-connection-card" aria-labelledby={`connection-${id}`}>
         <div className="ws-project-card-top">
-          <span className="ws-project-symbol"><Icon name={id}/></span>
+          <span className="ws-project-symbol"><IntegrationLogo name={id}/></span>
           <span className={`ws-badge ${connected ? 'ws-badge-completed' : 'ws-badge-pending'}`}>{badge}</span>
         </div>
         <h3 id={`connection-${id}`}>{name}</h3>
@@ -434,7 +436,7 @@ function ConnectionCard({ integration, github = {}, whatsapp, jira, slack, notio
   return (
     <article className="ws-connection-card" aria-labelledby={`connection-${id}`}>
       <div className="ws-project-card-top">
-        <span className="ws-project-symbol"><Icon name={id}/></span>
+        <span className="ws-project-symbol"><IntegrationLogo name={id}/></span>
         <span className={`ws-badge ${connected ? 'ws-badge-completed' : available ? 'ws-badge-pending' : ''}`}>{badge}</span>
       </div>
       <h3 id={`connection-${id}`}>{name}</h3>
@@ -476,37 +478,31 @@ export function ConnectionsView({ github = {}, whatsapp, jira, slack, notion }) 
     (notion && notion.loading)
   )
   const categories = [AI_CATEGORY, ...getCategories({ whatsapp, jira, slack, notion })]
-  return (
-    <>
-      <PageHeading eyebrow="WORKSPACE" title="Connections" description="Connect your tools to bring your team’s work and context together."/>
-      {loading && (
-        <div className="ws-loading" role="status">
-          <span className="ws-spinner"/>Checking your connections…
-        </div>
-      )}
-      {!loading && categories.map(category => (
-        <section className="ws-connection-group" key={category.title} aria-labelledby={`group-${category.id}`}>
-          <div className="ws-section-heading">
-            <h2 id={`group-${category.id}`}>{category.title}</h2>
-          </div>
-          <div className="ws-connection-grid">
-            {category.items.map(item => item.id === 'mcp' ? <McpConnection key={item.id}/> : item.id === 'notion' && !notion ? <NotionConnection key={item.id}/> : (
-              <ConnectionCard
-                key={item.id}
-                integration={item}
-                github={github}
-                whatsapp={whatsapp}
-                jira={jira}
-                slack={slack}
-                notion={notion}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
-      {!loading && notion && <section className="ws-connection-group" aria-labelledby="group-notion-pages"><div className="ws-section-heading"><h2 id="group-notion-pages">Project Notion pages</h2></div><div className="ws-connection-grid"><NotionConnection/></div></section>}
-    </>
-  )
+  const dialogs = useRef({})
+  return <div className="connections-page">
+    <PageHeading eyebrow="YOUR CONNECTED WORKSPACE" title="Connections" description="Bring your tools into one place. Choose a service to connect or manage it."/>
+    {loading && <p className="connections-loading" role="status">Checking your connections…</p>}
+    <div className="connections-catalog">
+      {categories.flatMap(category => category.items.map(item => {
+        const service = { github, whatsapp, jira, slack, notion }[item.id]
+        const connected = Boolean(service?.status?.connected)
+        return <article className="connection-tile" key={item.id}>
+          <div className="connection-tile-top"><IntegrationLogo name={item.id}/><span className={`ws-badge ${connected ? 'ws-badge-completed' : ''}`}>{connected ? 'Connected' : item.id === 'mcp' ? 'Available' : 'Not connected'}</span></div>
+          <small>{category.title}</small><h2>{item.name}</h2>
+          <p>{item.description || 'Work with your project context directly from your AI client.'}</p>
+          {item.id === 'github' && github.status?.accounts?.map(account => <span className="connection-account" key={account.id}>Connected to {account.login}</span>)}
+          {service?.error && <p className="connection-tile-error" role="alert">{service.error}</p>}
+          {service?.message && <p className="connection-tile-message" role="status">{service.message}</p>}
+          <button className="ws-button" aria-haspopup="dialog" onClick={()=>dialogs.current[item.id]?.showModal()}>Manage {item.name}<span aria-hidden="true">↗</span></button>
+          <dialog className="connection-dialog" ref={el=>{dialogs.current[item.id]=el}} aria-label={`${item.name} connection setup`}>
+            <form method="dialog" className="connection-dialog-close"><button aria-label="Close connection setup">×</button></form>
+            {!loading && (item.id === 'mcp' ? <McpConnection/> : item.id === 'notion' && !notion ? <NotionConnection/> : <ConnectionCard integration={item} github={github} whatsapp={whatsapp} jira={jira} slack={slack} notion={notion}/>)}
+            {!loading && item.id === 'notion' && notion && <NotionConnection/>}
+          </dialog>
+        </article>
+      }))}
+    </div>
+  </div>
 }
 
 export default function ConnectionsPage() {

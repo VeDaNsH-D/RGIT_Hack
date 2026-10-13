@@ -658,3 +658,14 @@ test('notion pages: linked rows show status, remaining tasks, sync now and unlin
   assert.match(html, /Product Roadmap/); assert.match(html, />Synced</); assert.match(html, /3.*remaining/); assert.match(html, /View remaining \(3\)/); assert.match(html, /Sync now/); assert.match(html, />Unlink</)
   assert.match(notionView({ links: [ok], confirmingId: 'n1' }), /Unlink this Notion resource\?/)
 })
+
+test('reference project dashboard uses real totals and does not invent readiness or source connections', async () => {
+  const { default: ProjectOverview } = await server.ssrLoadModule('/src/workspace/ProjectOverview.jsx')
+  const html = render(() => React.createElement(ProjectOverview, { project, writable: false, onSection() {}, onTask() {}, integrations: { github: [], slack: [], jira: [], notion: [] } }), '/projects/project-one')
+  for (const title of ['Open tasks', 'Completed tasks', 'Active handoffs', 'Team members', 'Recent activity', 'Connected sources', 'Handoff readiness', 'Upcoming deadlines']) assert.match(html, new RegExp(title))
+  assert.match(html, /Not checked yet/)
+  assert.doesNotMatch(html, /72%|\+100%|Almost ready/)
+  assert.match(html, /Not connected/)
+  assert.match(html, /aria-label="Complete Review launch copy"[^>]*disabled/)
+  assert.doesNotMatch(html, />Add task</)
+})
