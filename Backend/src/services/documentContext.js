@@ -15,7 +15,7 @@ import { DocumentChunk } from '../models/DocumentChunk.js';
  * contentHash equals their Document's current contentHash are eligible, so superseded content cannot resurface.
  */
 
-export const DOC_LIMITS = Object.freeze({ maxDocuments: 100, maxScanChunks: 4000, maxPerDocument: 4, maxChunks: 10, chunkChars: 900, baselineDocuments: 3, maxDigests: 8 });
+export const DOC_LIMITS = Object.freeze({ maxDocuments: 100, maxScanChunks: 4000, maxPerDocument: 4, maxChunks: 10, chunkChars: 900, baselineDocuments: 100, maxDigests: 25, legacyChars: 1200 });
 
 const STOP = new Set('the and for are but not you all can had her was one our out has have this that with from they will would there their what about which when your said each she how use any may into than then them these some such only over also been being more most other its who why where while should could does did done let per via'.split(' '));
 
@@ -49,9 +49,26 @@ export async function retrieveDocumentContext(project, { queryTexts = [], budget
 
   const limitations = [];
   const indexed = rows.filter((d) => d.status === 'indexed');
-  const notIndexed = rows.filter((d) => d.status !== 'indexed').map((d) => ({ documentId: String(d._id), title: d.title, status: d.status === 'processing' && d.processingStartedAt && Date.now() - new Date(d.processingStartedAt) > 5 * 60_000 ? 'failed' : d.status }));
+  // Rows that predate chunk indexing (status 'uploaded') still carry their extracted text: use it instead of dropping the document.
+  const legacy = rows.filter((d) => d.status === 'uploaded' && !d.chunkCount);
+  const notIndexed = rows.filter((d) => d.status !== 'indexed' && !legacy.includes(d)).map((d) => ({ documentId: String(d._id), title: d.title, status: d.status === 'processing' && d.processingStartedAt && Date.now() - new Date(d.processingStartedAt) > 5 * 60_000 ? 'failed' : d.status }));
   if (notIndexed.length) limitations.push(`${notIndexed.length} uploaded document(s) are not indexed (${[...new Set(notIndexed.map((d) => d.status))].join('/')}) and are NOT included in this handoff: ${notIndexed.slice(0, 5).map((d) => d.title).join('; ')}. The project knowledge base is not fully current until they are retried.`);
-  if (!indexed.length) return { ...empty, limitations, notIndexed };
+  const legacySources = [];
+  const legacyEvidence = [];
+  const legacyIncluded = [];
+  if (legacy.length) {
+    const withText = await Doc.find({ projectId, _id: { $in: legacy.map((d) => d._id) } }).select('+extractedText title filename createdAt').lean();
+    for (const doc of withText) {
+      const text = condenseWs(doc.extractedText, DOC_LIMITS.legacyChars);
+      if (!text) continue;
+      const id = `docsum:${doc._id}`;
+      const label = `Document "${doc.title}" (overview)`;
+      legacySources.push({ _id: id, provider: 'document', type: 'document_overview', title: label, content: text, url: '', externalId: id, createdAt: doc.createdAt, metadata: { documentId: String(doc._id), filename: doc.filename, uploadedAt: doc.createdAt } });
+      legacyEvidence.push([id, { id, label, url: null, type: 'document', provider: 'document', document: { projectId: String(projectId), documentId: String(doc._id), title: doc.title, filename: doc.filename, heading: null, pageStart: null, pageEnd: null, chunkId: id, uploadedAt: doc.createdAt } }]);
+      legacyIncluded.push({ documentId: String(doc._id), title: doc.title, filename: doc.filename, uploadedAt: doc.createdAt, chunks: 0 });
+    }
+  }
+  if (!indexed.length) return { ...empty, sources: legacySources, evidence: legacyEvidence, included: legacyIncluded, limitations, notIndexed, chunkCount: 0 };
 
   const byId = new Map(indexed.map((d) => [String(d._id), d]));
   const scanLimit = Math.max(200, Math.floor(DOC_LIMITS.maxScanChunks * scale));
@@ -86,16 +103,24 @@ export async function retrieveDocumentContext(project, { queryTexts = [], budget
   let digestBudget = budgetChars - budget;
   const picked = [];
   const countByDoc = new Map();
-  const take = (c, score, relevance) => {
+  const take = (c, score, relevance, force = false) => {
+    if (countByDoc.has(String(c.documentId)) && relevance === 'baseline') return false;
     const key = String(c.documentId);
     const text = condenseWs(c.text, chunkChars);
     const cost = text.length + (c.heading || '').length + 120;
-    if (picked.length >= maxChunks || cost > budget || (countByDoc.get(key) || 0) >= perDoc) return false;
+    if ((!force && picked.length >= maxChunks) || cost > budget || (countByDoc.get(key) || 0) >= perDoc) return false;
     budget -= cost;
     countByDoc.set(key, (countByDoc.get(key) || 0) + 1);
     picked.push({ chunk: c, text, score, relevance });
     return true;
   };
+  // Every indexed document without an outline contributes its opening chunk first, so none is starved by relevance ranking.
+  const scoreOf = new Map(scored.map((s) => [s.chunk, s.score]));
+  for (const d of indexed) {
+    if (d.digest) continue;
+    const first = chunks.find((c) => String(c.documentId) === String(d._id));
+    if (first) take(first, scoreOf.get(first) || 0, 'baseline', true);
+  }
   for (const { chunk, score } of scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score || a.chunk.chunkIndex - b.chunk.chunkIndex)) take(chunk, score, 'matched');
   // Documents that matched nothing still contribute their opening chunk (most recent few documents only).
   let baseline = 0;
@@ -103,7 +128,7 @@ export async function retrieveDocumentContext(project, { queryTexts = [], budget
     if (baseline >= DOC_LIMITS.baselineDocuments) break;
     if (countByDoc.has(String(d._id))) continue;
     const first = chunks.find((c) => String(c.documentId) === String(d._id));
-    if (first && take(first, 0, 'baseline')) baseline += 1;
+    if (first && take(first, 0, 'baseline', true)) baseline += 1;
   }
   picked.sort((a, b) => String(a.chunk.documentId).localeCompare(String(b.chunk.documentId)) || a.chunk.chunkIndex - b.chunk.chunkIndex);
 
@@ -142,7 +167,7 @@ export async function retrieveDocumentContext(project, { queryTexts = [], budget
   const noText = indexed.filter((d) => !d.chunkCount).map((d) => d.title);
   if (noText.length) limitations.push(`${noText.length} uploaded document(s) contain no extractable text (scanned images are not OCR'd): ${noText.slice(0, 5).join('; ')}.`);
   if (picked.length && picked.every((p) => p.relevance === 'baseline')) limitations.push('No uploaded document matched the current project activity; only their opening sections were included.');
-  return { sources, evidence, limitations, included: [...includedMap.values()], notIndexed, chunkCount: picked.length };
+  return { sources: [...sources, ...legacySources], evidence: [...evidence, ...legacyEvidence], limitations, included: [...includedMap.values(), ...legacyIncluded], notIndexed, chunkCount: picked.length + legacySources.length };
 }
 
 /**
