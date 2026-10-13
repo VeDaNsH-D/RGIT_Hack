@@ -93,7 +93,7 @@ export function ProjectChatView({
   const transcriptRef = useRef(null)
   useEffect(() => {
     const el = transcriptRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (el) el.scrollTop = turns.length || busy ? el.scrollHeight : 0
   }, [turns.length, busy, loading])
   const [openSources, setOpenSources] = useState({})
 

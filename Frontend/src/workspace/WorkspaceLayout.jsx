@@ -1,3 +1,4 @@
+import WorkspaceSearch from './WorkspaceSearch'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { NavLink, Outlet, Link, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
@@ -45,7 +46,7 @@ function Shell() {
     <header className={`ws-topnav${scrolled ? ' ws-topnav-scrolled' : ''}`}>
       <Link className="ws-brand" to="/dashboard"><span>↗</span>Over2u<span className="ws-brand-dot">.</span></Link>
       <nav aria-label="Workspace navigation">{['dashboard', 'projects', 'emails', 'connections'].map(route => <NavLink className={({ isActive }) => `ws-nav-link ${isActive ? 'active' : ''}`} to={`/${route}`} key={route}><Icon name={route}/><span>{route === 'dashboard' ? 'Overview' : route.charAt(0).toUpperCase() + route.slice(1)}</span>{route === 'projects' && projects.length > 0 && <small>{projects.length}</small>}</NavLink>)}</nav>
-      <div className="ws-topnav-actions"><NotificationBell/><ProfileMenu name={name} onSignOut={signOut}/></div>
+      <div className="ws-topnav-actions"><WorkspaceSearch/><NotificationBell/><ProfileMenu name={name} onSignOut={signOut}/></div>
     </header>
     <div className="ws-main">
       <main className="ws-content">

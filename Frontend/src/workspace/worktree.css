@@ -48,7 +48,10 @@ button.wt-node { cursor: pointer; }
 .wt-panel button:hover:not(.wt-node) { background: #fff0e8; border-color: #f1a37c; color: #d33b14; }
 .wt-panel button:focus-visible, .wt-panel select:focus-visible, .wt-viewport:focus-visible { outline-color: #ff8a5c; }
 .wt-toolbar { background: #fffaf6; border-color: var(--ws-border, #ede8e2); color: #a08c80; }
-.wt-viewport { scrollbar-color: #e3cdbf transparent; background-color: #faf6f1; background-image: radial-gradient(#d9c3b36b .9px, transparent .9px); background-size: 18px 18px; }
+.wt-viewport { height: clamp(320px, calc(100svh - 320px), 600px); max-height: 600px; min-width: 0; overflow: scroll; scrollbar-gutter: stable; scrollbar-color: #aaa #f2f2f2; touch-action: pan-x pan-y; background-color: #faf6f1; background-image: radial-gradient(#d9c3b36b .9px, transparent .9px); background-size: 18px 18px; }
+.wt-viewport::-webkit-scrollbar { width: 12px; height: 12px; }
+.wt-viewport::-webkit-scrollbar-track, .wt-viewport::-webkit-scrollbar-corner { background: #f2f2f2; }
+.wt-viewport::-webkit-scrollbar-thumb { background: #aaa; border: 3px solid #f2f2f2; border-radius: 999px; }
 .wt-wire { stroke: #d8b9a4; stroke-opacity: .9; }
 .wt-wire-pulse { stroke: #ff6a33; filter: drop-shadow(0 0 4px #ff6a3366); }
 .wt-node { border: 1px solid color-mix(in srgb, var(--node-color) 35%, #f1e4da); background: #fff; color: #2b2420; box-shadow: 0 6px 16px -10px #6c403655; }
@@ -96,3 +99,14 @@ button.wt-node { cursor: pointer; }
 .wt-wire { stroke: #5b463a; stroke-opacity: .85; stroke-width: 1.8; }
 .wt-wire-pulse { stroke: #ff4a12; stroke-width: 2.6; filter: drop-shadow(0 0 3px #ff4a1255); }
 .wt-port { background: #fff; border: 2px solid #5b463a; }
+
+/* Keep navigation controls visible and usable on narrow screens. */
+.wt-toolbar { position: sticky; top: 0; z-index: 4; gap: 12px; flex-wrap: wrap; }
+.wt-toolbar > div { flex-wrap: wrap; gap: 8px; }
+.wt-toolbar button { min-height: 36px; }
+.wt-toolbar button[aria-pressed="true"] { background: #fff0e8; border-color: #ff8a5c; color: #d33b14; }
+.wt-zoom-slider { display: flex; align-items: center; }
+.wt-zoom-slider input { width: 90px; accent-color: #ff5425; cursor: pointer; }
+.wt-pan-mode { touch-action: none; user-select: none; }
+.wt-pan-mode .wt-node { cursor: grab; }
+.wt-pan-mode:active, .wt-pan-mode:active .wt-node { cursor: grabbing; }
