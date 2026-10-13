@@ -15,9 +15,15 @@ export class AgoraRtcManager {
     this.client = null;
     this.localAudioTrack = null;
     this.localVideoTrack = null;
+    this.screenVideoTrack = null;
+    this.screenAudioTrack = null;
     this.remoteUsers = new Map();
     this.isJoined = false;
     this.callType = 'video'; // 'video' | 'audio'
+  }
+
+  get screenTrack() {
+    return this.screenVideoTrack;
   }
 
   /**
@@ -132,20 +138,70 @@ export class AgoraRtcManager {
   }
 
   /**
-   * Starts screen sharing by publishing a screen video track.
+   * Starts screen sharing by publishing a screen video track (and audio track if available).
+   * @param {() => void} [onEnded] Callback when user stops sharing via browser native UI.
+   * @returns {Promise<import('agora-rtc-sdk-ng').ILocalVideoTrack | null>}
    */
-  async startScreenShare() {
-    if (!this.client || !this.isJoined) return null;
+  async startScreenShare(onEnded) {
+    if (!this.client || !this.isJoined) {
+      console.warn('Cannot share screen: RTC client not initialized or joined');
+      return null;
+    }
+
     try {
-      this.screenTrack = await AgoraRTC.createScreenVideoTrack({}, 'enable');
-      if (this.localVideoTrack) {
-        await this.client.unpublish([this.localVideoTrack]);
+      if (this.screenVideoTrack) {
+        await this.stopScreenShare();
       }
-      await this.client.publish([this.screenTrack]);
-      this.screenTrack.on('track-ended', () => {
-        this.stopScreenShare().catch(() => {});
+
+      // Agora createScreenVideoTrack with 'auto' returns either [videoTrack, audioTrack] or single videoTrack
+      const screenResult = await AgoraRTC.createScreenVideoTrack(
+        {
+          encoderConfig: '1080p_2',
+          optimizationMode: 'detail',
+        },
+        'auto'
+      );
+
+      let videoTrack = null;
+      let audioTrack = null;
+
+      if (Array.isArray(screenResult)) {
+        videoTrack = screenResult[0];
+        audioTrack = screenResult[1] || null;
+      } else {
+        videoTrack = screenResult;
+      }
+
+      if (!videoTrack) {
+        console.warn('No video track returned for screen share');
+        return null;
+      }
+
+      this.screenVideoTrack = videoTrack;
+      this.screenAudioTrack = audioTrack;
+
+      // Temporarily unpublish camera track while presenting screen
+      if (this.localVideoTrack && this.client) {
+        try {
+          await this.client.unpublish([this.localVideoTrack]);
+        } catch (unpubErr) {
+          console.warn('Could not unpublish camera track during screen share start:', unpubErr.message);
+        }
+      }
+
+      // Publish screen track(s)
+      const tracksToPublish = audioTrack ? [videoTrack, audioTrack] : [videoTrack];
+      await this.client.publish(tracksToPublish);
+
+      // Listen for browser native "Stop sharing" event
+      videoTrack.on('track-ended', async () => {
+        await this.stopScreenShare();
+        if (typeof onEnded === 'function') {
+          onEnded();
+        }
       });
-      return this.screenTrack;
+
+      return videoTrack;
     } catch (err) {
       console.warn('Screen share cancelled or failed:', err.message);
       return null;
@@ -156,21 +212,40 @@ export class AgoraRtcManager {
    * Stops screen share and restores local camera if active.
    */
   async stopScreenShare() {
-    if (this.screenTrack && this.client) {
+    const tracksToUnpublish = [];
+    if (this.screenVideoTrack) tracksToUnpublish.push(this.screenVideoTrack);
+    if (this.screenAudioTrack) tracksToUnpublish.push(this.screenAudioTrack);
+
+    if (tracksToUnpublish.length > 0 && this.client) {
       try {
-        await this.client.unpublish([this.screenTrack]);
-        this.screenTrack.stop();
-        this.screenTrack.close();
+        await this.client.unpublish(tracksToUnpublish);
       } catch (err) {
-        console.warn('Error stopping screen track:', err.message);
+        console.warn('Error unpublishing screen track(s):', err.message);
       }
-      this.screenTrack = null;
     }
-    if (this.localVideoTrack && this.client) {
+
+    if (this.screenVideoTrack) {
+      try {
+        this.screenVideoTrack.stop();
+        this.screenVideoTrack.close();
+      } catch {}
+      this.screenVideoTrack = null;
+    }
+
+    if (this.screenAudioTrack) {
+      try {
+        this.screenAudioTrack.stop();
+        this.screenAudioTrack.close();
+      } catch {}
+      this.screenAudioTrack = null;
+    }
+
+    // Restore local camera if call was video mode and track exists
+    if (this.localVideoTrack && this.client && this.callType === 'video') {
       try {
         await this.client.publish([this.localVideoTrack]);
       } catch (err) {
-        console.warn('Error restoring camera track:', err.message);
+        console.warn('Error restoring camera track after screen share:', err.message);
       }
     }
   }
@@ -179,13 +254,7 @@ export class AgoraRtcManager {
    * Leaves the channel and cleans up all media tracks.
    */
   async leave() {
-    if (this.screenTrack) {
-      try {
-        this.screenTrack.stop();
-        this.screenTrack.close();
-      } catch {}
-      this.screenTrack = null;
-    }
+    await this.stopScreenShare();
 
     if (this.localAudioTrack) {
       this.localAudioTrack.stop();

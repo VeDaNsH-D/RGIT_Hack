@@ -5,7 +5,7 @@ import { useWorkspace } from './WorkspaceContext';
 import { Icon, PageHeading } from './ui';
 import { AgoraRtcManager } from '../services/agoraRtc';
 import { AgoraRtmManager } from '../services/agoraRtm';
-import { fetchAgoraToken, transcribeAudio, summarizeCall } from '../api/agora';
+import { fetchAgoraToken, fetchDeepgramToken, transcribeAudio, summarizeCall } from '../api/agora';
 import './CallsPage.css';
 
 export default function CallsPage() {
@@ -66,6 +66,8 @@ export default function CallsPage() {
     }
   });
 
+  const [deepgramActive, setDeepgramActive] = useState(false);
+  const deepgramSocketRef = useRef(null);
   const speechRecognitionRef = useRef(null);
 
   // 1. Lobby Green Room Camera & Audio Meter Setup
@@ -162,6 +164,9 @@ export default function CallsPage() {
       recognition.lang = 'en-US';
 
       recognition.onresult = (event) => {
+        // If Deepgram is streaming live, let it take precedence
+        if (deepgramActive) return;
+
         let interim = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcriptPiece = event.results[i][0].transcript;
@@ -205,24 +210,95 @@ export default function CallsPage() {
     } catch (err) {
       console.warn('Failed starting speech recognition:', err);
     }
-  }, [inCall, captionsEnabled, session]);
+  }, [inCall, captionsEnabled, session, deepgramActive]);
 
-  // 3. Audio Recording for Groq Whisper Backend Backup
-  const startAudioRecorder = useCallback((audioTrack) => {
+  // 3. Audio Recording & Deepgram Real-Time Streaming (with Groq Whisper Backup)
+  const startAudioRecorder = useCallback(async (audioTrack) => {
     try {
       const stream = new MediaStream([audioTrack.getMediaStreamTrack()]);
       const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
       const chunks = [];
 
+      // Determine Deepgram API key (client-side override or backend fetch)
+      let dgKey = import.meta.env.VITE_DEEPGRAM_API_KEY || '';
+      if (!dgKey) {
+        try {
+          const dgTokenRes = await fetchDeepgramToken();
+          if (dgTokenRes?.apiKey) dgKey = dgTokenRes.apiKey;
+        } catch {}
+      }
+
+      let socket = null;
+      if (dgKey) {
+        try {
+          socket = new WebSocket(
+            'wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&interim_results=true',
+            ['token', dgKey]
+          );
+
+          socket.onopen = () => {
+            setDeepgramActive(true);
+          };
+
+          socket.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              const transcript = data.channel?.alternatives?.[0]?.transcript;
+              if (transcript && transcript.trim()) {
+                const speakerName = session?.user?.name || 'You';
+                const text = transcript.trim();
+                if (data.is_final) {
+                  setTranscripts(prev => [
+                    ...prev,
+                    {
+                      id: Date.now() + Math.random(),
+                      speaker: speakerName,
+                      text,
+                      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    },
+                  ]);
+                  setLiveCaptionText(`${speakerName}: ${text}`);
+                } else {
+                  setLiveCaptionText(`${speakerName}: ${text}`);
+                }
+              }
+            } catch {}
+          };
+
+          socket.onerror = () => {
+            setDeepgramActive(false);
+          };
+
+          socket.onclose = () => {
+            setDeepgramActive(false);
+          };
+
+          deepgramSocketRef.current = socket;
+        } catch (wsErr) {
+          console.warn('[Deepgram] WebSocket initialization error:', wsErr);
+        }
+      }
+
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(e.data);
+          }
+        }
       };
 
       recorder.onstop = async () => {
+        if (socket) {
+          try { socket.close(); } catch {}
+          deepgramSocketRef.current = null;
+        }
+        setDeepgramActive(false);
+
         if (chunks.length > 0) {
           const audioBlob = new Blob(chunks, { type: 'audio/webm' });
           try {
-            // Send to Groq Whisper endpoint
+            // Send to Deepgram / Groq Whisper endpoint
             const res = await transcribeAudio(audioBlob);
             if (res?.text?.trim()) {
               setTranscripts(prev => [
@@ -236,12 +312,13 @@ export default function CallsPage() {
               ]);
             }
           } catch (err) {
-            console.warn('Groq Whisper transcription fallback failed:', err.message);
+            console.warn('Transcription fallback failed:', err.message);
           }
         }
       };
 
-      recorder.start();
+      // Send 250ms chunks to Deepgram streaming socket for live real-time STT
+      recorder.start(250);
       setMediaRecorder(recorder);
     } catch (err) {
       console.warn('MediaRecorder for audio track unavailable:', err.message);
@@ -361,6 +438,13 @@ export default function CallsPage() {
 
   // 5. Leave Call & Teardown
   const handleLeaveCall = async () => {
+    // Stop Deepgram streaming socket
+    if (deepgramSocketRef.current) {
+      try { deepgramSocketRef.current.close(); } catch {}
+      deepgramSocketRef.current = null;
+    }
+    setDeepgramActive(false);
+
     // Stop speech recognition
     if (speechRecognitionRef.current) {
       try { speechRecognitionRef.current.stop(); } catch {}
@@ -413,22 +497,37 @@ export default function CallsPage() {
     }
   };
 
+  // Local video playback effect for switching between camera and screen share
+  useEffect(() => {
+    if (!inCall || !localVideoRef.current) return;
+    const rtc = rtcRef.current;
+    if (isScreenSharing && rtc.screenVideoTrack) {
+      try {
+        rtc.screenVideoTrack.play(localVideoRef.current);
+      } catch (err) {
+        console.warn('Could not play screen track locally:', err);
+      }
+    } else if (camEnabled && rtc.localVideoTrack) {
+      try {
+        rtc.localVideoTrack.play(localVideoRef.current);
+      } catch (err) {
+        console.warn('Could not play camera track locally:', err);
+      }
+    }
+  }, [inCall, isScreenSharing, camEnabled]);
+
   const toggleScreenShare = async () => {
     const rtc = rtcRef.current;
     if (!isScreenSharing) {
-      const track = await rtc.startScreenShare();
+      const track = await rtc.startScreenShare(() => {
+        setIsScreenSharing(false);
+      });
       if (track) {
         setIsScreenSharing(true);
-        if (localVideoRef.current) {
-          track.play(localVideoRef.current);
-        }
       }
     } else {
       await rtc.stopScreenShare();
       setIsScreenSharing(false);
-      if (camEnabled && localVideoRef.current && rtc.localVideoTrack) {
-        rtc.localVideoTrack.play(localVideoRef.current);
-      }
     }
   };
 
@@ -702,7 +801,7 @@ export default function CallsPage() {
             <div className="ws-meet-header-right">
               {captionsEnabled && (
                 <div className="ws-meet-recording-pill">
-                  <span className="ws-pulse-dot" /> Live Transcribing
+                  <span className="ws-pulse-dot" /> {deepgramActive ? 'Deepgram Live' : 'Live Transcribing'}
                 </div>
               )}
               <span className="ws-meet-badge">
@@ -716,8 +815,8 @@ export default function CallsPage() {
             {/* Center Video Grid */}
             <div className={`ws-meet-grid ${remoteUsers.length === 0 ? 'single' : remoteUsers.length === 1 ? 'duo' : ''}`}>
               {/* Local Participant Tile */}
-              <div className={`ws-video-tile local ${activeSpeaker === 'local' ? 'speaking' : ''}`}>
-                {camEnabled ? (
+              <div className={`ws-video-tile local ${isScreenSharing ? 'presenting' : ''} ${activeSpeaker === 'local' ? 'speaking' : ''}`}>
+                {camEnabled || isScreenSharing ? (
                   <div ref={localVideoRef} style={{ width: '100%', height: '100%' }} />
                 ) : (
                   <div className="ws-tile-avatar">
@@ -727,7 +826,7 @@ export default function CallsPage() {
                   </div>
                 )}
                 <div className="ws-tile-info-pill">
-                  <span>{session?.user?.name || 'You'} (You)</span>
+                  <span>{session?.user?.name || 'You'} {isScreenSharing ? '(Presenting)' : '(You)'}</span>
                   <span className={`ws-tile-mic-indicator ${!micEnabled ? 'muted' : ''}`}>
                     <Icon name={micEnabled ? 'mic' : 'micOff'} size={12} />
                   </span>
@@ -818,7 +917,7 @@ export default function CallsPage() {
                       <div className="ws-transcript-box">
                         {transcripts.length === 0 ? (
                           <div className="ws-transcript-empty">
-                            Start speaking to see real-time transcription. Whisper & Groq are listening.
+                            Start speaking to see real-time transcription. Deepgram Nova-2 is listening.
                           </div>
                         ) : (
                           transcripts.map(t => (
