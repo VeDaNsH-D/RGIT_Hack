@@ -14,7 +14,9 @@ export const setOwningTeam = (projectId, teamId) => request(`${base(projectId)}/
 export const ownershipHistory = (projectId, signal) => request(`${base(projectId)}/ownership-history`, { signal })
 export const handoffDetail = (handoffId, signal) => request(`/handoffs/${encodeURIComponent(handoffId)}`, { signal })
 export const rejectHandoff = (handoffId, reason) => request(`/handoffs/${encodeURIComponent(handoffId)}/reject`, { method: 'POST', body: { reason } })
-export const searchTeams = (search, projectId, signal) => request(`/teams?${new URLSearchParams({ ...(search ? { search } : {}), ...(projectId ? { projectId } : {}) })}`, { signal })
+export const searchTeams = (search, projectId, signal, directory = 'global') => request(`/teams?${new URLSearchParams({ ...(search ? { search } : {}), ...(projectId ? { projectId } : {}), ...(directory ? { directory } : {}) })}`, { signal })
 export const linkTeam = (projectId, teamId) => request(`${base(projectId)}/teams/link`, { method: 'POST', body: { teamId } })
 export const unlinkTeam = (projectId, teamId) => request(`${base(projectId)}/teams/${encodeURIComponent(teamId)}/link`, { method: 'DELETE' })
 export const formTeamFromMembers = projectId => request(`${base(projectId)}/teams/from-members`, { method: 'POST', body: {} })
+export const addTeamMembersToProject = (projectId, teamId) => request(`${base(projectId)}/teams/${encodeURIComponent(teamId)}/add-members`, { method: 'POST', body: {} })
+

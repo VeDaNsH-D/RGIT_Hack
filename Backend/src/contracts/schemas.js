@@ -59,6 +59,7 @@ export const createProjectSchema = z
   .object({
     name: nonEmptyString.max(200),
     description: z.string().trim().max(5000).optional().default(''),
+    memberEmails: z.array(z.string().trim().toLowerCase().email()).optional().default([]),
     // Optional provider links; the server validates every id against the user's own connection.
     integrations: z
       .object({ github: z.object({ repositoryId: z.number().int().positive() }).strict().optional() })
@@ -187,6 +188,8 @@ export const teamSearchQuerySchema = z
   .object({
     search: z.string().trim().max(80).optional().default(''),
     projectId: objectId.optional(),
+    directory: z.string().optional(),
+    scope: z.enum(['global', 'discoverable']).optional(),
   })
   .strict();
 

@@ -21,7 +21,7 @@ import { Task } from '../models/Task.js';
 import { User } from '../models/User.js';
 import { withTx } from '../db.js';
 import { logActivity } from '../audit/service.js';
-import { discoverableTeamFilter, linkLegacyTeams } from '../teams/legacy.js';
+import { discoverableTeamFilter, linkLegacyTeams, ensureProjectTeams } from '../teams/legacy.js';
 import { HANDOFF_OPEN_STATES } from '../constants.js';
 
 const router = Router();
@@ -149,10 +149,17 @@ const handle = (fn) => async (req, res, next) => {
   }
 };
 
-/** Search across the caller's visible teams, e.g. to reuse a team on another project. */
+/** Search across the caller's visible teams, or the global directory. */
 router.get('/teams', requireAuth, handle(async (req, res) => {
   const query = teamSearchQuerySchema.parse(req.query);
-  const filter = { isActive: true, ...(await discoverableTeamFilter(req.user._id)) };
+  const isGlobal = query.directory === 'global' || query.scope === 'global';
+  if (isGlobal) {
+    await ensureProjectTeams();
+  }
+  const filter = { isActive: true };
+  if (!isGlobal) {
+    Object.assign(filter, await discoverableTeamFilter(req.user._id));
+  }
   if (query.search) filter.name = { $regex: query.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
   const teams = await ProjectTeam.find(filter).sort({ name: 1 }).limit(50);
   const leaders = await User.find({ _id: { $in: teams.map((team) => team.leaderId) } }).select('name').lean();
@@ -160,10 +167,16 @@ router.get('/teams', requireAuth, handle(async (req, res) => {
   const memberCount = new Map(counts.map((row) => [String(row._id), row.count]));
   let membership = null;
   if (query.projectId) membership = await ProjectMembership.findOne({ projectId: query.projectId, userId: req.user._id }).lean();
-  // Show each team's projects, but only the ones the caller belongs to; others are counted, never named.
+
   const allProjectIds = [...new Set(teams.flatMap((team) => team.projectIds.map(String)))];
-  const myProjects = await ProjectMembership.find({ userId: req.user._id, projectId: { $in: allProjectIds } }).select('projectId').lean();
-  const visibleIds = new Set(myProjects.map((row) => String(row.projectId)));
+  let visibleIds;
+  if (isGlobal) {
+    visibleIds = new Set(allProjectIds);
+  } else {
+    // Show each team's projects, but only the ones the caller belongs to; others are counted, never named.
+    const myProjects = await ProjectMembership.find({ userId: req.user._id, projectId: { $in: allProjectIds } }).select('projectId').lean();
+    visibleIds = new Set(myProjects.map((row) => String(row.projectId)));
+  }
   const projectRows = await Project.find({ _id: { $in: [...visibleIds] } }).select('name').lean();
   const projectName = new Map(projectRows.map((row) => [String(row._id), row.name]));
   res.json({
@@ -175,9 +188,9 @@ router.get('/teams', requireAuth, handle(async (req, res) => {
       memberCount: memberCount.get(String(team._id)) || 0,
       projectCount: team.projectIds.length,
       projects: team.projectIds.filter((id) => visibleIds.has(String(id))).map((id) => ({ id: String(id), name: projectName.get(String(id)) || 'Project' })),
-      hiddenProjectCount: team.projectIds.filter((id) => !visibleIds.has(String(id))).length,
+      hiddenProjectCount: isGlobal ? 0 : team.projectIds.filter((id) => !visibleIds.has(String(id))).length,
       // Only meaningful when the caller belongs to the project they asked about.
-      linked: membership ? team.projectIds.some((id) => String(id) === query.projectId) : null,
+      linked: query.projectId ? team.projectIds.some((id) => String(id) === String(query.projectId)) : (membership ? team.projectIds.some((id) => String(id) === query.projectId) : null),
     })),
   });
 }));
@@ -393,7 +406,7 @@ router.get('/projects/:id/teams/:teamId/eligible-recipients', ...projectViewer, 
   let team;
   if (isId(req.params.teamId)) {
     await linkLegacyTeams(req.project._id);
-    team = await ProjectTeam.findOne({ _id: req.params.teamId, $or: [{ projectIds: req.project._id }, (await discoverableTeamFilter(req.user._id))] });
+    team = await ProjectTeam.findOne({ _id: req.params.teamId, isActive: true });
     if (team && !team.projectIds.some((id) => String(id) === String(req.project._id)) && req.membership.role !== 'owner') team = null;
   }
   if (!team) return fail(res, 404, 'not_found', 'Team not found');
@@ -421,6 +434,29 @@ router.get('/projects/:id/teams/:teamId/eligible-recipients', ...projectViewer, 
     }))
     .sort((a, b) => (a.isLeader === b.isLeader ? a.name.localeCompare(b.name) : a.isLeader ? -1 : 1));
   res.json({ team: { id: String(team._id), name: team.name, isActive: true }, recipients });
+}));
+
+/** Adds all active members of a team to this project so they can receive handoffs. */
+router.post('/projects/:id/teams/:teamId/add-members', ...projectOwner, handle(async (req, res) => {
+  if (!isId(req.params.teamId)) return fail(res, 404, 'not_found', 'Team not found');
+  const team = await ProjectTeam.findOne({ _id: req.params.teamId, isActive: true });
+  if (!team) return fail(res, 404, 'not_found', 'Team not found');
+  const memberships = await TeamMembership.find({ teamId: team._id, status: 'active' }).lean();
+  let addedCount = 0;
+  for (const m of memberships) {
+    const existing = await ProjectMembership.exists({ projectId: req.project._id, userId: m.userId });
+    if (!existing) {
+      await ProjectMembership.create({
+        projectId: req.project._id,
+        userId: m.userId,
+        role: 'member',
+        invitedBy: req.user._id,
+      });
+      addedCount += 1;
+    }
+  }
+  await ProjectTeam.updateOne({ _id: team._id }, { $addToSet: { projectIds: req.project._id } });
+  res.json({ success: true, addedCount });
 }));
 
 /** Sets (or clears) the team that owns the project, so handoffs know their sending team. */

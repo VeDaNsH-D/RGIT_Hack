@@ -56,3 +56,7 @@
 .wt-link-results li { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 12px 14px; background: #faf6f1; border-radius: 10px; }
 .wt-link-results strong { display: block; font-size: 14px; }
 .wt-link-results small { font-size: 11px; color: var(--ws-muted, #898078); }
+.wt-no-members-box { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: #faf6f1; border: 1px dashed #e8d8cd; border-radius: 10px; margin: 8px 0; }
+.wt-no-members-box p { margin: 0; font-size: 12px; }
+.wt-no-members-box .ws-button { align-self: flex-start; }
+

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { eligibleRecipients, searchTeams } from '../api/teams'
+import { eligibleRecipients, searchTeams, addTeamMembersToProject } from '../api/teams'
 import { TRANSFER_LABEL } from './handoffLabels'
 
 const REASONS = [
@@ -26,8 +26,8 @@ function ProjectChips({ team }) {
  */
 export function TeamPicker({ teams, loading, value, onChange, currentTeamId, projectId, query = '', onQuery = () => {} }) {
   return <fieldset className="wt-picker">
-    <legend>Destination team</legend>
-    <input type="search" aria-label="Search teams" value={query} onChange={event => onQuery(event.target.value)} placeholder="Search all your teams by name"/>
+    <legend>Destination team (Global directory)</legend>
+    <input type="search" aria-label="Search teams" value={query} onChange={event => onQuery(event.target.value)} placeholder="Search global team directory by name"/>
     <div className="wt-picker-list" role="radiogroup" aria-label="Destination team" aria-busy={loading}>
       <button type="button" role="radio" aria-checked={!value} className={!value ? 'selected' : ''} onClick={() => onChange('')}><strong>No team</strong><small>Hand the project to an individual</small></button>
       {teams.map(team => {
@@ -46,7 +46,7 @@ export function TeamPicker({ teams, loading, value, onChange, currentTeamId, pro
 }
 
 /** Presentational: destination team → named recipient → reason. The receiving team and the person are chosen separately. */
-export function DestinationFieldsView({ project, teams, teamsLoading, teamQuery, onTeamQuery, teamId, selectedTeam, onTeam, recipients, recipientsLoading, recipient, onRecipient, reason, onReason, instructions, onInstructions, error, individualRecipients }) {
+export function DestinationFieldsView({ project, teams, teamsLoading, teamQuery, onTeamQuery, teamId, selectedTeam, onTeam, recipients, recipientsLoading, recipient, onRecipient, reason, onReason, instructions, onInstructions, error, individualRecipients, onAddMembers, addingMembers }) {
   const owningTeam = teams.find(team => team.id === project?.owningTeamId) || (selectedTeam?.id === project?.owningTeamId ? selectedTeam : null)
   const type = !teamId ? 'individual' : project?.owningTeamId === teamId ? 'intra_team' : 'inter_team'
   const people = teamId ? recipients : individualRecipients
@@ -57,14 +57,17 @@ export function DestinationFieldsView({ project, teams, teamsLoading, teamQuery,
       <div><small>Transfer type</small><strong>{TRANSFER_LABEL[type]}</strong></div>
     </div>
     <TeamPicker teams={teams} loading={teamsLoading} value={teamId} onChange={onTeam} currentTeamId={project?.owningTeamId} projectId={project?.id} query={teamQuery} onQuery={onTeamQuery}/>
-    {!teamsLoading && !teams.length && !teamQuery?.trim() && project && <p className="ws-muted">Create or add teams under <Link to={`/projects/${project.id}?section=teams`}>Teams & members</Link> to route work between teams.</p>}
+    {!teamsLoading && !teams.length && !teamQuery?.trim() && project && <p className="ws-muted">Teams from the global directory will appear here to route work between teams.</p>}
     <label>{teamId ? `Recipient in ${selectedTeam?.name || 'team'}` : 'Next owner'}
       <select required value={recipient} onChange={event => onRecipient(event.target.value)} disabled={recipientsLoading}>
         <option value="" disabled>{recipientsLoading ? 'Loading…' : 'Choose a teammate'}</option>
         {people.map(person => <option key={person.userId} value={person.userId}>{person.name}{person.isLeader ? ' · Team leader' : ''}{person.openTasks !== undefined ? ` · ${person.openTasks} open task${person.openTasks === 1 ? '' : 's'}` : ''}</option>)}
       </select>
     </label>
-    {teamId && !recipientsLoading && !people.length && <p className="ws-muted" role="status">None of this team’s members are on this project, so no one can receive the handoff yet. Invite them from the project first.</p>}
+    {teamId && !recipientsLoading && !people.length && <div className="wt-no-members-box">
+      <p className="ws-muted" role="status">None of this team’s members are on this project yet.</p>
+      {onAddMembers && <button type="button" className="ws-button" onClick={onAddMembers} disabled={addingMembers}>{addingMembers ? 'Adding team members…' : `Add ${selectedTeam?.name || 'team'} members to project`}</button>}
+    </div>}
     {teamId && <>
       <label>Reason for transfer
         <select value={REASONS.includes(reason) ? reason : reason ? '__custom' : ''} onChange={event => onReason(event.target.value === '__custom' ? ' ' : event.target.value)}>
@@ -95,13 +98,29 @@ export default function HandoffDestination({ project, currentUserId, teamId, onT
     }, query.trim() ? 250 : 0)
     return () => { clearTimeout(timer); controller.abort() }
   }, [projectId, query, searchKey])
-  const recipientKey = teamId ? `${projectId}:${teamId}` : ''
+  const [recipReload, setRecipReload] = useState(0)
+  const [addingMembers, setAddingMembers] = useState(false)
+  const recipientKey = teamId ? `${projectId}:${teamId}:${recipReload}` : ''
   useEffect(() => {
     if (!teamId) return undefined
     const controller = new AbortController()
     eligibleRecipients(projectId, teamId, controller.signal).then(data => { if (!controller.signal.aborted) setRecips({ key: recipientKey, list: data.recipients, error: '' }) }).catch(err => { if (!controller.signal.aborted && err.name !== 'AbortError') setRecips({ key: recipientKey, list: [], error: err.message }) })
     return () => controller.abort()
   }, [projectId, teamId, recipientKey])
+
+  async function handleAddMembers() {
+    if (!teamId || addingMembers) return
+    setAddingMembers(true)
+    try {
+      await addTeamMembersToProject(projectId, teamId)
+      setRecipReload(n => n + 1)
+    } catch (err) {
+      setRecips(prev => ({ ...prev, error: err.message }))
+    } finally {
+      setAddingMembers(false)
+    }
+  }
+
   const individualRecipients = (project?.context?.members || []).filter(member => member.userId !== currentUserId)
   return <DestinationFieldsView
     project={project} teams={teams.list} teamsLoading={teams.key !== searchKey}
@@ -109,5 +128,6 @@ export default function HandoffDestination({ project, currentUserId, teamId, onT
     recipients={recips.key === recipientKey ? recips.list : []} recipientsLoading={Boolean(teamId) && recips.key !== recipientKey}
     recipient={recipient} onRecipient={onRecipient} reason={reason} onReason={onReason} instructions={instructions} onInstructions={onInstructions}
     error={teams.error || recips.error} individualRecipients={individualRecipients}
+    onAddMembers={handleAddMembers} addingMembers={addingMembers}
   />
 }

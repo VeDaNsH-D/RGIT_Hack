@@ -27,8 +27,8 @@ export async function resolveRouting(project, { toUserId, toTeamId, linkAs = nul
   await linkLegacyTeams(project._id);
   let team = await ProjectTeam.findOne({ _id: toTeamId, projectIds: project._id });
   if (!team && linkAs) {
-    // The sender picked a team they can see but that isn't on this project yet: add it, then route to it.
-    const visible = await ProjectTeam.findOne({ _id: toTeamId, isActive: true, ...(await discoverableTeamFilter(linkAs)) });
+    // The sender picked a team they can see from directory but that isn't on this project yet: add it, then route to it.
+    const visible = await ProjectTeam.findOne({ _id: toTeamId, isActive: true });
     if (!visible) throw new RoutingError('The destination team does not exist or is not available to you');
     const onProject = await ProjectTeam.find({ projectIds: project._id, isActive: true }).select('name').lean();
     if (onProject.some((row) => row.name.trim().toLowerCase() === visible.name.trim().toLowerCase())) {

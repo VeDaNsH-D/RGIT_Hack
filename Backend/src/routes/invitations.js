@@ -10,6 +10,8 @@ import { Project } from '../models/Project.js';
 import { User } from '../models/User.js';
 import { config } from '../config.js';
 import { logActivity } from '../audit/service.js';
+import { ProjectTeam } from '../models/ProjectTeam.js';
+import { TeamMembership } from '../models/TeamMembership.js';
 import { invitationEmailConfigured, sendInvitationEmail } from '../services/invitationEmail.js';
 import rateLimit from 'express-rate-limit';
 const router = Router();
@@ -67,6 +69,16 @@ router.post('/invitations/accept', requireAuth, handle(async (req, res) => {
   if (!accepted) return res.status(410).json({ message: 'This invitation is no longer available.' });
   // Insert only: an invite must never overwrite an existing member or owner role.
   await ProjectMembership.updateOne({ projectId: project._id, userId: user._id }, { $setOnInsert: { projectId: project._id, userId: user._id, role: invitation.role, invitedBy: invitation.invitedBy } }, { upsert: true });
+  const projectTeam = project.owningTeamId
+    ? await ProjectTeam.findById(project.owningTeamId)
+    : await ProjectTeam.findOne({ projectIds: project._id, isActive: true });
+  if (projectTeam) {
+    await TeamMembership.findOneAndUpdate(
+      { teamId: projectTeam._id, userId: user._id },
+      { $set: { status: 'active' }, $setOnInsert: { role: 'member' } },
+      { upsert: true }
+    );
+  }
   if (invitation.status !== 'accepted') await logActivity({ projectId: project._id, actorId: user._id, action: 'INVITATION_ACCEPTED', targetType: 'ProjectInvitation', targetId: invitation._id, payload: { role: invitation.role } });
   const onboarding = await ProjectOnboarding.findOneAndUpdate({ projectId: project._id, email: invitation.email.toLowerCase() }, { $set: { userId: user._id } }, { new: true });
   res.json({ projectId: String(project._id), accepted: true, onboardingId: onboarding ? String(onboarding._id) : null });

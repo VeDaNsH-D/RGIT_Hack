@@ -14,6 +14,7 @@ import { Conflict } from '../models/Conflict.js';
 import { Handoff } from '../models/Handoff.js';
 import { User } from '../models/User.js';
 import { ProjectTeam } from '../models/ProjectTeam.js';
+import { TeamMembership } from '../models/TeamMembership.js';
 import { purgeRepositoryKnowledge } from '../services/repositoryAnalysisService.js';
 import { HandoffReport } from '../models/HandoffReport.js';
 import { RepositorySnapshot } from '../models/RepositorySnapshot.js';
@@ -68,6 +69,66 @@ router.post('/', requireAuth, async (req, res, next) => {
       role: 'owner',
       invitedBy: req.user._id,
     });
+
+    // Handle initial members if provided
+    let memberUsers = [];
+    if (body.memberEmails?.length) {
+      memberUsers = await User.find({ email: { $in: body.memberEmails } }).lean();
+      for (const mUser of memberUsers) {
+        if (String(mUser._id) !== String(req.user._id)) {
+          await ProjectMembership.findOneAndUpdate(
+            { projectId: project._id, userId: mUser._id },
+            { $set: { role: 'member' }, $setOnInsert: { invitedBy: req.user._id } },
+            { upsert: true }
+          );
+        }
+      }
+    }
+
+    // Automatically create a team in the team directory for this project
+    let teamName = `${project.name} Team`;
+    if (await ProjectTeam.exists({ name: teamName, isActive: true })) {
+      let n = 2;
+      while (await ProjectTeam.exists({ name: `${project.name} Team ${n}`, isActive: true })) n += 1;
+      teamName = `${project.name} Team ${n}`;
+    }
+    const team = await ProjectTeam.create({
+      projectIds: [project._id],
+      name: teamName,
+      description: `Team for ${project.name}`,
+      leaderId: req.user._id,
+      createdBy: req.user._id,
+      isActive: true,
+    });
+    project.owningTeamId = team._id;
+    await project.save();
+
+    await TeamMembership.create({
+      teamId: team._id,
+      userId: req.user._id,
+      role: 'leader',
+      status: 'active',
+    });
+
+    for (const mUser of memberUsers) {
+      if (String(mUser._id) !== String(req.user._id)) {
+        await TeamMembership.findOneAndUpdate(
+          { teamId: team._id, userId: mUser._id },
+          { $set: { status: 'active', role: 'member' } },
+          { upsert: true }
+        );
+      }
+    }
+
+    await logActivity({
+      projectId: project._id,
+      actorId: req.user._id,
+      action: 'TEAM_CREATED',
+      targetType: 'ProjectTeam',
+      targetId: team._id,
+      payload: { name: team.name },
+    });
+
     await logActivity({
       projectId: project._id,
       actorId: req.user._id,
@@ -607,6 +668,16 @@ router.post('/:id/members', requireAuth, attachProject(), requireRole('owner'), 
       { $set: { role: body.role }, $setOnInsert: { invitedBy: req.user._id } },
       { upsert: true, new: true }
     );
+    const projectTeam = req.project.owningTeamId
+      ? await ProjectTeam.findById(req.project.owningTeamId)
+      : await ProjectTeam.findOne({ projectIds: req.project._id, isActive: true });
+    if (projectTeam) {
+      await TeamMembership.findOneAndUpdate(
+        { teamId: projectTeam._id, userId: user._id },
+        { $set: { status: 'active' }, $setOnInsert: { role: 'member' } },
+        { upsert: true }
+      );
+    }
     await logActivity({
       projectId: req.project._id,
       actorId: req.user._id,
