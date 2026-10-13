@@ -7,6 +7,7 @@ export type NotificationEventType =
   | 'HANDOFF_ACCEPTED'
   | 'HANDOFF_ACKNOWLEDGED'
   | 'HANDOFF_NEEDS_CLARIFICATION'
+  | 'HANDOFF_REJECTED'
   | 'HANDOFF_CLARIFICATION_ANSWERED'
   | 'HANDOFF_ACK_OVERDUE'
   | 'TASK_OVERDUE'
@@ -48,6 +49,12 @@ export interface HandoffNeedsClarificationEvent extends BaseNotificationEvent {
   requestedByUserId: string;
   clarificationNote: string;
   unresolvedItems?: string[];
+}
+
+export interface HandoffRejectedEvent extends BaseNotificationEvent {
+  type: 'HANDOFF_REJECTED';
+  rejectedByUserId: string;
+  rejectionReason: string;
 }
 
 export interface HandoffClarificationAnsweredEvent extends BaseNotificationEvent {

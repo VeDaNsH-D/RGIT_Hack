@@ -28,6 +28,11 @@ const env = {
   FRONTEND_URL: '',
   JWT_SECRET: process.env.JWT_SECRET || 'test-jwt-secret-at-least-32-characters-long',
   CRON_SECRET: process.env.CRON_SECRET || 'test-cron-secret',
+  // A developer's .env may hold live WhatsApp credentials; tests must never message real numbers.
+  TWILIO_ACCOUNT_SID: '',
+  TWILIO_AUTH_TOKEN: '',
+  META_WHATSAPP_TOKEN: '',
+  META_WHATSAPP_PHONE_NUMBER_ID: '',
 };
 
 const userArgs = process.argv.slice(2);

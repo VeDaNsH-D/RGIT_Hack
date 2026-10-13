@@ -47,6 +47,12 @@ const TEMPLATE_GENERATORS = Object.freeze({
     return { title, message };
   },
 
+  [NOTIFICATION_EVENT_TYPES.HANDOFF_REJECTED]: (event) => {
+    const title = 'Handoff Rejected';
+    const message = `Handoff ${event.entityId} for project ${event.projectId} was rejected by ${event.rejectedByUserId}: "${event.rejectionReason}". Ownership has not changed.`;
+    return { title, message };
+  },
+
   [NOTIFICATION_EVENT_TYPES.HANDOFF_CLARIFICATION_ANSWERED]: (event) => {
     const title = 'Handoff Clarification Answered';
     const note = event.answerNote || event.clarificationNote || event.notes || '';

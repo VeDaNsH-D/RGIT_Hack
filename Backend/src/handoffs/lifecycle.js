@@ -33,6 +33,7 @@ const TRANSITIONS = {
   SUBMITTED: {
     ACKNOWLEDGE: { actor: 'incoming', to: 'ACKNOWLEDGED' },
     REQUEST_CLARIFICATION: { actor: 'incoming', to: 'CLARIFICATION_REQUESTED' },
+    REJECT: { actor: 'incoming', to: 'REJECTED' },
     CANCEL: { actor: 'outgoing', to: 'CANCELLED' },
   },
   CLARIFICATION_REQUESTED: {
@@ -40,6 +41,7 @@ const TRANSITIONS = {
     CANCEL: { actor: 'outgoing', to: 'CANCELLED' },
   },
   ACKNOWLEDGED: {},
+  REJECTED: {},
   CANCELLED: {},
 };
 
@@ -50,7 +52,7 @@ const TRANSITIONS = {
  *
  * @param {object} args
  * @param {string} args.state - current handoff state
- * @param {'SUBMIT'|'ACKNOWLEDGE'|'REQUEST_CLARIFICATION'|'RESPOND'|'CANCEL'} args.event
+ * @param {'SUBMIT'|'ACKNOWLEDGE'|'REQUEST_CLARIFICATION'|'REJECT'|'RESPOND'|'CANCEL'} args.event
  * @param {'outgoing'|'incoming'} args.actorRole
  * @param {boolean} [args.validationReady] - required for SUBMIT
  * @returns {{ state: string }} the next state

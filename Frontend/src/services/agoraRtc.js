@@ -83,34 +83,61 @@ export class AgoraRtcManager {
       }
     });
 
-    // Join RTC channel
-    await this.client.join(appId, channel, token, uid);
+    // Join RTC channel with matching numeric or string account UID
+    let joinUid = uid;
+    if (!Number.isNaN(Number(uid)) && Number.isInteger(Number(uid)) && Number(uid) > 0) {
+      joinUid = Number(uid);
+    } else {
+      joinUid = String(uid || 'user_guest');
+    }
+
+    await this.client.join(appId, channel, token, joinUid);
     this.isJoined = true;
 
-    // Create and publish local tracks
+    // Create and publish local tracks independently for maximum device resilience
     try {
-      if (callType === 'video') {
-        const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-          { AEC: true, ANS: true },
-          { encoderConfig: '720p_1' }
-        );
-        this.localAudioTrack = audioTrack;
-        this.localVideoTrack = videoTrack;
-        await this.client.publish([this.localAudioTrack, this.localVideoTrack]);
-      } else {
-        // Audio-only call
-        this.localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-          AEC: true,
-          ANS: true,
-        });
-        await this.client.publish([this.localAudioTrack]);
+      this.localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+        AEC: true,
+        ANS: true,
+      });
+    } catch (audioErr) {
+      console.warn('Agora mic track with AEC/ANS failed, attempting standard mic track:', audioErr.message);
+      try {
+        this.localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      } catch (err2) {
+        console.error('Failed to create Agora microphone audio track:', err2.message);
       }
-    } catch (trackErr) {
-      console.warn('Microphone/Camera access restricted or unavailable:', trackErr.message);
+    }
+
+    if (callType === 'video') {
+      try {
+        this.localVideoTrack = await AgoraRTC.createCameraVideoTrack({
+          encoderConfig: '720p_1',
+        });
+      } catch (videoErr) {
+        console.warn('Agora camera track creation failed, attempting standard video track:', videoErr.message);
+        try {
+          this.localVideoTrack = await AgoraRTC.createCameraVideoTrack();
+        } catch (err2) {
+          console.error('Failed to create Agora camera video track:', err2.message);
+        }
+      }
+    }
+
+    const tracksToPublish = [];
+    if (this.localAudioTrack) tracksToPublish.push(this.localAudioTrack);
+    if (this.localVideoTrack) tracksToPublish.push(this.localVideoTrack);
+
+    if (tracksToPublish.length > 0) {
+      try {
+        await this.client.publish(tracksToPublish);
+      } catch (pubErr) {
+        console.warn('Failed to publish local audio/video tracks:', pubErr.message);
+      }
     }
 
     return {
-      uid,
+      uid: joinUid,
       channel,
       localAudioTrack: this.localAudioTrack,
       localVideoTrack: this.localVideoTrack,
@@ -123,7 +150,28 @@ export class AgoraRtcManager {
    */
   async setAudioEnabled(enabled) {
     if (this.localAudioTrack) {
-      await this.localAudioTrack.setEnabled(enabled);
+      try {
+        if (typeof this.localAudioTrack.setMuted === 'function') {
+          await this.localAudioTrack.setMuted(!enabled);
+        }
+      } catch (err) {
+        console.warn('setAudioEnabled setMuted error:', err.message);
+      }
+      try {
+        if (typeof this.localAudioTrack.setEnabled === 'function') {
+          await this.localAudioTrack.setEnabled(enabled);
+        }
+      } catch (err) {
+        console.warn('setAudioEnabled setEnabled error:', err.message);
+      }
+    } else if (enabled && this.isJoined && this.client) {
+      // Dynamically acquire and publish microphone track if missing on unmute
+      try {
+        this.localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({ AEC: true, ANS: true });
+        await this.client.publish([this.localAudioTrack]);
+      } catch (err) {
+        console.warn('Failed dynamic mic track creation on unmute:', err.message);
+      }
     }
   }
 
@@ -133,7 +181,27 @@ export class AgoraRtcManager {
    */
   async setVideoEnabled(enabled) {
     if (this.localVideoTrack) {
-      await this.localVideoTrack.setEnabled(enabled);
+      try {
+        if (typeof this.localVideoTrack.setMuted === 'function') {
+          await this.localVideoTrack.setMuted(!enabled);
+        }
+      } catch (err) {
+        console.warn('setVideoEnabled setMuted error:', err.message);
+      }
+      try {
+        if (typeof this.localVideoTrack.setEnabled === 'function') {
+          await this.localVideoTrack.setEnabled(enabled);
+        }
+      } catch (err) {
+        console.warn('setVideoEnabled setEnabled error:', err.message);
+      }
+    } else if (enabled && this.isJoined && this.client && this.callType === 'video') {
+      try {
+        this.localVideoTrack = await AgoraRTC.createCameraVideoTrack({ encoderConfig: '720p_1' });
+        await this.client.publish([this.localVideoTrack]);
+      } catch (err) {
+        console.warn('Failed dynamic camera track creation on unmute:', err.message);
+      }
     }
   }
 

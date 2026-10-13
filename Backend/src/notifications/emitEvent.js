@@ -31,6 +31,7 @@ const OUR_TO_THEIR_TYPE = {
   HANDOFF_ACCEPTED: 'HANDOFF_ACCEPTED',
   HANDOFF_ACKNOWLEDGED: 'HANDOFF_ACKNOWLEDGED',
   HANDOFF_NEEDS_CLARIFICATION: 'HANDOFF_NEEDS_CLARIFICATION',
+  HANDOFF_REJECTED: 'HANDOFF_REJECTED',
   HANDOFF_CLARIFICATION_ANSWERED: 'HANDOFF_CLARIFICATION_ANSWERED',
   HANDOFF_ACK_OVERDUE: 'HANDOFF_ACK_OVERDUE',
   TASK_OVERDUE: 'TASK_OVERDUE',
@@ -46,6 +47,7 @@ const EVENT_SPECIFIC_PAYLOAD_KEYS = {
     required: ['requestedByUserId', 'clarificationNote'],
     optional: ['unresolvedItems'],
   },
+  HANDOFF_REJECTED: { required: ['rejectedByUserId', 'rejectionReason'], optional: [] },
   HANDOFF_CLARIFICATION_ANSWERED: {
     required: ['answeredByUserId'],
     optional: ['clarificationNote', 'answerNote', 'notes', 'resolvedItems'],
