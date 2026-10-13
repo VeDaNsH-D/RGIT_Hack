@@ -1,3 +1,5 @@
+import { listProjectRepositories } from '../api/connections'
+import ProjectOverview from './ProjectOverview'
 import ProjectChat from './ProjectChat'
 import ProjectInvitations from './ProjectInvitations'
 import ProjectWorkTree from './ProjectWorkTree'
@@ -5,7 +7,7 @@ import ConflictDetectionPanel from './ConflictDetectionPanel'
 import TroubleshootingHistory from './TroubleshootingHistory'
 import ProjectOnboardingSection from './ProjectOnboardingSection'
 import { getMyOnboarding } from '../api/onboarding'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { loadProjectDraft } from './projectDraft'
 import { useAuth } from '../auth/AuthContext'
@@ -82,12 +84,15 @@ export function HandoffsPage() {
 }
 
 const projectSections = [
-  ['overview', 'Project overview', 'dashboard'],
-  ['ask', 'Ask your project', 'chat'],
+  ['overview', 'Overview', 'dashboard'],
+  ['team', 'Tasks & team', 'tasks'],
+  ['connections', 'Sources', 'connections'],
+  ['ask', 'Chat', 'chat'],
+  ['handoff', 'Handoffs', 'handoffs'],
   ['tree', 'Working tree', 'sparkles'],
-  ['connections', 'Import data & connections', 'connections'],
-  ['handoff', 'Generate handoff', 'handoffs'],
-  ['team', 'Tasks & team', 'users'],
+  ['review', 'Conflicts', 'search'],
+  ['onboarding', 'Onboarding', 'users'],
+  ['history', 'Troubleshooting history', 'clock'],
 ]
 
 export function ProjectDetailPage() {
@@ -99,36 +104,47 @@ export function ProjectDetailPage() {
   const [activityKey, setActivityKey] = useState(0)
   const [linkedIds, setLinkedIds] = useState([])
   const [connections, setConnections] = useState([])
+  const [repositoryResult, setRepositoryResult] = useState(null)
   const [myOnboarding, setMyOnboarding] = useState(null)
   const [onboardingKey, setOnboardingKey] = useState(0)
   const [searchParams, setSearchParams] = useSearchParams()
   const project = projects.find(project => project.id === projectId)
-  const headRef = useRef(null)
-  const [headH, setHeadH] = useState(0)
-  useEffect(() => {
-    const el = headRef.current
-    if (!el) return
-    const measure = () => setHeadH(el.offsetHeight)
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [project?.id])
   const section = projectSections.some(([key]) => key === searchParams.get('section')) ? searchParams.get('section') : 'overview'
 
   useEffect(() => {
-    if (!project) return
+    if (!projectId) return
     const controller = new AbortController()
-    getMyOnboarding(project.id, controller.signal)
+    getMyOnboarding(projectId, controller.signal)
       .then(res => setMyOnboarding(res?.assignment || null))
       .catch(() => setMyOnboarding(null))
     return () => controller.abort()
-  }, [project?.id, onboardingKey])
+  }, [projectId, onboardingKey])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    listProjectRepositories(projectId, controller.signal).then(data => {
+      const rows = data.integrations?.github || []
+      setConnections(rows)
+      setLinkedIds(rows.map(row => row.repository.id))
+      setRepositoryResult({ projectId, error: '' })
+    }).catch(failure => {
+      if (failure.name !== 'AbortError') setRepositoryResult({ projectId, error: failure.message })
+    })
+    return () => controller.abort()
+  }, [projectId, repoKey, activityKey])
 
   if (!project) return <EmptyState title="Project not found." description="This project may not be available to your account."/>
   if (project.loadError) return <p className="ws-error">{project.loadError}</p>
   const owner = project.ownerId === session.user.id
   const writable = project.myRole !== 'viewer'
-  return <><div className="ws-project-head" ref={headRef}><div className="ws-ph-crumbs"><Link to="/projects">Projects</Link><span>/</span><strong>{project.name}</strong></div><div className="ws-ph-main"><span className="ws-ph-mark" aria-hidden="true">{project.name.charAt(0).toUpperCase()}</span><div className="ws-ph-title"><div><h1>{project.name}</h1><Badge value={project.myRole || 'member'}/></div><p>{project.description || 'A shared place for your work and its context.'}</p></div><div className="ws-ph-stats"><div><strong>{project.context.members.length}</strong><span>Members</span></div><div><strong>{project.tasks.length}</strong><span>Tasks</span></div><div><strong>{project.handoffs.length}</strong><span>Handoffs</span></div></div>{owner && <button className="ws-button ws-button-primary" onClick={() => setModal('editProject')}><Icon name="edit" size={16}/>Edit project</button>}</div></div><div className="ws-project-layout" style={{ '--ws-head-h': `${headH}px` }}><nav className="ws-project-nav" aria-label="Project sections">{projectSections.map(([key, label, icon]) => <button key={key} className={section === key ? 'active' : ''} aria-current={section === key ? 'page' : undefined} onClick={() => setSearchParams(key === 'overview' ? {} : { section: key }, { replace: true })}><Icon name={icon} size={18}/><span>{label}</span></button>)}<Link className="ws-project-nav-link" to={`/calls?project=${project.id}&channel=project-${project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}><Icon name="calls" size={18}/><span>Meet</span></Link></nav><div className="ws-project-section">{section === 'overview' && <>{myOnboarding && myOnboarding.status !== 'completed' && <div className="ws-onboarding-banner"><div className="ws-onboarding-banner-text"><h3>Welcome to {project.name}! Your onboarding briefing is ready.</h3><p>Review the project overview, key decisions, and assigned documents to get up to speed quickly.</p></div><Link to={`/projects/${project.id}/onboarding`} className="ws-button ws-button-primary">Open Onboarding Briefing →</Link></div>}<AiProjectContext project={project} userId={session.user.id} connections={connections}/><ConflictDetectionPanel projectId={project.id} canManage={writable}/><ProjectOnboardingSection projectId={project.id} projectName={project.name} isOwner={owner} refreshKey={onboardingKey}/><TroubleshootingHistory project={project}/></>}{section === 'ask' && <><ProjectChat key={`chat:${project.id}`} projectId={project.id}/></>}{section === 'tree' && <><ProjectWorkTree key={project.id} projectId={project.id}/></>}{section === 'connections' && <><ConnectedRepositories projectId={project.id} canManage={owner} canSync={writable} refreshKey={repoKey} onLoaded={setLinkedIds} onConnections={setConnections} onSynced={() => setActivityKey(key => key + 1)} onAdd={() => setModal('repository')}/>{linkedIds.length > 0 && <RepositoryActivity projectId={project.id} refreshKey={`${repoKey}:${activityKey}`}/>}<ConnectedSlackChannels projectId={project.id} canManage={owner} canSync={writable}/><ConnectedJiraProjects projectId={project.id} canManage={owner} canSync={writable}/><ConnectedNotionPages projectId={project.id} canManage={owner} canSync={writable}/><ProjectDocuments projectId={project.id} canUpload={writable} isOwner={owner} userId={session.user.id}/></>}{section === 'handoff' && <><section className="ws-panel"><div className="ws-section-heading"><div><h2>Handoff history</h2><p>A clear record of who’s taking the work forward.</p></div>{owner && !project.handoffs.some(h => h.isOpen) && <button className="ws-text-button" onClick={() => setModal('handoff')}>+ New handoff</button>}</div>{project.handoffs.length ? <div className="ws-project-grid">{project.handoffs.map(handoff => <HandoffCard key={handoff.id} handoff={handoff}/>)}</div> : <p className="ws-panel-empty">No handoffs yet. Add a teammate when you’re ready to transfer ownership.</p>}</section></>}{section === 'team' && <><div className="ws-project-detail-grid"><section className="ws-panel"><div className="ws-section-heading"><h2>Tasks <span className="ws-count">{project.tasks.length}</span></h2>{writable && <button className="ws-text-button" onClick={() => setModal('task')}>+ New task</button>}</div>{project.tasks.length ? <TaskList tasks={project.tasks}/> : <p className="ws-panel-empty">Add the first task to start moving forward.</p>}</section><section className="ws-panel"><div className="ws-section-heading"><h2>Your team</h2>{owner && <button className="ws-text-button" onClick={() => setModal('member')}>+ Add teammate</button>}</div><div className="ws-members">{project.context.members.map(member => <div key={member.userId}><span className="ws-user-avatar">{member.name.charAt(0).toUpperCase()}</span><span><strong>{member.name}</strong><small>{member.email}</small></span><Badge value={member.role}/></div>)}</div>{owner && <ProjectInvitations key={`${String(modal)}:${onboardingKey}`} projectId={project.id}/>}</section></div></>}</div></div>{modal && <WorkspaceModal kind={modal} projectId={project.id} excludeRepositoryIds={linkedIds} onClose={() => { setRepoKey(key => key + 1); setOnboardingKey(key => key + 1); setModal(null) }}/>}</>
+  const selectSection = key => setSearchParams(current => {
+    const next = new URLSearchParams(current)
+    if (key === 'overview') next.delete('section')
+    else next.set('section', key)
+    return next
+  })
+  return <div className="project-overview-page">
+    <header className="ws-project-head"><div className="ws-ph-crumbs"><Link to="/projects">Projects</Link><span aria-hidden="true">/</span><strong>{project.name}</strong></div><div className="ws-ph-main"><span className="ws-ph-mark" aria-hidden="true">{project.name.charAt(0).toUpperCase()}</span><div className="ws-ph-title"><div><h1>{project.name}</h1><Badge value={project.myRole || 'member'}/></div><p>{project.description || 'A shared place for your work and its context.'}</p></div><div className="po-header-actions"><Link className="ws-button" to={`/calls?project=${project.id}&channel=project-${project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}><Icon name="calls" size={16}/>Start meeting</Link>{owner && <button className="ws-button" onClick={() => setModal('editProject')}><Icon name="edit" size={16}/>Edit project</button>}</div></div></header>
+    <div className="ws-project-layout"><nav className="ws-project-nav" aria-label="Project sections">{projectSections.slice(0, 5).map(([key, label, icon]) => <Link key={key} className={section === key ? 'active' : ''} aria-current={section === key ? 'page' : undefined} to={key === 'overview' ? `/projects/${project.id}` : `/projects/${project.id}?section=${key}`}><Icon name={icon} size={18}/><span>{label}</span></Link>)}<details className={`po-more-nav ${projectSections.slice(5).some(([key]) => key === section) ? 'active' : ''}`}><summary>More <span aria-hidden="true">⌄</span></summary><div>{projectSections.slice(5).map(([key, label, icon]) => <Link key={key} aria-current={section === key ? 'page' : undefined} to={`/projects/${project.id}?section=${key}`} onClick={event => event.currentTarget.closest('details').removeAttribute('open')}><Icon name={icon} size={16}/>{label}</Link>)}</div></details></nav><div className="ws-project-section">{section === 'overview' && <><ProjectOverview project={project} writable={writable} onSection={selectSection} onTask={() => setModal('task')}/>{myOnboarding && myOnboarding.status !== 'completed' && <Link className="po-onboarding-link" to={`/projects/${project.id}/onboarding`}>Your onboarding briefing is ready. Open briefing →</Link>}</>}{section === 'review' && <ConflictDetectionPanel projectId={project.id} canManage={writable}/>} {section === 'onboarding' && <ProjectOnboardingSection projectId={project.id} projectName={project.name} isOwner={owner} refreshKey={onboardingKey}/>} {section === 'history' && <TroubleshootingHistory project={project}/>}{section === 'ask' && <><ProjectChat key={`chat:${project.id}`} projectId={project.id}/></>}{section === 'tree' && <><ProjectWorkTree key={project.id} projectId={project.id}/></>}{section === 'connections' && <><ConnectedRepositories projectId={project.id} canManage={owner} canSync={writable} refreshKey={repoKey} onLoaded={setLinkedIds} onConnections={setConnections} onSynced={() => setActivityKey(key => key + 1)} onAdd={() => setModal('repository')}/>{linkedIds.length > 0 && <RepositoryActivity projectId={project.id} refreshKey={`${repoKey}:${activityKey}`}/>}<ConnectedSlackChannels projectId={project.id} canManage={owner} canSync={writable}/><ConnectedJiraProjects projectId={project.id} canManage={owner} canSync={writable}/><ConnectedNotionPages projectId={project.id} canManage={owner} canSync={writable}/><ProjectDocuments projectId={project.id} canUpload={writable} isOwner={owner} userId={session.user.id}/></>}{section === 'handoff' && <>{repositoryResult?.projectId !== projectId ? <p className="ws-muted" role="status">Loading project sources…</p> : repositoryResult.error ? <div className="ws-error" role="alert">{repositoryResult.error} <button className="ws-text-button" onClick={() => setRepoKey(key => key + 1)}>Retry loading sources</button></div> : <AiProjectContext project={project} userId={session.user.id} connections={connections}/>}<section className="ws-panel"><div className="ws-section-heading"><div><h2>Handoff history</h2><p>A clear record of who’s taking the work forward.</p></div>{owner && !project.handoffs.some(h => h.isOpen) && <button className="ws-text-button" onClick={() => setModal('handoff')}>+ New handoff</button>}</div>{project.handoffs.length ? <div className="ws-project-grid">{project.handoffs.map(handoff => <HandoffCard key={handoff.id} handoff={handoff}/>)}</div> : <p className="ws-panel-empty">No handoffs yet. Add a teammate when you’re ready to transfer ownership.</p>}</section></>}{section === 'team' && <><div className="ws-project-detail-grid"><section className="ws-panel"><div className="ws-section-heading"><h2>Tasks <span className="ws-count">{project.tasks.length}</span></h2>{writable && <button className="ws-text-button" onClick={() => setModal('task')}>+ New task</button>}</div>{project.tasks.length ? <TaskList tasks={project.tasks}/> : <p className="ws-panel-empty">Add the first task to start moving forward.</p>}</section><section className="ws-panel"><div className="ws-section-heading"><h2>Your team</h2>{owner && <button className="ws-text-button" onClick={() => setModal('member')}>+ Add teammate</button>}</div><div className="ws-members">{project.context.members.map(member => <div key={member.userId}><span className="ws-user-avatar">{member.name.charAt(0).toUpperCase()}</span><span><strong>{member.name}</strong><small>{member.email}</small></span><Badge value={member.role}/></div>)}</div>{owner && <ProjectInvitations key={`${String(modal)}:${onboardingKey}`} projectId={project.id}/>}</section></div></>}</div></div>{modal && <WorkspaceModal kind={modal} projectId={project.id} excludeRepositoryIds={linkedIds} onClose={() => { setRepoKey(key => key + 1); setOnboardingKey(key => key + 1); setModal(null) }}/>}</div>
 
 }

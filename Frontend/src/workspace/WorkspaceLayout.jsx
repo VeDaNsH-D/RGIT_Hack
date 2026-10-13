@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { NavLink, Outlet, Link, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import WorkspaceProvider from './WorkspaceProvider'
@@ -29,12 +29,20 @@ function ProfileMenu({ name, onSignOut }) {
   </div>
 }
 
+function subscribeToPageScroll(onChange) {
+  window.addEventListener('scroll', onChange, { passive: true })
+  return () => window.removeEventListener('scroll', onChange)
+}
+const isPageScrolled = () => window.scrollY > 48
+const initialScrollState = () => false
+
 function Shell() {
+  const scrolled = useSyncExternalStore(subscribeToPageScroll, isPageScrolled, initialScrollState)
   const { session, signOut } = useAuth()
   const { loading, error, reload, projects } = useWorkspace()
   const name = session.user.name || 'Teammate'
   return <div className="ws-app ws-app-top">
-    <header className="ws-topnav">
+    <header className={`ws-topnav${scrolled ? ' ws-topnav-scrolled' : ''}`}>
       <Link className="ws-brand" to="/dashboard"><span>↗</span>Over2u<span className="ws-brand-dot">.</span></Link>
       <nav aria-label="Workspace navigation">{['dashboard', 'projects', 'emails', 'connections'].map(route => <NavLink className={({ isActive }) => `ws-nav-link ${isActive ? 'active' : ''}`} to={`/${route}`} key={route}><Icon name={route}/><span>{route === 'dashboard' ? 'Overview' : route.charAt(0).toUpperCase() + route.slice(1)}</span>{route === 'projects' && projects.length > 0 && <small>{projects.length}</small>}</NavLink>)}</nav>
       <div className="ws-topnav-actions"><NotificationBell/><ProfileMenu name={name} onSignOut={signOut}/></div>

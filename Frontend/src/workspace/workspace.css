@@ -447,3 +447,69 @@
 @media (max-width: 900px) { .ws-project-head { padding: 0 0 18px; } .ws-ph-main { flex-wrap: wrap; } }
 .ws-project-head { position: static; }
 .ws-project-nav { top: 96px; }
+
+/* Floating workspace navigation capsule. Keep menus free to open outside it. */
+.ws-app-top .ws-topnav {
+  top: 16px;
+  width: calc(100% - 48px);
+  max-width: 1240px;
+  margin: 16px auto 0;
+  height: 70px;
+  padding: 0 26px;
+  border: 1px solid #eae1d8;
+  border-radius: 999px;
+  background: #ffffffed;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 5px 24px #51382008;
+  gap: 20px;
+}
+.ws-app-top .ws-topnav .ws-nav-link { border-radius: 999px; }
+.ws-app-top .ws-topnav :is(a, button):focus-visible { outline: 2px solid #ff5a24; outline-offset: 3px; }
+@media (max-width: 1000px) and (min-width: 761px) {
+  .ws-app-top .ws-topnav { padding-inline: 22px; gap: 14px; }
+  .ws-app-top .ws-topnav nav { gap: 2px; }
+  .ws-app-top .ws-topnav .ws-nav-link { padding: 10px; font-size: 12px; }
+}
+@media (max-width: 760px) {
+  .ws-app-top .ws-topnav {
+    position: relative;
+    top: auto;
+    width: calc(100% - 24px);
+    height: auto;
+    margin-top: 12px;
+    padding: 15px 22px 12px;
+    border-radius: 32px;
+    gap: 12px;
+  }
+  .ws-app-top .ws-topnav nav { gap: 0; justify-content: space-between; }
+  .ws-app-top .ws-topnav .ws-nav-link { padding: 9px 6px; font-size: 10px; gap: 5px; }
+  .ws-app-top .ws-topnav .ws-nav-link svg { width: 14px; height: 14px; }
+}
+
+/* Expand into a quiet edge-to-edge bar after leaving the top of the page. */
+.ws-app-top .ws-topnav {
+  border-radius: 36px;
+  transition: width .32s ease, max-width .32s ease, border-radius .32s ease,
+    top .32s ease, padding .32s ease, box-shadow .32s ease;
+}
+.ws-app-top .ws-topnav.ws-topnav-scrolled {
+  top: 0;
+  width: 100%;
+  max-width: 100%;
+  border-radius: 0;
+  border-top-color: transparent;
+  border-left-color: transparent;
+  border-right-color: transparent;
+  padding-inline: 40px;
+  box-shadow: 0 2px 12px #51382008;
+}
+@media (max-width: 1000px) {
+  .ws-app-top .ws-topnav.ws-topnav-scrolled { padding-inline: 22px; }
+}
+@media (max-width: 760px) {
+  .ws-app-top .ws-topnav { position: sticky; top: 12px; border-radius: 32px; }
+  .ws-app-top .ws-topnav.ws-topnav-scrolled { top: 0; padding-inline: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ws-app-top .ws-topnav { transition: none; }
+}
