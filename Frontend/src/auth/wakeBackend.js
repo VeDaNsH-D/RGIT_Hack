@@ -30,13 +30,13 @@ export async function wakeBackend(base, { signal, onAttempt, fetchImpl = globalT
   for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
     if (signal?.aborted) throw wakeError('aborted', 'Aborted')
     onAttempt?.(attempt)
-    const remaining = deadline - now()
-    const attemptSignal = AbortSignal.timeout(Math.max(1, Math.min(opts.attemptMs, remaining)))
+    // Per-attempt controller (no AbortSignal.any/timeout: older Safari/Chrome lack them).
+    const attemptController = new AbortController()
+    const timer = setTimeout(() => attemptController.abort(), Math.max(1, Math.min(opts.attemptMs, deadline - now())))
+    const onAbort = () => attemptController.abort()
+    signal?.addEventListener('abort', onAbort, { once: true })
     try {
-      const response = await fetchImpl(url, {
-        cache: 'no-store',
-        signal: signal ? AbortSignal.any([signal, attemptSignal]) : attemptSignal,
-      })
+      const response = await fetchImpl(url, { cache: 'no-store', signal: attemptController.signal })
       if (response.ok) return { attempts: attempt }
       lastStatus = response.status
       // A reachable server that is failing for a non-startup reason will not fix itself by waiting.
@@ -46,7 +46,11 @@ export async function wakeBackend(base, { signal, onAttempt, fetchImpl = globalT
     } catch (error) {
       if (error.kind) throw error
       if (signal?.aborted) throw wakeError('aborted', 'Aborted')
-      // Network error or per-attempt timeout: expected while the service boots. Keep trying.
+      // Network error, CORS block or per-attempt timeout: expected while the service boots. Keep trying.
+      console.warn(`[wakeBackend] attempt ${attempt} failed:`, error?.message || error)
+    } finally {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
     }
     const delay = opts.delaysMs[Math.min(attempt - 1, opts.delaysMs.length - 1)]
     if (attempt === opts.maxAttempts || now() + delay >= deadline) break

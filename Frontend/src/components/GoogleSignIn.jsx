@@ -31,7 +31,7 @@ export default function GoogleSignIn({ disabled }) {
       // 1. Wake the backend. A sleeping server is not an unavailable one.
       await wakeBackend(apiBase(), { signal: controller.signal, onAttempt: attempt => { if (attempt > 2 && mounted.current) setSlow(true) } })
       // 2. A healthy server does not prove Google is configured; ask before redirecting.
-      const data = await request('/auth/oauth/providers', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) })
+      const data = await request('/auth/oauth/providers', { signal: controller.signal })
       if (!mounted.current) return
       if (!data.providers?.google) { setPhase('unconfigured'); return }
       navigating = true
